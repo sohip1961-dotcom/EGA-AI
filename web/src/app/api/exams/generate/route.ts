@@ -66,14 +66,15 @@ export async function POST(req: NextRequest) {
         }
       } else {
         // Read local
-        const fs = require('fs');
-        const path = require('path');
-        const DB_FILE = path.join(process.cwd(), 'db_data.json');
-        if (fs.existsSync(DB_FILE)) {
-          const raw = fs.readFileSync(DB_FILE, 'utf8');
-          const parsed = JSON.parse(raw);
-          const chunks = (parsed.curriculum_chunks || []).filter((cc: any) => cc.curriculum_id === targetCurr.id).slice(0, 6);
-          curriculumText = chunks.map((c: any) => c.content).join('\n\n');
+        if (process.env.NEXT_RUNTIME !== 'edge') {
+          const fs = require('fs');
+          const DB_FILE = './db_data.json';
+          if (fs.existsSync(DB_FILE)) {
+            const raw = fs.readFileSync(DB_FILE, 'utf8');
+            const parsed = JSON.parse(raw);
+            const chunks = (parsed.curriculum_chunks || []).filter((cc: any) => cc.curriculum_id === targetCurr.id).slice(0, 6);
+            curriculumText = chunks.map((c: any) => c.content).join('\n\n');
+          }
         }
       }
     }

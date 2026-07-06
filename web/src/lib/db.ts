@@ -1,5 +1,3 @@
-import fs from 'fs';
-import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 
 // Types
@@ -143,10 +141,11 @@ export interface ExamSubmission {
   submitted_at: string;
 }
 
-const DB_FILE = path.join(process.cwd(), 'db_data.json');
-
 // Initialize local DB file if missing
 function initLocalDB() {
+  if (process.env.NEXT_RUNTIME === 'edge') return;
+  const fs = require('fs');
+  const DB_FILE = './db_data.json';
   if (!fs.existsSync(DB_FILE)) {
     const initialData = {
       profiles: [
@@ -185,6 +184,25 @@ function initLocalDB() {
 
 // Read local DB
 function readLocalDB() {
+  if (process.env.NEXT_RUNTIME === 'edge') {
+    return {
+      profiles: [],
+      pending_registrations: [],
+      device_guests: [],
+      curriculums: [],
+      curriculum_chunks: [],
+      chat_history: [],
+      chat_sessions: [],
+      system_settings: [],
+      exams: [],
+      exam_submissions: [],
+      reports: [],
+      notifications: [],
+      app_versions: []
+    };
+  }
+  const fs = require('fs');
+  const DB_FILE = './db_data.json';
   initLocalDB();
   try {
     const raw = fs.readFileSync(DB_FILE, 'utf8');
@@ -304,6 +322,9 @@ function readLocalDB() {
 
 // Write local DB
 function writeLocalDB(data: any) {
+  if (process.env.NEXT_RUNTIME === 'edge') return;
+  const fs = require('fs');
+  const DB_FILE = './db_data.json';
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
 }
 

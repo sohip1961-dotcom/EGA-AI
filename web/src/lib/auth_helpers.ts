@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import { sha256 } from 'js-sha256';
 
 // JWT_SECRET must be set in the environment — no hardcoded fallback.
 // A shared default would let anyone forge admin session tokens.
@@ -16,13 +16,13 @@ function getSecretKey(): string {
 }
 
 export function hashPassword(password: string): string {
-  return crypto.createHash('sha256').update(password).digest('hex');
+  return sha256(password);
 }
 
 export function generateSessionToken(userId: string): string {
   const expiry = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 days
   const payload = `${userId}:${expiry}`;
-  const signature = crypto.createHmac('sha256', getSecretKey()).update(payload).digest('hex');
+  const signature = sha256.hmac(getSecretKey(), payload);
   return Buffer.from(`${payload}:${signature}`).toString('base64');
 }
 
@@ -38,12 +38,14 @@ export function verifySessionToken(token: string): string | null {
     if (Date.now() > expiry) return null; // Expired
 
     const payload = `${userId}:${expiry}`;
-    const expectedSignature = crypto.createHmac('sha256', getSecretKey()).update(payload).digest('hex');
+    const expectedSignature = sha256.hmac(getSecretKey(), payload);
 
-    const signatureBuffer = Buffer.from(signature, 'hex');
-    const expectedBuffer = Buffer.from(expectedSignature, 'hex');
-    if (signatureBuffer.length !== expectedBuffer.length) return null;
-    if (crypto.timingSafeEqual(signatureBuffer, expectedBuffer)) {
+    if (signature.length !== expectedSignature.length) return null;
+    let result = 0;
+    for (let i = 0; i < signature.length; i++) {
+      result |= signature.charCodeAt(i) ^ expectedSignature.charCodeAt(i);
+    }
+    if (result === 0) {
       return userId;
     }
   } catch (e) {
@@ -51,3 +53,4 @@ export function verifySessionToken(token: string): string | null {
   }
   return null;
 }
+
