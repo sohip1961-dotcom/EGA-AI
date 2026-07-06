@@ -1,0 +1,53 @@
+name: egs_ai
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  http: ^1.6.0
+  shared_preferences: ^2.5.5
+  url_launcher: ^6.3.2
+  supabase_flutter: ^2.8.1
+  crypto: ^3.0.3
+  file_picker: ^8.0.3
+  permission_handler: ^11.3.1
+  speech_to_text: ^7.4.0
+  audioplayers: ^6.1.0
+  flutter_math_fork: ^0.7.4
+  flutter_svg: ^2.0.10
+  xml: ^6.5.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo.png
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "../icon/2048x2048.png"
+  remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: "../icon/2048x2048.png"
+  macos:
+    generate: true
+    image_path: "../icon/2048x2048.png"
+  windows:
+    generate: true
+    image_path: "../icon/2048x2048.png"
