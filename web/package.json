@@ -13,7 +13,6 @@
     "@emnapi/runtime": "1.11.2",
     "@supabase/supabase-js": "^2.108.2",
     "dompurify": "^3.4.11",
-    "gpt-tokenizer": "^3.4.0",
     "js-sha256": "^0.11.1",
     "katex": "^0.17.0",
     "lucide-react": "^1.21.0",

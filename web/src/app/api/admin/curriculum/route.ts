@@ -3,17 +3,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db, CurriculumChunk } from '@/lib/db';
 import { verifySessionToken } from '@/lib/auth_helpers';
 import { generateEmbeddingBatch, generateCurriculumSummary } from '@/lib/gemini';
-import { encode } from 'gpt-tokenizer';
 
-// Accurate token counting using GPT-4/cl100k_base encoding
-// This correctly handles Arabic text (2-3 tokens per Arabic word vs. naive charCount/4)
+// Approximate token counting (zero-dependency, lightweight)
+// This handles Arabic/English mix (approximately 1.4 tokens per word)
 function countTokens(text: string): number {
-  try {
-    return encode(text).length;
-  } catch {
-    // Fallback if encoding fails (e.g., unusual characters)
-    return Math.ceil(text.length / 2.5); // conservative estimate for Arabic
-  }
+  if (!text) return 0;
+  const wordCount = text.trim().split(/\s+/).length;
+  return Math.ceil(wordCount * 1.4);
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
