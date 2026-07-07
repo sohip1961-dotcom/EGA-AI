@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function TermsOfUsePage() {
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-color)', color: 'var(--text-main)', direction: 'rtl' }}>
+    <div style={{ height: '100vh', overflowY: 'auto', background: 'var(--bg-color)', color: 'var(--text-main)', direction: 'rtl' }}>
       <div style={{ maxWidth: '820px', margin: '0 auto', padding: '48px 24px 80px' }}>
         <Link href="/" style={{ color: 'var(--primary-color)', fontWeight: 700, fontSize: '0.88rem', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px', marginBottom: '24px' }}>
           ← العودة إلى EGS AI

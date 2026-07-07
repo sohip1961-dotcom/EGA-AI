@@ -963,6 +963,17 @@ const ThoughtBlock = ({
   const SearchStepsPanel = ({ steps, isSearching }: { steps?: SearchStep[]; isSearching?: boolean }) => {
     const [collapsed, setCollapsed] = React.useState(false);
 
+    const renderSearchStepIcon = (icon: string) => {
+      if (!icon) return <Search size={14} style={{ color: 'var(--primary-color)' }} />;
+      if (icon.includes('🔍')) return <Search size={14} style={{ color: 'var(--primary-color)' }} />;
+      if (icon.includes('📖') || icon.includes('📚')) return <BookOpen size={14} style={{ color: 'var(--primary-color)' }} />;
+      if (icon.includes('✅') || icon.includes('✔️')) return <Check size={14} style={{ color: 'var(--success-color)' }} />;
+      if (icon.includes('❌')) return <X size={14} style={{ color: 'var(--danger-color)' }} />;
+      if (icon.includes('⏳') || icon.includes('⌛')) return <Loader2 size={14} className="animate-spin" style={{ color: 'var(--primary-color)' }} />;
+      // Fallback to text representation or strip emoji if needed, here we just return as span
+      return <span style={{ fontSize: '0.85rem' }}>{icon}</span>;
+    };
+
     const allSteps = steps || [];
     if (allSteps.length === 0 && !isSearching) return null;
 
@@ -994,7 +1005,9 @@ const ThoughtBlock = ({
           onClick={() => allSteps.length > 0 && setCollapsed(c => !c)}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '0.95rem' }}>{isSearching && allSteps.length === 0 ? '⏳' : '🔍'}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--primary-color)' }}>
+              {isSearching && allSteps.length === 0 ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+            </span>
             <span style={{ fontWeight: 700, color: 'var(--primary-color)', fontSize: '0.8rem' }}>
               {isSearching && allSteps.length === 0 ? 'جاري البحث في المنهج...' : 'خطوات البحث الذكي'}
             </span>
@@ -1025,7 +1038,7 @@ const ThoughtBlock = ({
                   opacity: 0
                 }}
               >
-                <span style={{ fontSize: '0.95rem', minWidth: '20px', textAlign: 'center' }}>{s.icon}</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', minWidth: '20px', justifyContent: 'center' }}>{renderSearchStepIcon(s.icon)}</span>
                 <span style={{
                   color: idx === allSteps.length - 1 ? 'var(--primary-color)' : 'var(--text-secondary)',
                   fontWeight: idx === allSteps.length - 1 ? 700 : 500,
@@ -2367,7 +2380,7 @@ export default function App() {
     if (coins <= 0) {
       setMessages(prev => [...prev, {
         sender: 'ai',
-        message: '⚠️ **انتهى الرصيد المتاح!**\n\nلقد استنفدت رصيد النقاط المتاح لك لهذا اليوم. سيتجدد رصيدك تلقائياً غداً.'
+        message: '**تنبيه: انتهى الرصيد المتاح!**\n\nلقد استنفدت رصيد النقاط المتاح لك لهذا اليوم. سيتجدد رصيدك تلقائياً غداً.'
       }]);
       if (!user) {
         setTimeout(() => {
@@ -2383,7 +2396,7 @@ export default function App() {
     if (!user && (selectedModel === 'pro' || thinkingEnabled)) {
       setMessages(prev => [...prev, {
         sender: 'ai',
-        message: '⚠️ **يلزم تسجيل الدخول**\n\nنموذج المحترفين وميزة التفكير متاحة فقط للمستخدمين المسجلين.'
+        message: '**تنبيه: يلزم تسجيل الدخول**\n\nنموذج المحترفين وميزة التفكير متاحة فقط للمستخدمين المسجلين.'
       }]);
       return;
     }
@@ -2397,7 +2410,7 @@ export default function App() {
     if (!hasCurriculum) {
       setMessages(prev => [...prev, {
         sender: 'ai',
-        message: '⚠️ **المنهج غير متوفر**\n\nالمنهج الدراسي غير متوفر حالياً لهذه المادة. (The course is unavailable.)'
+        message: '**تنبيه: المنهج غير متوفر**\n\nالمنهج الدراسي غير متوفر حالياً لهذه المادة. (The course is unavailable.)'
       }]);
       return;
     }
@@ -2460,7 +2473,7 @@ export default function App() {
         if (data.error === 'limit_reached') {
           setMessages(prev => [...prev, {
             sender: 'ai',
-            message: `⚠️ **انتهى الحد اليومي للرسائل!**\n\n${data.message}`
+            message: `**تنبيه: انتهى الحد اليومي للرسائل!**\n\n${data.message}`
           }]);
           if (!token) {
             setTimeout(() => {
@@ -2659,7 +2672,7 @@ export default function App() {
     } catch (err: any) {
       setMessages(prev => [...prev, {
         sender: 'ai',
-        message: `❌ حدث خطأ في الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى. (التفاصيل: ${err.message})`
+        message: `حدث خطأ في الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى. (التفاصيل: ${err.message})`
       }]);
     } finally {
       setChatLoading(false);
@@ -3554,7 +3567,7 @@ export default function App() {
             
             {/* Header */}
             <header style={{
-              padding: '16px 24px',
+              padding: isMobile ? '0 12px' : '16px 24px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -3562,128 +3575,18 @@ export default function App() {
               borderBottom: '1px solid var(--border-color)',
               height: '64px',
               zIndex: 5,
-              color: 'var(--text-main)'
+              color: 'var(--text-main)',
+              direction: 'rtl'
             }}>
-              {/* Right Side: Upgrade & User Profile */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--alpha-white-4)', padding: '4px 12px', borderRadius: 'var(--radius-full)', fontSize: '0.8rem', fontWeight: 700, color: 'var(--primary-color)' }}>
-                  <span>{coins.toFixed(2)} نقطة</span>
-                </div>
-                <div style={{ position: 'relative' }}>
-                  <button
-                    onClick={() => setShowNotifCenter(prev => !prev)}
-                    style={{
-                      background: 'var(--alpha-white-4)',
-                      color: 'var(--text-secondary)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '50%',
-                      width: '34px',
-                      height: '34px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                      position: 'relative'
-                    }}
-                  >
-                    <Bell size={15} />
-                    {activeNotifications.filter(n => !dismissedNotifIds.includes(n.id)).length > 0 && (
-                      <span style={{ position: 'absolute', top: '2px', left: '2px', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--danger-color)' }} />
-                    )}
-                  </button>
-                  {showNotifCenter && (
-                    <div style={{ position: 'absolute', top: '42px', right: 0, width: '320px', maxHeight: '400px', overflowY: 'auto', background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)', zIndex: 50, padding: '10px' }} className="custom-scrollbar">
-                      <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-main)', padding: '6px 8px 10px', borderBottom: '1px solid var(--border-color)', marginBottom: '6px' }}>الإشعارات</div>
-                      {activeNotifications.filter(n => !dismissedNotifIds.includes(n.id)).length === 0 ? (
-                        <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', padding: '20px 0' }}>لا توجد إشعارات جديدة</p>
-                      ) : (
-                        activeNotifications.filter(n => !dismissedNotifIds.includes(n.id)).map(n => (
-                          <div key={n.id} style={{ padding: '10px 8px', borderRadius: 'var(--radius-sm)', marginBottom: '4px', background: 'var(--alpha-white-2)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                              <span style={{ fontWeight: 700, fontSize: '0.82rem', color: 'var(--text-main)' }}>{n.title}</span>
-                              <button onClick={() => handleDismissNotification(n.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', flexShrink: 0 }}>
-                                <X size={13} />
-                              </button>
-                            </div>
-                            <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '4px' }}>{n.body}</p>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={() => setActiveTab('beta')}
-                  className="pulse-primary"
-                  style={{
-                    background: 'var(--primary-light)',
-                    color: 'var(--primary-color)',
-                    border: '1px solid rgba(125, 161, 70, 0.25)',
-                    borderRadius: '20px',
-                    padding: '6px 14px',
-                    fontSize: '0.85rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <Sparkles size={13} />
-                  <span>Beta</span>
-                </button>
-                {user ? (
-                  <div
-                    onClick={() => setActiveTab('profile')}
-                    style={{
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '50%',
-                      background: 'var(--primary-color)',
-                      color: 'var(--text-on-primary)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: 700,
-                      fontSize: '0.95rem',
-                      cursor: 'pointer',
-                      border: '1px solid var(--border-color)'
-                    }}
-                    title={user.name}
-                  >
-                    {user.name ? user.name[0].toUpperCase() : <User size={16} />}
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => {
-                      setAuthTab('login');
-                      setShowAuthModal(true);
-                    }}
-                    style={{
-                      background: 'transparent',
-                      border: '1px solid var(--border-color)',
-                      color: 'var(--text-main)',
-                      borderRadius: '16px',
-                      padding: '6px 14px',
-                      fontSize: '0.85rem',
-                      fontWeight: 600,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    تسجيل الدخول
-                  </button>
-                )}
-              </div>
-
-              {/* Left Side: Sidebar Toggle & Model Selector */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {/* Brand Logo & Menu Toggle (RTL: right side on mobile, left on desktop) */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px', order: isMobile ? 1 : 2 }}>
                 <button
                   type="button"
                   onClick={() => setSidebarOpen(!sidebarOpen)}
                   style={{
                     background: 'transparent',
                     border: 'none',
-                    color: 'var(--text-muted)',
+                    color: 'var(--text-secondary)',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -3716,9 +3619,151 @@ export default function App() {
                   onMouseEnter={(e) => e.currentTarget.style.background = 'var(--primary-glow)'}
                   onMouseLeave={(e) => e.currentTarget.style.background = 'var(--primary-light)'}
                 >
-                  <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-main)' }}>EGS AI</span>
+                  <span style={{ fontWeight: 700, fontSize: isMobile ? '0.85rem' : '0.95rem', color: 'var(--text-main)' }}>EGS AI</span>
                   <span style={{ fontWeight: 800, fontSize: '0.68rem', color: 'var(--primary-color)', letterSpacing: '0.02em' }}>BETA</span>
                 </div>
+              </div>
+
+              {/* User actions (RTL: left side on mobile, right on desktop) */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px', order: isMobile ? 2 : 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--alpha-white-4)', padding: isMobile ? '4px 8px' : '4px 12px', borderRadius: 'var(--radius-full)', fontSize: isMobile ? '0.72rem' : '0.8rem', fontWeight: 700, color: 'var(--primary-color)' }}>
+                  <span>{coins.toFixed(isMobile ? 1 : 2)} {isMobile ? 'ن' : 'نقطة'}</span>
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => setShowNotifCenter(prev => !prev)}
+                    style={{
+                      background: 'var(--alpha-white-4)',
+                      color: 'var(--text-secondary)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '50%',
+                      width: isMobile ? '32px' : '34px',
+                      height: isMobile ? '32px' : '34px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      position: 'relative'
+                    }}
+                  >
+                    <Bell size={15} />
+                    {activeNotifications.filter(n => !dismissedNotifIds.includes(n.id)).length > 0 && (
+                      <span style={{ position: 'absolute', top: '2px', left: '2px', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--danger-color)' }} />
+                    )}
+                  </button>
+                  {showNotifCenter && (
+                    <div 
+                      style={isMobile ? {
+                        position: 'fixed',
+                        top: '64px',
+                        left: '12px',
+                        right: '12px',
+                        maxHeight: '70vh',
+                        overflowY: 'auto',
+                        background: 'var(--card-bg)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 'var(--radius-md)',
+                        boxShadow: 'var(--shadow-lg)',
+                        zIndex: 100,
+                        padding: '10px'
+                      } : {
+                        position: 'absolute',
+                        top: '42px',
+                        right: 0,
+                        width: '320px',
+                        maxHeight: '400px',
+                        overflowY: 'auto',
+                        background: 'var(--card-bg)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 'var(--radius-md)',
+                        boxShadow: 'var(--shadow-lg)',
+                        zIndex: 50,
+                        padding: '10px'
+                      }} 
+                      className="custom-scrollbar"
+                    >
+                      <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-main)', padding: '6px 8px 10px', borderBottom: '1px solid var(--border-color)', marginBottom: '6px', textAlign: 'right' }}>الإشعارات</div>
+                      {activeNotifications.filter(n => !dismissedNotifIds.includes(n.id)).length === 0 ? (
+                        <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', padding: '20px 0' }}>لا توجد إشعارات جديدة</p>
+                      ) : (
+                        activeNotifications.filter(n => !dismissedNotifIds.includes(n.id)).map(n => (
+                          <div key={n.id} style={{ padding: '10px 8px', borderRadius: 'var(--radius-sm)', marginBottom: '4px', background: 'var(--alpha-white-2)', textAlign: 'right' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                              <span style={{ fontWeight: 700, fontSize: '0.82rem', color: 'var(--text-main)' }}>{n.title}</span>
+                              <button onClick={() => handleDismissNotification(n.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', flexShrink: 0 }}>
+                                <X size={13} />
+                              </button>
+                            </div>
+                            <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'normal', wordBreak: 'break-word' }}>{n.body}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+                {!isMobile && (
+                  <button
+                    onClick={() => setActiveTab('beta')}
+                    className="pulse-primary"
+                    style={{
+                      background: 'var(--primary-light)',
+                      color: 'var(--primary-color)',
+                      border: '1px solid rgba(125, 161, 70, 0.25)',
+                      borderRadius: '20px',
+                      padding: '6px 14px',
+                      fontSize: '0.85rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <Sparkles size={13} />
+                    <span>Beta</span>
+                  </button>
+                )}
+                {user ? (
+                  <div
+                    onClick={() => setActiveTab('profile')}
+                    style={{
+                      width: isMobile ? '30px' : '32px',
+                      height: isMobile ? '30px' : '32px',
+                      borderRadius: '50%',
+                      background: 'var(--primary-color)',
+                      color: 'var(--text-on-primary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 700,
+                      fontSize: isMobile ? '0.85rem' : '0.95rem',
+                      cursor: 'pointer',
+                      border: '1px solid var(--border-color)'
+                    }}
+                    title={user.name}
+                  >
+                    {user.name ? user.name[0].toUpperCase() : <User size={14} />}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setAuthTab('login');
+                      setShowAuthModal(true);
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: '1px solid var(--border-color)',
+                      color: 'var(--text-main)',
+                      borderRadius: '16px',
+                      padding: isMobile ? '5px 10px' : '6px 14px',
+                      fontSize: isMobile ? '0.78rem' : '0.85rem',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    تسجيل الدخول
+                  </button>
+                )}
               </div>
             </header>
 
@@ -4024,7 +4069,7 @@ export default function App() {
                               title="الإجابات مُولَّدة تلقائياً بواسطة ذكاء اصطناعي وقد تحتوي أخطاء"
                               style={{ fontSize: '0.68rem', color: 'var(--text-muted)', opacity: 0.6, cursor: 'default' }}
                             >
-                              ⚠️ قد يخطئ الذكاء الاصطناعي
+                              تنبيه: قد يخطئ الذكاء الاصطناعي
                             </span>
                           </div>
                         )}
@@ -4112,7 +4157,10 @@ export default function App() {
 
               {/* Points system info card */}
               <div className="glass" style={{ padding: '20px', borderRadius: 'var(--radius-lg)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)', direction: 'rtl' }}>
-                <h4 style={{ fontWeight: 800, color: 'var(--primary-color)', marginBottom: '8px', fontSize: '0.95rem' }}>💡 نظام النقاط والاحتساب الفعلي للاستهلاك:</h4>
+                <h4 style={{ fontWeight: 800, color: 'var(--primary-color)', marginBottom: '8px', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Sparkles size={16} />
+                  <span>نظام النقاط والاحتساب الفعلي للاستهلاك:</span>
+                </h4>
                 <p style={{ lineHeight: '1.6', fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0 }}>
                   رصيدك من النقاط يُخصم تلقائياً بحسب الاستهلاك الفعلي لكل رسالة (بناءً على طول السؤال والإجابة)، ويتجدد رصيدك يومياً.
                   <br />
@@ -5505,7 +5553,7 @@ export default function App() {
                                     padding: '0'
                                   }}
                                 >
-                                  عرض التقييم 🔍
+                                   عرض التقييم
                                 </button>
                               </div>
                             </div>
@@ -5526,8 +5574,8 @@ export default function App() {
       </main>
 
       {showExamCreateModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(10px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', direction: 'rtl' }}>
-          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '90%', maxWidth: '520px', borderRadius: 'var(--radius-lg)', padding: '30px', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontFamily: 'var(--font-arabic)' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(10px)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px', direction: 'rtl' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '520px', borderRadius: 'var(--radius-lg)', padding: '30px', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontFamily: 'var(--font-arabic)', margin: 'auto 0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
               <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--primary-color)' }}>إنشاء امتحان مخصص بالذكاء الاصطناعي</h3>
               <button onClick={() => setShowExamCreateModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
@@ -5654,8 +5702,8 @@ export default function App() {
 
       {/* MODAL 2: Gemini Key Setup Overlay */}
       {showGeminiModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '90%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', margin: 'auto 0' }}>
             
             <div style={{ padding: '22px 24px 0', textAlign: 'center' }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '46px', height: '46px', borderRadius: '14px', background: 'var(--primary-light)', border: '1px solid rgba(125,161,70,0.2)', overflow: 'hidden' }}>
@@ -5737,8 +5785,8 @@ export default function App() {
 
       {/* MODAL 1: Authentication Overlay */}
       {showAuthModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '90%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', margin: 'auto 0' }}>
             
             {/* Modal Brand Header */}
             <div style={{ padding: '22px 24px 0', textAlign: 'center' }}>
@@ -5922,8 +5970,8 @@ export default function App() {
 
       {/* MODAL 1B: Google Signup Grade Selection */}
       {showGoogleGradeModal && googleTempUser && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '90%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', padding: '24px' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', padding: '24px', margin: 'auto 0' }}>
             <div style={{ textAlign: 'center', marginBottom: '18px' }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '46px', height: '46px', borderRadius: '14px', background: 'var(--primary-light)', border: '1px solid rgba(125,161,70,0.2)', marginBottom: '10px' }}>
                 <BookOpen size={24} style={{ color: 'var(--primary-color)' }} />
@@ -5975,8 +6023,8 @@ export default function App() {
 
       {/* MODAL 3: Edit Curriculum Markdown Content */}
       {editCurriculumId && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.65)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="glass animate-scale-in" style={{ background: 'var(--card-bg)', width: '95%', maxWidth: '780px', height: '90vh', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.65)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px' }}>
+          <div className="glass animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '780px', height: '90vh', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', margin: 'auto 0' }}>
             
             {/* Header */}
             <div style={{ background: 'var(--primary-color)', color: 'var(--text-on-primary)', padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -6097,8 +6145,8 @@ export default function App() {
 
       {/* MODAL 4: Report AI Response */}
       {reportTarget && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.65)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
-          <div className="glass animate-scale-in" style={{ background: 'var(--card-bg)', width: '90%', maxWidth: '440px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--border-color)' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.65)', zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px' }}>
+          <div className="glass animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '440px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--border-color)', margin: 'auto 0' }}>
             <div style={{ background: 'var(--danger-color)', color: '#fff', padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <AlertCircle size={20} />
