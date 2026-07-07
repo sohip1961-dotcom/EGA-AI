@@ -3,6 +3,7 @@
     {
       "id": "admin-id-1234567890",
       "phone": "01147814652",
+      "email": "admin@egsaiedu.com",
       "name": "مدير النظام",
       "grade_level": "3_high",
       "plan_type": "max",
@@ -13,6 +14,7 @@
     {
       "id": "fee62ffc-396c-4387-8881-bebbb70f03f0",
       "phone": "01147814562",
+      "email": "student@egsaiedu.com",
       "name": "صهيب حسين",
       "grade_level": "1_high",
       "plan_type": "free",

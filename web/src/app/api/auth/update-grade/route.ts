@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
       user: {
         id: updatedProfile.id,
         phone: updatedProfile.phone,
+        email: updatedProfile.email,
         name: updatedProfile.name,
         grade_level: updatedProfile.grade_level,
         plan_type: updatedProfile.plan_type,

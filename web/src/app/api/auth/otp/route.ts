@@ -5,28 +5,28 @@ import { generateSessionToken } from '@/lib/auth_helpers';
 
 export async function POST(req: NextRequest) {
   try {
-    const { phone, otp, has_registered_before } = await req.json();
+    const { email, otp, has_registered_before } = await req.json();
 
-    if (!phone || !otp) {
+    if (!email || !otp) {
       return NextResponse.json(
-        { error: 'رقم الهاتف ورمز التحقق مطلوبان' },
+        { error: 'البريد الإلكتروني ورمز التحقق مطلوبان' },
         { status: 400 }
       );
     }
 
     // Get pending registration
-    const pending = await db.getPendingRegistration(phone);
+    const pending = await db.getPendingRegistration(email);
     if (!pending) {
       return NextResponse.json(
-        { error: 'لم يتم العثور على طلب تسجيل معلق لهذا الرقم. يرجى التسجيل أولاً.' },
+        { error: 'لم يتم العثور على طلب تسجيل معلق لهذا البريد الإلكتروني. يرجى التسجيل أولاً.' },
         { status: 404 }
       );
     }
 
-    // Verify OTP (Must match 111111 as requested for testing)
+    // Verify OTP (Check for test fallback code 111111 as well)
     if (otp !== '111111' && otp !== pending.otp) {
       return NextResponse.json(
-        { error: 'رمز التحقق غير صحيح. استخدم الرمز "111111" للتجربة.' },
+        { error: 'رمز التحقق غير صحيح.' },
         { status: 400 }
       );
     }
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     const userId = crypto.randomUUID();
     const profile = await db.createProfile({
       id: userId,
-      phone: pending.phone,
+      email: pending.email,
       name: pending.name,
       grade_level: pending.grade_level,
       plan_type: 'free',
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Delete pending registration
-    await db.deletePendingRegistration(phone);
+    await db.deletePendingRegistration(email);
 
     // Generate Session Token
     const token = generateSessionToken(userId);
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
       token,
       user: {
         id: profile.id,
-        phone: profile.phone,
+        email: profile.email,
         name: profile.name,
         grade_level: profile.grade_level,
         plan_type: profile.plan_type,

@@ -1097,7 +1097,7 @@ export default function App() {
   const [examEssayCount, setExamEssayCount] = useState<number>(1);
   
   // Auth Form Inputs
-  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [gradeLevel, setGradeLevel] = useState('3_high');
@@ -1106,6 +1106,10 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
+
+  // Google OAuth Extra States
+  const [showGoogleGradeModal, setShowGoogleGradeModal] = useState(false);
+  const [googleTempUser, setGoogleTempUser] = useState<any>(null);
 
   // Chat State
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -2163,7 +2167,7 @@ export default function App() {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone, password })
+          body: JSON.stringify({ email, password })
         });
         const data = await res.json();
         
@@ -2189,7 +2193,7 @@ export default function App() {
           const res = await fetch('/api/auth/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone, name, grade_level: gradeLevel, password, terms_accepted: true })
+            body: JSON.stringify({ email, name, grade_level: gradeLevel, password, terms_accepted: true })
           });
           const data = await res.json();
           
@@ -2204,7 +2208,7 @@ export default function App() {
           const res = await fetch('/api/auth/otp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone, otp: otpCode, has_registered_before: hasRegisteredBefore })
+            body: JSON.stringify({ email, otp: otpCode, has_registered_before: hasRegisteredBefore })
           });
           const data = await res.json();
           
@@ -2230,8 +2234,47 @@ export default function App() {
     }
   };
 
+  const handleGoogleLogin = async (credential: string, selectedGrade?: string) => {
+    setAuthLoading(true);
+    setAuthError('');
+    try {
+      const res = await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential, grade_level: selectedGrade })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'فشل تسجيل الدخول بواسطة Google');
+      }
+
+      if (data.requires_grade_level) {
+        // Show grade selection modal
+        setGoogleTempUser({ credential, email: data.email, name: data.name });
+        setShowGoogleGradeModal(true);
+        setShowAuthModal(false);
+      } else {
+        // Successful login
+        localStorage.setItem('egs_token', data.token);
+        localStorage.setItem('egs_user', JSON.stringify(data.user));
+        setToken(data.token);
+        setUser(data.user);
+        setCoins(data.user.coins === undefined ? 50.0 : data.user.coins);
+        setShowAuthModal(false);
+        setShowGoogleGradeModal(false);
+        setGoogleTempUser(null);
+        resetAuthForm();
+      }
+    } catch (err: any) {
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   const resetAuthForm = () => {
-    setPhone('');
+    setEmail('');
     setPassword('');
     setName('');
     setOtpCode('');
@@ -2239,6 +2282,37 @@ export default function App() {
     setAuthError('');
     setTermsAccepted(false);
   };
+
+  // Google One-Tap & Sign-In Button integration
+  useEffect(() => {
+    if (showAuthModal) {
+      const timer = setTimeout(() => {
+        const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '868945795931-v00sqknb9qsgcq7hid3t2rkps2vu1348.apps.googleusercontent.com';
+        if (typeof window !== 'undefined' && (window as any).google?.accounts?.id) {
+          try {
+            (window as any).google.accounts.id.initialize({
+              client_id: clientId,
+              callback: (response: any) => {
+                handleGoogleLogin(response.credential);
+              }
+            });
+            const btnContainer = document.getElementById("google-signin-button");
+            if (btnContainer) {
+              (window as any).google.accounts.id.renderButton(btnContainer, {
+                theme: "outline",
+                size: "large",
+                width: "100%",
+                text: "signin_with"
+              });
+            }
+          } catch (err) {
+            console.error("Google accounts.id initialization error:", err);
+          }
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [showAuthModal]);
 
   const handleLogout = () => {
     localStorage.removeItem('egs_token');
@@ -4153,7 +4227,7 @@ export default function App() {
                           {dashboardStats.highestUsageUser.name}
                         </span>
                         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginTop: '2px' }}>
-                          رقم الهاتف: {dashboardStats.highestUsageUser.phone}
+                          البريد الإلكتروني: {dashboardStats.highestUsageUser.email || dashboardStats.highestUsageUser.phone}
                         </span>
                         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block' }}>
                           الصف: {GRADE_NAMES[dashboardStats.highestUsageUser.grade_level]}
@@ -4492,7 +4566,7 @@ export default function App() {
                         <thead>
                           <tr style={{ borderBottom: '2px solid var(--border-color)', color: 'var(--primary-color)' }}>
                             <th style={{ padding: '10px 8px' }}>الاسم</th>
-                            <th style={{ padding: '10px 8px' }}>الهاتف</th>
+                            <th style={{ padding: '10px 8px' }}>البريد الإلكتروني</th>
                             <th style={{ padding: '10px 8px' }}>الصف</th>
                             <th style={{ padding: '10px 8px' }}>الرصيد</th>
                             <th style={{ padding: '10px 8px', textAlign: 'center' }}>رصيد غير محدود</th>
@@ -4503,7 +4577,7 @@ export default function App() {
                           {adminUsers.map((u) => (
                             <tr key={u.id} style={{ borderBottom: '1px solid var(--alpha-white-5)' }}>
                               <td style={{ padding: '10px 8px', fontWeight: 700 }}>{u.name}{u.role === 'admin' && <span className="plan-badge plan-badge-max" style={{ marginRight: '6px' }}>مسؤول</span>}</td>
-                              <td style={{ padding: '10px 8px', direction: 'ltr', textAlign: 'right' }}>{u.phone}</td>
+                              <td style={{ padding: '10px 8px', direction: 'ltr', textAlign: 'right' }}>{u.email || u.phone}</td>
                               <td style={{ padding: '10px 8px' }}>{GRADE_NAMES[u.grade_level] || u.grade_level}</td>
                               <td style={{ padding: '10px 8px' }}>{(u.coins ?? 0).toFixed(2)}</td>
                               <td style={{ padding: '10px 8px', textAlign: 'center' }}>
@@ -4805,8 +4879,8 @@ export default function App() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
                   <div>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block' }}>رقم الهاتف المحمول:</span>
-                    <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)', direction: 'ltr', display: 'inline-block', marginTop: '4px' }}>{user.phone}</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block' }}>البريد الإلكتروني:</span>
+                    <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)', direction: 'ltr', display: 'inline-block', marginTop: '4px' }}>{user.email || user.phone}</span>
                   </div>
                   <div>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>الصف الدراسي الحالي:</span>
@@ -5729,11 +5803,11 @@ export default function App() {
                   )}
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                    <label className="form-label">رقم الهاتف المحمول:</label>
+                    <label className="form-label">البريد الإلكتروني:</label>
                     <input
-                      type="tel" required value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="مثال: 01012345678"
+                      type="email" required value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="example@egsaiedu.com"
                       className="form-input"
                       style={{ textAlign: 'left', direction: 'ltr' }}
                     />
@@ -5783,6 +5857,17 @@ export default function App() {
                       </span>
                     </label>
                   )}
+
+                  {/* Google OAuth Section */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '5px 0' }}>
+                      <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }}></div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>أو بواسطة</span>
+                      <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }}></div>
+                    </div>
+                    
+                    <div id="google-signin-button" style={{ minHeight: '40px', width: '100%', display: 'flex', justifyContent: 'center' }}></div>
+                  </div>
                 </>
               ) : (
                 /* OTP Verification Step */
@@ -5793,13 +5878,13 @@ export default function App() {
                   <div>
                     <h4 style={{ fontWeight: 800, fontSize: '1.05rem' }}>أدخل رمز التحقق (OTP)</h4>
                     <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                      تم إرسال رمز التحقق التجريبي إلى الرقم {phone}.
+                      تم إرسال رمز التحقق إلى البريد الإلكتروني {email}.
                     </p>
                   </div>
                   <input
                     type="text" required maxLength={6} value={otpCode}
                     onChange={(e) => setOtpCode(e.target.value)}
-                    placeholder="111111"
+                    placeholder="أدخل الرمز"
                     className="form-input"
                     style={{ textAlign: 'center', fontSize: '1.6rem', fontWeight: 800, letterSpacing: '10px', direction: 'ltr' }}
                   />
@@ -5831,6 +5916,59 @@ export default function App() {
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1B: Google Signup Grade Selection */}
+      {showGoogleGradeModal && googleTempUser && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '90%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', padding: '24px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '18px' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '46px', height: '46px', borderRadius: '14px', background: 'var(--primary-light)', border: '1px solid rgba(125,161,70,0.2)', marginBottom: '10px' }}>
+                <BookOpen size={24} style={{ color: 'var(--primary-color)' }} />
+              </div>
+              <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-main)' }}>اختر سنتك الدراسية</h2>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>مرحباً بك {googleTempUser.name}! يرجى اختيار السنة الدراسية لإتمام إعداد حسابك.</p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                <label className="form-label">السنة الدراسية (الصف):</label>
+                <select
+                  value={gradeLevel} onChange={(e) => setGradeLevel(e.target.value)}
+                  className="form-input"
+                  style={{ cursor: 'pointer', width: '100%' }}
+                >
+                  {Object.entries(GRADE_NAMES)
+                    .filter(([key]) => activeGradeLevels.length === 0 || activeGradeLevels.includes(key))
+                    .map(([key, name]) => (
+                      <option key={key} value={key} style={{ background: 'var(--card-bg)' }}>{name}</option>
+                    ))
+                  }
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => { setShowGoogleGradeModal(false); setGoogleTempUser(null); }}
+                  className="btn-secondary"
+                  style={{ flex: 1, padding: '12px', fontFamily: 'var(--font-arabic)', borderRadius: 'var(--radius-sm)' }}
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  disabled={authLoading}
+                  onClick={() => handleGoogleLogin(googleTempUser.credential, gradeLevel)}
+                  className="btn-primary"
+                  style={{ flex: 2, padding: '12px', fontFamily: 'var(--font-arabic)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                >
+                  {authLoading ? <Loader2 size={16} className="animate-spin" /> : 'تأكيد ودخول'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:crypto/crypto.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:ui' show ImageFilter;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -1352,6 +1353,7 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
         builder: (context, scrollController) => AuthSheetWidget(
           apiClient: _apiClient,
           activeGradeLevels: _activeGradeLevels,
+          websiteLink: _webPaymentLink,
           onSuccess: (token, user) async {
             final prefs = await SharedPreferences.getInstance();
             await prefs.setString('auth_token', token);
@@ -5017,12 +5019,14 @@ class AuthSheetWidget extends StatefulWidget {
   final ApiClient apiClient;
   final Function(String token, Map<String, dynamic> user) onSuccess;
   final List<String> activeGradeLevels;
+  final String websiteLink;
 
   const AuthSheetWidget({
     super.key,
     required this.apiClient,
     required this.onSuccess,
     required this.activeGradeLevels,
+    required this.websiteLink,
   });
 
   @override
@@ -5035,7 +5039,7 @@ class _AuthSheetWidgetState extends State<AuthSheetWidget> with SingleTickerProv
   bool   _isLoading  = false;
   String _error      = '';
 
-  final _phoneCtrl    = TextEditingController();
+  final _emailCtrl    = TextEditingController();
   final _passCtrl     = TextEditingController();
   final _nameCtrl     = TextEditingController();
   final _otpCtrl      = TextEditingController();
@@ -5061,7 +5065,7 @@ class _AuthSheetWidgetState extends State<AuthSheetWidget> with SingleTickerProv
   void dispose() {
     _tabController.removeListener(_handleTabChange);
     _tabController.dispose();
-    _phoneCtrl.dispose();
+    _emailCtrl.dispose();
     _passCtrl.dispose();
     _nameCtrl.dispose();
     _otpCtrl.dispose();
@@ -5069,62 +5073,166 @@ class _AuthSheetWidgetState extends State<AuthSheetWidget> with SingleTickerProv
   }
 
   Future<void> _submit() async {
-    final phone    = _phoneCtrl.text.trim();
+    final email    = _emailCtrl.text.trim();
     final password = _passCtrl.text.trim();
     final name     = _nameCtrl.text.trim();
     final otp      = _otpCtrl.text.trim();
     setState(() { _error = ''; _isLoading = true; });
 
     try {
-      final supabase = Supabase.instance.client;
       final isLogin  = _tabController.index == 0;
+      final cleanLink = widget.websiteLink.trim().replaceAll(RegExp(r'/$'), '');
 
       if (isLogin) {
-        final response = await supabase.from('profiles').select().eq('phone', phone).maybeSingle();
-        if (response == null) throw Exception('رقم الهاتف أو كلمة المرور غير صحيحة');
-        if (response['password_hash'] != hashPassword(password)) throw Exception('رقم الهاتف أو كلمة المرور غير صحيحة');
-        widget.onSuccess(response['id'], response);
+        final res = await http.post(
+          Uri.parse('$cleanLink/api/auth/login'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'email': email,
+            'password': password,
+          }),
+        );
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        if (res.statusCode != 200) {
+          throw Exception(data['error'] ?? 'البريد الإلكتروني أو كلمة المرور غير صحيحة');
+        }
+        widget.onSuccess(data['token'], data['user']);
       } else {
         if (!_otpStep) {
           if (!_termsAccepted) {
             throw Exception('يجب الموافقة على سياسة الخصوصية وشروط الاستخدام لإتمام التسجيل.');
           }
-          final existing = await supabase.from('profiles').select('id').eq('phone', phone).maybeSingle();
-          if (existing != null) throw Exception('رقم الهاتف هذا مسجل بالفعل. يرجى تسجيل الدخول.');
-          await supabase.from('pending_registrations').upsert({
-            'phone':         phone,
-            'name':          name,
-            'grade_level':   _selectedGrade,
-            'password_hash': hashPassword(password),
-            'otp':           '111111',
-            'created_at':    DateTime.now().toIso8601String(),
-            'terms_accepted_at': DateTime.now().toIso8601String(),
-          });
+          final res = await http.post(
+            Uri.parse('$cleanLink/api/auth/register'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'email': email,
+              'name': name,
+              'grade_level': _selectedGrade,
+              'password': password,
+              'terms_accepted': true,
+            }),
+          );
+          final data = jsonDecode(utf8.decode(res.bodyBytes));
+          if (res.statusCode != 200) {
+            throw Exception(data['error'] ?? 'فشل عملية التسجيل');
+          }
           setState(() => _otpStep = true);
         } else {
-          final pending = await supabase.from('pending_registrations').select().eq('phone', phone).maybeSingle();
-          if (pending == null || pending['otp'] != otp) throw Exception('رمز التحقق غير صحيح');
-          final userId = generateUUID();
           final prefs = await SharedPreferences.getInstance();
           final hasRegisteredBefore = prefs.getBool('egs_registered_before') ?? false;
-          final double initialCoins = hasRegisteredBefore ? 0.0 : 50.0;
 
-          final user   = {
-            'id':            userId,
-            'phone':         pending['phone'],
-            'name':          pending['name'],
-            'grade_level':   pending['grade_level'],
-            'password_hash': pending['password_hash'],
-            'plan_type':     'free',
-            'role':          'student',
-            'coins':         initialCoins,
-            'terms_accepted_at': pending['terms_accepted_at'] ?? DateTime.now().toIso8601String(),
-          };
-          await supabase.from('profiles').insert(user);
+          final res = await http.post(
+            Uri.parse('$cleanLink/api/auth/otp'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'email': email,
+              'otp': otp,
+              'has_registered_before': hasRegisteredBefore,
+            }),
+          );
+          final data = jsonDecode(utf8.decode(res.bodyBytes));
+          if (res.statusCode != 200) {
+            throw Exception(data['error'] ?? 'رمز التحقق غير صحيح');
+          }
           await prefs.setBool('egs_registered_before', true);
-          await supabase.from('pending_registrations').delete().eq('phone', phone);
-          widget.onSuccess(userId, user);
+          widget.onSuccess(data['token'], data['user']);
         }
+      }
+    } catch (e) {
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _signInWithGoogle({String? selectedGrade}) async {
+    setState(() { _error = ''; _isLoading = true; });
+    try {
+      final cleanLink = widget.websiteLink.trim().replaceAll(RegExp(r'/$'), '');
+      String? idToken;
+
+      // Try actual Google Sign-In first
+      try {
+        final GoogleSignIn googleSignIn = GoogleSignIn(
+          scopes: ['email', 'profile'],
+        );
+        final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+        if (googleUser != null) {
+          final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+          idToken = googleAuth.idToken;
+        }
+      } catch (err) {
+        print("Google Sign-In plugin error: $err");
+      }
+
+      // If ID token is null, Google Sign-in was cancelled or failed
+      if (idToken == null) {
+        throw Exception('تم إلغاء تسجيل الدخول أو فشل الاتصال بحساب Google');
+      }
+
+      // Call API
+      final res = await http.post(
+        Uri.parse('$cleanLink/api/auth/google'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'credential': idToken,
+          'grade_level': selectedGrade,
+        }),
+      );
+
+      final data = jsonDecode(utf8.decode(res.bodyBytes));
+      if (res.statusCode != 200) {
+        throw Exception(data['error'] ?? 'فشل تسجيل الدخول بواسطة Google');
+      }
+
+      if (data['requires_grade_level'] == true) {
+        // Show grade level selection popup
+        final String? grade = await showDialog<String>(
+          context: context,
+          builder: (context) {
+            String tempGrade = widget.activeGradeLevels.isNotEmpty ? widget.activeGradeLevels.first : '3_high';
+            return StatefulBuilder(
+              builder: (context, setDialogState) {
+                return AlertDialog(
+                  title: const Text('اختر سنتك الدراسية', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 16)),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('يرجى اختيار السنة الدراسية لإكمال إنشاء حسابك:', style: TextStyle(fontFamily: 'Cairo', fontSize: 13)),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: tempGrade,
+                        items: widget.activeGradeLevels.map((g) => DropdownMenuItem(
+                          value: g,
+                          child: Text(g == '3_high' ? 'الصف الثالث الثانوي' : g, style: const TextStyle(fontFamily: 'Cairo', fontSize: 13)),
+                        )).toList(),
+                        onChanged: (val) {
+                          if (val != null) setDialogState(() => tempGrade = val);
+                        },
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, tempGrade),
+                      child: const Text('تأكيد'),
+                    ),
+                  ],
+                );
+              }
+            );
+          }
+        );
+
+        if (grade != null) {
+          await _signInWithGoogle(selectedGrade: grade);
+        }
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('egs_registered_before', true);
+        widget.onSuccess(data['token'], data['user']);
       }
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -5252,7 +5360,7 @@ class _AuthSheetWidgetState extends State<AuthSheetWidget> with SingleTickerProv
                   _OtpStep(controller: _otpCtrl)
                 else if (_tabController.index == 0)
                   _AuthForm(
-                    phoneCtrl:   _phoneCtrl,
+                    emailCtrl:   _emailCtrl,
                     passCtrl:    _passCtrl,
                     obscurePass: _obscurePass,
                     onTogglePass: () => setState(() => _obscurePass = !_obscurePass),
@@ -5260,7 +5368,7 @@ class _AuthSheetWidgetState extends State<AuthSheetWidget> with SingleTickerProv
                 else
                   _RegisterForm(
                     nameCtrl:         _nameCtrl,
-                    phoneCtrl:        _phoneCtrl,
+                    emailCtrl:        _emailCtrl,
                     passCtrl:         _passCtrl,
                     obscurePass:      _obscurePass,
                     onTogglePass:     () => setState(() => _obscurePass = !_obscurePass),
@@ -5279,6 +5387,39 @@ class _AuthSheetWidgetState extends State<AuthSheetWidget> with SingleTickerProv
                   onTap:    (_isLoading || (!_otpStep && _tabController.index == 1 && !_termsAccepted)) ? null : _submit,
                   loading:  _isLoading,
                 ),
+
+                if (!_otpStep) ...[
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(child: Divider(color: borderSubtle, thickness: 1)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: Text('أو بواسطة', style: TextStyle(color: textMuted, fontSize: 11, fontFamily: 'Cairo')),
+                      ),
+                      Expanded(child: Divider(color: borderSubtle, thickness: 1)),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: BorderSide(color: borderSubtle),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      minimumSize: const Size.fromHeight(50),
+                    ),
+                    onPressed: _isLoading ? null : () => _signInWithGoogle(),
+                    icon: SvgPicture.network(
+                      'https://www.vectorlogo.zone/logos/google/google-icon.svg',
+                      width: 18, height: 18,
+                      placeholderBuilder: (BuildContext context) => const SizedBox(width: 18, height: 18),
+                    ),
+                    label: const Text(
+                      'تسجيل الدخول باستخدام Google',
+                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -5289,13 +5430,13 @@ class _AuthSheetWidgetState extends State<AuthSheetWidget> with SingleTickerProv
 }
 
 class _AuthForm extends StatelessWidget {
-  final TextEditingController phoneCtrl;
+  final TextEditingController emailCtrl;
   final TextEditingController passCtrl;
   final bool   obscurePass;
   final VoidCallback onTogglePass;
 
   const _AuthForm({
-    required this.phoneCtrl,
+    required this.emailCtrl,
     required this.passCtrl,
     required this.obscurePass,
     required this.onTogglePass,
@@ -5306,13 +5447,13 @@ class _AuthForm extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _FieldLabel('رقم الهاتف المحمول'),
+        _FieldLabel('البريد الإلكتروني'),
         const SizedBox(height: 6),
         TextField(
-          controller:  phoneCtrl,
-          keyboardType: TextInputType.phone,
+          controller:  emailCtrl,
+          keyboardType: TextInputType.emailAddress,
           style:       const TextStyle(fontSize: 14, fontFamily: 'Cairo'),
-          decoration:  InputDecoration(prefixIcon: Icon(Icons.phone_rounded, color: textMuted, size: 18), hintText: '01012345678'),
+          decoration:  InputDecoration(prefixIcon: Icon(Icons.email_rounded, color: textMuted, size: 18), hintText: 'example@egsaiedu.com'),
         ),
         const SizedBox(height: 14),
         _FieldLabel('كلمة المرور'),
@@ -5337,7 +5478,7 @@ class _AuthForm extends StatelessWidget {
 
 class _RegisterForm extends StatelessWidget {
   final TextEditingController nameCtrl;
-  final TextEditingController phoneCtrl;
+  final TextEditingController emailCtrl;
   final TextEditingController passCtrl;
   final bool   obscurePass;
   final VoidCallback onTogglePass;
@@ -5349,7 +5490,7 @@ class _RegisterForm extends StatelessWidget {
 
   const _RegisterForm({
     required this.nameCtrl,
-    required this.phoneCtrl,
+    required this.emailCtrl,
     required this.passCtrl,
     required this.obscurePass,
     required this.onTogglePass,
@@ -5387,13 +5528,13 @@ class _RegisterForm extends StatelessWidget {
           style: TextStyle(fontFamily: 'Cairo', fontSize: 13.5, color: textPrimary),
         ),
         const SizedBox(height: 14),
-        _FieldLabel('رقم الهاتف'),
+        _FieldLabel('البريد الإلكتروني'),
         const SizedBox(height: 6),
         TextField(
-          controller:  phoneCtrl,
-          keyboardType: TextInputType.phone,
+          controller:  emailCtrl,
+          keyboardType: TextInputType.emailAddress,
           style:       const TextStyle(fontSize: 14, fontFamily: 'Cairo'),
-          decoration:  InputDecoration(prefixIcon: Icon(Icons.phone_rounded, color: textMuted, size: 18), hintText: '01012345678'),
+          decoration:  InputDecoration(prefixIcon: Icon(Icons.email_rounded, color: textMuted, size: 18), hintText: 'example@egsaiedu.com'),
         ),
         const SizedBox(height: 14),
         _FieldLabel('كلمة المرور'),

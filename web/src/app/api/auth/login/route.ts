@@ -5,20 +5,20 @@ import { hashPassword, generateSessionToken } from '@/lib/auth_helpers';
 
 export async function POST(req: NextRequest) {
   try {
-    const { phone, password } = await req.json();
+    const { email, password } = await req.json();
 
-    if (!phone || !password) {
+    if (!email || !password) {
       return NextResponse.json(
-        { error: 'رقم الهاتف وكلمة المرور مطلوبان' },
+        { error: 'البريد الإلكتروني وكلمة المرور مطلوبان' },
         { status: 400 }
       );
     }
 
     // Get user profile
-    const profile = await db.getProfileByPhone(phone);
+    const profile = await db.getProfileByEmail(email);
     if (!profile) {
       return NextResponse.json(
-        { error: 'رقم الهاتف أو كلمة المرور غير صحيحة' },
+        { error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' },
         { status: 401 }
       );
     }
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     const passwordHash = hashPassword(password);
     if (profile.password_hash !== passwordHash) {
       return NextResponse.json(
-        { error: 'رقم الهاتف أو كلمة المرور غير صحيحة' },
+        { error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' },
         { status: 401 }
       );
     }
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       token,
       user: {
         id: profile.id,
-        phone: profile.phone,
+        email: profile.email,
         name: profile.name,
         grade_level: profile.grade_level,
         plan_type: profile.plan_type,

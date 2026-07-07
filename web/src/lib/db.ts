@@ -3,7 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 // Types
 export interface Profile {
   id: string;
-  phone: string;
+  phone?: string;
+  email?: string;
   name: string;
   grade_level: string; // '1_middle', '2_middle', '3_middle', '1_high', '2_high', '3_high'
   plan_type: 'free' | 'pro' | 'max';
@@ -17,7 +18,8 @@ export interface Profile {
 }
 
 export interface PendingRegistration {
-  phone: string;
+  email: string;
+  phone?: string;
   name: string;
   grade_level: string;
   password_hash: string;
@@ -152,6 +154,7 @@ function initLocalDB() {
         {
           id: 'admin-id-1234567890',
           phone: '01147814652',
+          email: 'admin@egsaiedu.com',
           name: 'مدير النظام',
           grade_level: '3_high',
           plan_type: 'max',
@@ -289,6 +292,7 @@ function readLocalDB() {
         {
           id: 'admin-id-1234567890',
           phone: '01147814652',
+          email: 'admin@egsaiedu.com',
           name: 'مدير النظام',
           grade_level: '3_high',
           plan_type: 'max',
@@ -401,7 +405,7 @@ export const db = {
 
   async getProfileByPhone(phone: string): Promise<Profile | null> {
     if (supabase) {
-      const { data, error } = await supabase.from('profiles').select('*').eq('phone', phone).single();
+      const { data, error } = await supabase.from('profiles').select('*').eq('phone', phone).maybeSingle();
       if (error || !data) return null;
       return await checkAndResetDailyCoins(data);
     } else {
@@ -412,10 +416,24 @@ export const db = {
     }
   },
 
+  async getProfileByEmail(email: string): Promise<Profile | null> {
+    if (supabase) {
+      const { data, error } = await supabase.from('profiles').select('*').eq('email', email.toLowerCase()).maybeSingle();
+      if (error || !data) return null;
+      return await checkAndResetDailyCoins(data);
+    } else {
+      const data = readLocalDB();
+      const profile = data.profiles.find((p: Profile) => p.email?.toLowerCase() === email.toLowerCase()) || null;
+      if (!profile) return null;
+      return await checkAndResetDailyCoins(profile);
+    }
+  },
+
   async createProfile(profile: Omit<Profile, 'created_at'>): Promise<Profile> {
     const defaultCoins = profile.plan_type === 'pro' ? 500.0 : (profile.plan_type === 'max' ? 1000.0 : 50.0);
     const newProfile = {
       ...profile,
+      email: profile.email ? profile.email.toLowerCase() : undefined,
       coins: profile.coins !== undefined ? profile.coins : defaultCoins,
       last_active_date: profile.last_active_date || new Date().toISOString().split('T')[0],
       created_at: new Date().toISOString()
@@ -427,7 +445,11 @@ export const db = {
       return data;
     } else {
       const data = readLocalDB();
-      data.profiles = data.profiles.filter((p: Profile) => p.id !== profile.id && p.phone !== profile.phone);
+      data.profiles = data.profiles.filter((p: Profile) => 
+        p.id !== profile.id && 
+        (!profile.email || p.email?.toLowerCase() !== profile.email.toLowerCase()) && 
+        (!profile.phone || p.phone !== profile.phone)
+      );
       data.profiles.push(newProfile);
       writeLocalDB(data);
       return newProfile;
@@ -469,20 +491,21 @@ export const db = {
   },
 
   // Pending registrations (OTP flow)
-  async getPendingRegistration(phone: string): Promise<PendingRegistration | null> {
+  async getPendingRegistration(email: string): Promise<PendingRegistration | null> {
     if (supabase) {
-      const { data, error } = await supabase.from('pending_registrations').select('*').eq('phone', phone).single();
+      const { data, error } = await supabase.from('pending_registrations').select('*').eq('email', email.toLowerCase()).maybeSingle();
       if (error) return null;
       return data;
     } else {
       const data = readLocalDB();
-      return data.pending_registrations.find((pr: PendingRegistration) => pr.phone === phone) || null;
+      return data.pending_registrations.find((pr: PendingRegistration) => pr.email?.toLowerCase() === email.toLowerCase()) || null;
     }
   },
 
-  async createPendingRegistration(phone: string, name: string, gradeLevel: string, passwordHash: string, otp: string = '111111', termsAcceptedAt?: string): Promise<PendingRegistration> {
+  async createPendingRegistration(email: string, name: string, gradeLevel: string, passwordHash: string, otp: string = '111111', termsAcceptedAt?: string, phone?: string): Promise<PendingRegistration> {
     const pending = {
-      phone,
+      email: email.toLowerCase(),
+      phone: phone || undefined,
       name,
       grade_level: gradeLevel,
       password_hash: passwordHash,
@@ -497,19 +520,19 @@ export const db = {
       return data;
     } else {
       const data = readLocalDB();
-      data.pending_registrations = data.pending_registrations.filter((pr: PendingRegistration) => pr.phone !== phone);
+      data.pending_registrations = data.pending_registrations.filter((pr: PendingRegistration) => pr.email?.toLowerCase() !== email.toLowerCase());
       data.pending_registrations.push(pending);
       writeLocalDB(data);
       return pending;
     }
   },
 
-  async deletePendingRegistration(phone: string): Promise<void> {
+  async deletePendingRegistration(email: string): Promise<void> {
     if (supabase) {
-      await supabase.from('pending_registrations').delete().eq('phone', phone);
+      await supabase.from('pending_registrations').delete().eq('email', email.toLowerCase());
     } else {
       const data = readLocalDB();
-      data.pending_registrations = data.pending_registrations.filter((pr: PendingRegistration) => pr.phone !== phone);
+      data.pending_registrations = data.pending_registrations.filter((pr: PendingRegistration) => pr.email?.toLowerCase() !== email.toLowerCase());
       writeLocalDB(data);
     }
   },
@@ -1250,7 +1273,7 @@ export const db = {
 
   async getDashboardStats() {
     if (supabase) {
-      const { data: profiles, error: profilesErr } = await supabase.from('profiles').select('id, name, phone, grade_level, role');
+      const { data: profiles, error: profilesErr } = await supabase.from('profiles').select('id, name, phone, email, grade_level, role');
       if (profilesErr || !profiles) {
         return { totalUsers: 0, usersByGrade: {}, highestUsageUser: null, highestUsageGrade: null };
       }
@@ -1305,6 +1328,7 @@ export const db = {
           highestUsageUser = { 
             name: u.name, 
             phone: u.phone, 
+            email: u.email,
             grade_level: u.grade_level, 
             message_count: userMessageCounts[highestUserId] || 0,
             coins_used: Math.round(userCoinConsumption[highestUserId] * 100) / 100
@@ -1394,6 +1418,7 @@ export const db = {
           highestUsageUser = { 
             name: u.name, 
             phone: u.phone, 
+            email: u.email,
             grade_level: u.grade_level, 
             message_count: userMessageCounts[highestUserId] || 0,
             coins_used: Math.round(userCoinConsumption[highestUserId] * 100) / 100
@@ -1751,8 +1776,8 @@ export const db = {
   // ─── User management (admin) ───────────────────────────────────────────────
   async getUsers(search?: string): Promise<Omit<Profile, 'password_hash'>[]> {
     if (supabase) {
-      let query = supabase.from('profiles').select('id, phone, name, grade_level, plan_type, role, coins, unlimited_credit, created_at, last_active_date');
-      if (search) query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
+      let query = supabase.from('profiles').select('id, phone, email, name, grade_level, plan_type, role, coins, unlimited_credit, created_at, last_active_date');
+      if (search) query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) return [];
       return data || [];
@@ -1761,7 +1786,7 @@ export const db = {
       let list = data.profiles as Profile[];
       if (search) {
         const s = search.toLowerCase();
-        list = list.filter(p => p.name.toLowerCase().includes(s) || p.phone.includes(s));
+        list = list.filter(p => p.name.toLowerCase().includes(s) || (p.phone && p.phone.includes(s)) || (p.email && p.email.toLowerCase().includes(s)));
       }
       return [...list]
         .sort((a, b) => b.created_at.localeCompare(a.created_at))

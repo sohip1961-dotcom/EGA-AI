@@ -59,6 +59,7 @@ export async function GET(req: NextRequest) {
         user: {
           id: profile.id,
           phone: profile.phone,
+          email: profile.email,
           name: profile.name,
           grade_level: profile.grade_level,
           plan_type: profile.plan_type,
