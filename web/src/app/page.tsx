@@ -5575,7 +5575,7 @@ export default function App() {
 
       {showExamCreateModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(10px)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px', direction: 'rtl' }}>
-          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '520px', borderRadius: 'var(--radius-lg)', padding: '30px', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontFamily: 'var(--font-arabic)', margin: 'auto 0' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '520px', borderRadius: 'var(--radius-lg)', padding: '30px', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontFamily: 'var(--font-arabic)', margin: isMobile ? '20px auto' : '40px auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
               <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--primary-color)' }}>إنشاء امتحان مخصص بالذكاء الاصطناعي</h3>
               <button onClick={() => setShowExamCreateModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
@@ -5703,7 +5703,7 @@ export default function App() {
       {/* MODAL 2: Gemini Key Setup Overlay */}
       {showGeminiModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px' }}>
-          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', margin: 'auto 0' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', margin: isMobile ? '20px auto' : '40px auto' }}>
             
             <div style={{ padding: '22px 24px 0', textAlign: 'center' }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '46px', height: '46px', borderRadius: '14px', background: 'var(--primary-light)', border: '1px solid rgba(125,161,70,0.2)', overflow: 'hidden' }}>
@@ -5786,7 +5786,7 @@ export default function App() {
       {/* MODAL 1: Authentication Overlay */}
       {showAuthModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px' }}>
-          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', margin: 'auto 0' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', margin: isMobile ? '20px auto' : '40px auto' }}>
             
             {/* Modal Brand Header */}
             <div style={{ padding: '22px 24px 0', textAlign: 'center' }}>
@@ -5971,7 +5971,7 @@ export default function App() {
       {/* MODAL 1B: Google Signup Grade Selection */}
       {showGoogleGradeModal && googleTempUser && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px' }}>
-          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', padding: '24px', margin: 'auto 0' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', padding: '24px', margin: isMobile ? '20px auto' : '40px auto' }}>
             <div style={{ textAlign: 'center', marginBottom: '18px' }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '46px', height: '46px', borderRadius: '14px', background: 'var(--primary-light)', border: '1px solid rgba(125,161,70,0.2)', marginBottom: '10px' }}>
                 <BookOpen size={24} style={{ color: 'var(--primary-color)' }} />
@@ -6024,7 +6024,7 @@ export default function App() {
       {/* MODAL 3: Edit Curriculum Markdown Content */}
       {editCurriculumId && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.65)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px' }}>
-          <div className="glass animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '780px', height: '90vh', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', margin: 'auto 0' }}>
+          <div className="glass animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '780px', height: '90vh', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', margin: isMobile ? '20px auto' : '40px auto' }}>
             
             {/* Header */}
             <div style={{ background: 'var(--primary-color)', color: 'var(--text-on-primary)', padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -6146,7 +6146,7 @@ export default function App() {
       {/* MODAL 4: Report AI Response */}
       {reportTarget && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.65)', zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px' }}>
-          <div className="glass animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '440px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--border-color)', margin: 'auto 0' }}>
+          <div className="glass animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '440px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--border-color)', margin: isMobile ? '20px auto' : '40px auto' }}>
             <div style={{ background: 'var(--danger-color)', color: '#fff', padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <AlertCircle size={20} />
