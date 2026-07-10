@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export const runtime = 'edge';
-
 const EDENAI_API_KEY = process.env.EDENAI_API_KEY || '';
 const EDENAI_BASE = 'https://api.edenai.run/v2';
 
@@ -61,8 +59,15 @@ export async function POST(req: NextRequest) {
 
     const data = await response.json();
     
-    // EdenAI response is standardized: data.google.answer or data.openai.answer
-    const description = data?.google?.answer || data?.openai?.answer || '';
+    // EdenAI VQA response returns an array of answers inside `answers` list
+    const googleAnswers = data?.google?.answers;
+    const openaiAnswers = data?.openai?.answers;
+    
+    const description = (googleAnswers && googleAnswers.length > 0 ? googleAnswers[0] : null) || 
+                        (openaiAnswers && openaiAnswers.length > 0 ? openaiAnswers[0] : null) || 
+                        data?.google?.answer || 
+                        data?.openai?.answer || 
+                        '';
 
     if (!description) {
       console.error('EdenAI response structure empty:', JSON.stringify(data));
