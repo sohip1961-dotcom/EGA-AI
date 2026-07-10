@@ -832,6 +832,182 @@ button {
 }
 
 /* =============================================
+   SUBJECT / MATERIAL BOTTOM SHEET
+   ============================================= */
+/* Pill trigger that replaces the tiny inline <select> on mobile */
+.subject-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--primary-light);
+  border: 1px solid var(--border-primary);
+  color: var(--primary-color);
+  padding: 7px 14px;
+  border-radius: var(--radius-full);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  font-family: var(--font-arabic);
+  min-height: 38px;
+  -webkit-tap-highlight-color: transparent;
+  max-width: 100%;
+}
+
+.subject-pill:active {
+  transform: scale(0.97);
+}
+
+.subject-pill .subject-pill-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 1100;
+  animation: fadeInFast 0.2s ease forwards;
+}
+
+.sheet-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1101;
+  background: var(--card-bg);
+  border-top: 1px solid var(--border-color);
+  border-top-left-radius: 22px;
+  border-top-right-radius: 22px;
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+  padding: 10px 18px calc(20px + env(safe-area-inset-bottom, 0px));
+  max-height: 80vh;
+  overflow-y: auto;
+  direction: rtl;
+  animation: sheetSlideUp 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes sheetSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.sheet-handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--border-hover);
+  margin: 2px auto 14px;
+}
+
+.sheet-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--text-main);
+  margin-bottom: 14px;
+  font-family: var(--font-arabic);
+}
+
+.sheet-section-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin: 6px 2px 10px;
+  font-family: var(--font-arabic);
+}
+
+.subject-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.subject-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 10px;
+  border-radius: 16px;
+  border: 1.5px solid var(--border-color);
+  background: var(--input-bg);
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  min-height: 84px;
+  text-align: center;
+  font-family: var(--font-arabic);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.subject-card:active {
+  transform: scale(0.96);
+}
+
+.subject-card.selected {
+  border-color: var(--primary-color);
+  background: var(--primary-light);
+  color: var(--primary-color);
+  box-shadow: 0 0 0 2px var(--primary-glow);
+}
+
+.subject-card .subject-card-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-light);
+  color: var(--primary-color);
+}
+
+.subject-card.selected .subject-card-icon {
+  background: var(--primary-color);
+  color: var(--text-on-primary);
+}
+
+.grade-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.grade-option {
+  padding: 10px 16px;
+  border-radius: var(--radius-full);
+  border: 1.5px solid var(--border-color);
+  background: var(--input-bg);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  min-height: 42px;
+  font-family: var(--font-arabic);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.grade-option.selected {
+  border-color: var(--primary-color);
+  background: var(--primary-light);
+  color: var(--primary-color);
+}
+
+.grade-option:active {
+  transform: scale(0.97);
+}
+
+/* =============================================
    MOBILE OVERLAY & BOTTOM NAV
    ============================================= */
 .mobile-overlay {
@@ -850,8 +1026,10 @@ button {
   bottom: 0;
   left: 0;
   right: 0;
-  height: 60px;
-  background: var(--sidebar-bg);
+  /* Base row height + iOS home-indicator inset so items never sit under it */
+  height: calc(60px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--glass-strong-bg);
   border-top: 1px solid var(--border-color);
   z-index: 100;
   backdrop-filter: blur(20px);
@@ -864,24 +1042,50 @@ button {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  font-size: 0.6rem;
-  font-weight: 600;
+  gap: 4px;
+  font-size: 0.62rem;
+  font-weight: 700;
   color: var(--text-muted);
   background: transparent;
   border: none;
   padding: 8px 4px;
   cursor: pointer;
   transition: var(--transition-fast);
-  min-height: 44px;
+  min-height: 52px;
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+  font-family: var(--font-arabic);
+}
+
+.bottom-nav-item svg {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .bottom-nav-item.active {
   color: var(--primary-color);
 }
 
-.bottom-nav-item:hover {
+/* Active-tab pill indicator above the icon */
+.bottom-nav-item.active::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  width: 26px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--primary-color);
+}
+
+.bottom-nav-item.active svg {
+  transform: translateY(-1px) scale(1.06);
+}
+
+.bottom-nav-item:active {
   color: var(--text-main);
+}
+
+.bottom-nav-item:active svg {
+  transform: scale(0.9);
 }
 
 /* =============================================
@@ -1143,9 +1347,9 @@ button {
     display: flex;
   }
 
-  /* Adjust main content for bottom nav on mobile */
+  /* Adjust main content for bottom nav on mobile (row height + safe area) */
   .mobile-main-with-nav {
-    padding-bottom: 60px;
+    padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
   }
 
   .custom-scrollbar::-webkit-scrollbar {
@@ -1156,6 +1360,15 @@ button {
     display: block;
     overflow-x: auto;
     white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Keep code blocks & math from forcing the whole reply to scroll sideways */
+  .markdown-body pre,
+  .markdown-body .math-block {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
   }
 
   .glass {
@@ -1163,13 +1376,56 @@ button {
     -webkit-backdrop-filter: blur(10px);
   }
 
+  /* ---- Replies: reclaim width, keep readable body ---- */
+  .message-row {
+    gap: 8px;
+  }
+
+  .message-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+  }
+
   .message-bubble-user {
-    max-width: 88%;
-    font-size: 0.9rem;
+    max-width: 90%;
+    font-size: 0.95rem;
+    padding: 11px 15px;
   }
 
   .message-bubble-ai {
-    font-size: 0.9rem;
+    font-size: 0.95rem;
+    padding: 13px 15px;
+  }
+
+  /* ---- Composer: 16px kills iOS focus-zoom; tighter frame ---- */
+  .input-textarea-container {
+    border-radius: 20px;
+    padding: 9px 12px;
+  }
+
+  .input-textarea-container textarea {
+    font-size: 16px !important;
+  }
+
+  /* Bigger, thumb-friendly send target */
+  .send-button {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Any focusable text field under 16px triggers Safari's focus-zoom;
+     force 16px across inputs/selects/textareas on mobile. */
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="password"],
+  input[type="number"],
+  select,
+  textarea {
+    font-size: 16px !important;
   }
 }
 

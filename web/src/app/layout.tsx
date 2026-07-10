@@ -66,6 +66,12 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
+  // Extend under the iOS notch/home-indicator so the fixed bottom nav & composer
+  // can pad themselves with env(safe-area-inset-*). Verified against the bundled
+  // Next 16 Viewport type (viewportFit / interactiveWidget are supported fields).
+  viewportFit: 'cover',
+  interactiveWidget: 'resizes-visual',
+  themeColor: '#0D0E0B',
 };
 
 export default function RootLayout({

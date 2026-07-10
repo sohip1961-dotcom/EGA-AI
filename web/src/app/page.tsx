@@ -1129,6 +1129,7 @@ export default function App() {
   const [inputMessage, setInputMessage] = useState('');
   const [chatSubject, setChatSubject] = useState('');
   const [chatGrade, setChatGrade] = useState('3_high'); // for guests
+  const [showSubjectSheet, setShowSubjectSheet] = useState(false); // mobile material picker
   const [chatLoading, setChatLoading] = useState(false);
   const [guestMessagesCount, setGuestMessagesCount] = useState(0);
   const [deviceId, setDeviceId] = useState('');
@@ -1654,7 +1655,9 @@ export default function App() {
             marginTop: '8px',
             borderTop: '1px solid var(--alpha-white-5)',
             paddingTop: '8px',
-            direction: 'rtl'
+            direction: 'rtl',
+            flexWrap: isMobile ? 'wrap' : 'nowrap',
+            gap: isMobile ? '8px' : '0',
           }}>
             {/* Left side: Model Selector dropdown */}
             <div style={{ position: 'relative' }}>
@@ -1748,6 +1751,30 @@ export default function App() {
 
             {/* Right side: Chips, Voice Rec, Thinking, Send */}
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* Subject + grade selection.
+                  Mobile: a single pill that opens the bottom-sheet picker.
+                  Desktop: the original inline <select> chips. */}
+              {isMobile ? (
+                messages.length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowSubjectSheet(true)}
+                    className="subject-pill"
+                  >
+                    <BookOpen size={14} />
+                    <span className="subject-pill-label">
+                      {chatSubject || 'اختر المادة'}
+                    </span>
+                    <span style={{ fontSize: '0.6rem', opacity: 0.7 }}>▾</span>
+                  </button>
+                ) : (
+                  <div className="subject-pill" style={{ cursor: 'default' }}>
+                    <BookOpen size={14} />
+                    <span className="subject-pill-label">{chatSubject}</span>
+                  </div>
+                )
+              ) : (
+                <>
               {/* Subject chip */}
               {messages.length === 0 ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'var(--primary-light)', padding: '4px 12px', borderRadius: 'var(--radius-full)', fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-color)', cursor: 'default' }}>
@@ -1794,6 +1821,8 @@ export default function App() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'var(--alpha-white-4)', padding: '4px 12px', borderRadius: 'var(--radius-full)', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
                   <span>{user ? GRADE_NAMES[user.grade_level] : (GRADE_NAMES[chatGrade] || '')}</span>
                 </div>
+              )}
+                </>
               )}
 
 
@@ -1844,6 +1873,74 @@ export default function App() {
           </div>
         </div>
       </form>
+    );
+  };
+
+  // Mobile material picker — a bottom sheet of subject cards + grade options.
+  // Reuses the same data/handlers as the desktop inline selects.
+  const renderSubjectSheet = () => {
+    if (!showSubjectSheet || !isMobile) return null;
+
+    const targetGrade = user ? user.grade_level : chatGrade;
+    const sheetSubjects = getActiveSubjectsForGrade(targetGrade);
+    const canPickGrade = !user; // guests choose their grade; logged-in users are fixed
+    const gradeEntries = Object.entries(GRADE_NAMES).filter(
+      ([key]) =>
+        (activeGradeLevels.length === 0 || activeGradeLevels.includes(key)) &&
+        curriculums.some((c) => c.grade_level === key)
+    );
+
+    return (
+      <>
+        <div className="sheet-backdrop" onClick={() => setShowSubjectSheet(false)} />
+        <div className="sheet-panel" role="dialog" aria-modal="true">
+          <div className="sheet-handle" />
+          <div className="sheet-title">اختر المادة</div>
+
+          {sheetSubjects.length > 0 ? (
+            <div className="subject-grid">
+              {sheetSubjects.map((c) => (
+                <button
+                  type="button"
+                  key={c.id}
+                  className={`subject-card ${chatSubject === c.subject_name ? 'selected' : ''}`}
+                  onClick={() => {
+                    setChatSubject(c.subject_name);
+                    setShowSubjectSheet(false);
+                  }}
+                >
+                  <span className="subject-card-icon">
+                    <BookOpen size={20} />
+                  </span>
+                  <span>{c.subject_name}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '8px 2px 20px', fontFamily: 'var(--font-arabic)' }}>
+              لا يوجد مواد مفعلة لهذا الصف حالياً.
+            </p>
+          )}
+
+          {canPickGrade && (
+            <>
+              <div className="sheet-section-label">الصف الدراسي</div>
+              <div className="grade-row">
+                {gradeEntries.map(([key, name]) => (
+                  <button
+                    type="button"
+                    key={key}
+                    className={`grade-option ${chatGrade === key ? 'selected' : ''}`}
+                    onClick={() => setChatGrade(key)}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </>
     );
   };
 
@@ -3781,7 +3878,7 @@ export default function App() {
             </header>
 
             {/* Chat Area Messages */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '24px 20px', display: 'flex', flexDirection: 'column' }} className="custom-scrollbar">
+            <div style={{ flex: 1, overflowY: 'auto', padding: '24px 20px', paddingBottom: isMobile && messages.length === 0 ? 'calc(24px + 60px + env(safe-area-inset-bottom, 0px))' : '24px', display: 'flex', flexDirection: 'column' }} className="custom-scrollbar">
               {!user ? (
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', width: '100%', padding: '20px' }}>
                   <div className="glass text-center animate-scale-in" style={{
@@ -4032,26 +4129,29 @@ export default function App() {
                         
                         {/* Actions below bubble */}
                         {msg.sender === 'ai' && msg.message && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px', flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '10px', marginTop: '8px', flexWrap: 'wrap' }}>
                             <button
                               type="button"
                               onClick={() => navigator.clipboard.writeText(msg.message)}
                               style={{
-                                background: 'transparent',
-                                border: 'none',
+                                background: isMobile ? 'var(--alpha-white-4)' : 'transparent',
+                                border: isMobile ? '1px solid var(--border-color)' : 'none',
+                                borderRadius: isMobile ? 'var(--radius-full)' : '0',
                                 color: 'var(--text-muted)',
                                 cursor: 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '4px',
-                                fontSize: '0.7rem',
-                                opacity: 0.7,
+                                gap: '5px',
+                                fontSize: isMobile ? '0.78rem' : '0.7rem',
+                                padding: isMobile ? '7px 12px' : '0',
+                                minHeight: isMobile ? '36px' : 'auto',
+                                opacity: 0.85,
                                 transition: 'var(--transition)'
                               }}
                               onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
-                              onMouseLeave={(e) => e.currentTarget.style.opacity = '0.7'}
+                              onMouseLeave={(e) => e.currentTarget.style.opacity = '0.85'}
                             >
-                              <Copy size={10} />
+                              <Copy size={isMobile ? 15 : 10} />
                               <span>نسخ الإجابة</span>
                             </button>
                             <button
@@ -4061,29 +4161,34 @@ export default function App() {
                                 setReportTarget({ content: msg.message, userQuery: prevUserMsg?.message || '' });
                               }}
                               style={{
-                                background: 'transparent',
-                                border: 'none',
+                                background: isMobile ? 'var(--alpha-white-4)' : 'transparent',
+                                border: isMobile ? '1px solid var(--border-color)' : 'none',
+                                borderRadius: isMobile ? 'var(--radius-full)' : '0',
                                 color: 'var(--text-muted)',
                                 cursor: 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '4px',
-                                fontSize: '0.7rem',
-                                opacity: 0.7,
+                                gap: '5px',
+                                fontSize: isMobile ? '0.78rem' : '0.7rem',
+                                padding: isMobile ? '7px 12px' : '0',
+                                minHeight: isMobile ? '36px' : 'auto',
+                                opacity: 0.85,
                                 transition: 'var(--transition)'
                               }}
                               onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--danger-color)'; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.85'; e.currentTarget.style.color = 'var(--text-muted)'; }}
                             >
-                              <AlertCircle size={10} />
+                              <AlertCircle size={isMobile ? 15 : 10} />
                               <span>الإبلاغ عن الرد</span>
                             </button>
-                            <span
-                              title="الإجابات مُولَّدة تلقائياً بواسطة ذكاء اصطناعي وقد تحتوي أخطاء"
-                              style={{ fontSize: '0.68rem', color: 'var(--text-muted)', opacity: 0.6, cursor: 'default' }}
-                            >
-                              تنبيه: قد يخطئ الذكاء الاصطناعي
-                            </span>
+                            {!isMobile && (
+                              <span
+                                title="الإجابات مُولَّدة تلقائياً بواسطة ذكاء اصطناعي وقد تحتوي أخطاء"
+                                style={{ fontSize: '0.68rem', color: 'var(--text-muted)', opacity: 0.6, cursor: 'default' }}
+                              >
+                                تنبيه: قد يخطئ الذكاء الاصطناعي
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -4107,7 +4212,7 @@ export default function App() {
 
             {/* Input Bar */}
             {messages.length > 0 && (
-              <div style={{ padding: '20px 24px', borderTop: '1px solid var(--border-color)', background: 'var(--sidebar-bg)' }}>
+              <div style={{ padding: isMobile ? '14px 14px calc(14px + 60px + env(safe-area-inset-bottom, 0px))' : '20px 24px', borderTop: '1px solid var(--border-color)', background: 'var(--sidebar-bg)' }}>
                 {renderInputForm(false)}
                 <p style={{ textAlign: 'center', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '8px', lineHeight: '1.6' }}>
                   EGS AI ذكاء اصطناعي وقد يرتكب أخطاءً — تحقق دائماً من المناهج والكتب المدرسية الرسمية. الإجابات مُولَّدة تلقائياً ولسنا مسؤولين عنها بشكل كامل.
@@ -4119,7 +4224,7 @@ export default function App() {
 
         {/* VIEW 2: Beta Notice */}
         {activeTab === 'beta' && (
-          <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '24px 16px' : '40px 24px', background: 'var(--bg-color)' }}>
+          <div className="mobile-main-with-nav" style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '24px 16px' : '40px 24px', background: 'var(--bg-color)' }}>
             {isMobile && (
               <button 
                 onClick={() => setActiveTab('chat')}
@@ -4187,7 +4292,7 @@ export default function App() {
 
         {/* VIEW 3: Admin Dashboard */}
         {activeTab === 'admin' && user?.role === 'admin' && (
-          <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '24px 16px' : '40px 24px', background: 'var(--bg-color)' }}>
+          <div className="mobile-main-with-nav" style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '24px 16px' : '40px 24px', background: 'var(--bg-color)' }}>
             {isMobile && (
               <button 
                 onClick={() => setActiveTab('chat')}
@@ -4854,7 +4959,7 @@ export default function App() {
 
         {/* VIEW 4: Student Profile */}
         {activeTab === 'profile' && user && (
-          <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '24px 16px' : '40px 24px', background: 'var(--bg-color)' }}>
+          <div className="mobile-main-with-nav" style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '24px 16px' : '40px 24px', background: 'var(--bg-color)' }}>
             {isMobile && (
               <button 
                 onClick={() => setActiveTab('chat')}
@@ -5070,7 +5175,7 @@ export default function App() {
 
         {/* VIEW 5: Exams & Testing */}
         {activeTab === 'exams' && (
-          <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '24px 16px' : '40px 24px', background: 'var(--bg-color)', direction: 'rtl', display: 'flex', flexDirection: 'column' }}>
+          <div className="mobile-main-with-nav" style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '24px 16px' : '40px 24px', background: 'var(--bg-color)', direction: 'rtl', display: 'flex', flexDirection: 'column' }}>
             {isMobile && (
               <button 
                 onClick={() => setActiveTab('chat')}
@@ -5585,6 +5690,67 @@ export default function App() {
         )}
 
       </main>
+
+      {/* Mobile material picker sheet (renders above everything when open) */}
+      {renderSubjectSheet()}
+
+      {/* Mobile bottom tab bar — thumb-reachable primary navigation */}
+      {isMobile && (
+        <nav className="bottom-nav" aria-label="التنقل السفلي">
+          <button
+            type="button"
+            className={`bottom-nav-item ${activeTab === 'chat' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveSessionId(null);
+              setMessages([]);
+              setActiveTab('chat');
+              setShowSearch(false);
+              setSidebarOpen(false);
+            }}
+          >
+            <Plus size={20} />
+            <span>دردشة</span>
+          </button>
+          <button
+            type="button"
+            className={`bottom-nav-item ${showSearch ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab('chat');
+              setShowSearch(true);
+              setSidebarOpen(true);
+            }}
+          >
+            <Search size={20} />
+            <span>بحث</span>
+          </button>
+          <button
+            type="button"
+            className={`bottom-nav-item ${activeTab === 'exams' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab('exams');
+              setSidebarOpen(false);
+            }}
+          >
+            <FileText size={20} />
+            <span>الامتحانات</span>
+          </button>
+          <button
+            type="button"
+            className={`bottom-nav-item ${activeTab === 'profile' ? 'active' : ''}`}
+            onClick={() => {
+              if (user) {
+                setActiveTab('profile');
+              } else {
+                setShowAuthModal(true);
+              }
+              setSidebarOpen(false);
+            }}
+          >
+            <User size={20} />
+            <span>حساب</span>
+          </button>
+        </nav>
+      )}
 
       {showExamCreateModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(10px)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px', direction: 'rtl' }}>
