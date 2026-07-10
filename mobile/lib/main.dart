@@ -19,6 +19,7 @@ import 'package:audioplayers/audioplayers.dart' as ap;
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:xml/xml.dart';
+import 'package:file_picker/file_picker.dart';
 
 
 // ─── Design Tokens ───────────────────────────────────────────────────────────
@@ -475,13 +476,20 @@ const String _noContextMsg =
 
 
 String stripAudioPrefix(String msg) {
-  if (msg.startsWith('[AUDIO_MESSAGE:')) {
-    final closingIndex = msg.indexOf(']');
+  var text = msg;
+  if (text.startsWith('[AUDIO_MESSAGE:')) {
+    final closingIndex = text.indexOf(']');
     if (closingIndex != -1) {
-      return msg.substring(closingIndex + 1);
+      text = text.substring(closingIndex + 1);
     }
   }
-  return msg;
+  if (text.startsWith('[IMAGE_MESSAGE:')) {
+    final closingIndex = text.indexOf(']');
+    if (closingIndex != -1) {
+      text = text.substring(closingIndex + 1);
+    }
+  }
+  return text;
 }
 
 Stream<Map<String, dynamic>> generateChatResponseStream({
@@ -1588,6 +1596,7 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
               thinkingEnabled: _thinkingEnabled,
               // Beta: Pro model + Thinking are unlocked for all registered users (no payment tiers yet).
               userPlan:        _userProfile == null ? 'guest' : 'registered',
+              websiteLink:     _webPaymentLink,
               onModelChanged: (model) {
                 if (model == 'lock_upgrade') {
                   _openUpgradeFlow();
@@ -2939,6 +2948,58 @@ class _ChatBubbleWidgetState extends State<ChatBubbleWidget> with SingleTickerPr
           ),
         );
       }
+    } else if (message.startsWith('[IMAGE_MESSAGE:')) {
+      final regExp = RegExp(r'^\[IMAGE_MESSAGE:([^;]+);([^;]+);([^\]]*)\]([\s\S]*)$');
+      final match = regExp.firstMatch(message);
+      if (match != null) {
+        final mimeType = match.group(1)!;
+        final base64Data = match.group(2)!;
+        final text = match.group(4)!;
+        return Align(
+          alignment: Alignment.centerRight,
+          child: Container(
+            margin: const EdgeInsets.only(top: 6, bottom: 6, left: 52, right: 4),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              gradient: olivGradient,
+              borderRadius: const BorderRadius.only(
+                topLeft:     Radius.circular(20),
+                topRight:    Radius.circular(20),
+                bottomLeft:  Radius.circular(20),
+                bottomRight: Radius.circular(5),
+              ),
+              boxShadow: [
+                BoxShadow(color: primaryOlive.withValues(alpha: 0.25), blurRadius: 10, offset: const Offset(0, 3)),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.memory(
+                    base64Decode(base64Data),
+                    maxHeight: 250,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+                if (text.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    child: Text(
+                      text,
+                      style: const TextStyle(color: Colors.white, fontSize: 14, fontFamily: 'Cairo', height: 1.4),
+                      textDirection: TextDirection.rtl,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      }
     }
     return Align(
       alignment: Alignment.centerRight,
@@ -3973,6 +4034,7 @@ class _PremiumInputBar extends StatefulWidget {
   final ValueChanged<String>  onModelChanged;
   final ValueChanged<bool>    onThinkingChanged;
   final String                userPlan;
+  final String                websiteLink;
 
   const _PremiumInputBar({
     required this.controller,
@@ -3987,6 +4049,7 @@ class _PremiumInputBar extends StatefulWidget {
     required this.onModelChanged,
     required this.onThinkingChanged,
     required this.userPlan,
+    required this.websiteLink,
   });
 
   @override
@@ -4002,7 +4065,108 @@ class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerPro
   bool _speechAvailable = false;
   String? _pendingAudioBase64;
   String? _pendingAudioMimeType;
+  String? _pendingImageBase64;
+  String? _pendingImageMimeType;
+  String? _pendingImageDescription;
+  bool _isDescribingImage = false;
   String _textBeforeRecording = '';
+
+  Future<void> _pickImage() async {
+    if (widget.isLoading || _isDescribingImage) return;
+
+    try {
+      final FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.first;
+      Uint8List? bytes = file.bytes;
+      if (bytes == null && file.path != null) {
+        bytes = await File(file.path!).readAsBytes();
+      }
+
+      if (bytes == null) {
+        _showError('تعذر قراءة ملف الصورة.');
+        return;
+      }
+
+      if (bytes.lengthInBytes > 5 * 1024 * 1024) {
+        _showError('حجم الصورة كبير جداً. الحد الأقصى هو 5 ميجابايت.');
+        return;
+      }
+
+      final base64String = base64Encode(bytes);
+      final mimeType = _getMimeType(file.extension ?? 'jpg');
+
+      setState(() {
+        _isDescribingImage = true;
+        _pendingImageBase64 = base64String;
+        _pendingImageMimeType = mimeType;
+        _pendingImageDescription = null;
+      });
+
+      final cleanLink = widget.websiteLink.trim().replaceAll(RegExp(r'/$'), '');
+      final url = Uri.parse('$cleanLink/api/chat/upload-image');
+
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'base64': base64String,
+          'mimeType': mimeType,
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        final errBody = jsonDecode(response.body);
+        throw Exception(errBody['error'] ?? 'فشل الاتصال بمزود الخدمة.');
+      }
+
+      final data = jsonDecode(response.body);
+      setState(() {
+        _pendingImageDescription = data['description'];
+      });
+    } catch (e) {
+      debugPrint('Error picking/uploading image: $e');
+      _showError('حدث خطأ أثناء قراءة وتفصيل الصورة: ${e.toString().replaceAll('Exception: ', '')}');
+      setState(() {
+        _pendingImageBase64 = null;
+        _pendingImageMimeType = null;
+        _pendingImageDescription = null;
+      });
+    } finally {
+      setState(() {
+        _isDescribingImage = false;
+      });
+    }
+  }
+
+  String _getMimeType(String ext) {
+    switch (ext.toLowerCase()) {
+      case 'png': return 'image/png';
+      case 'gif': return 'image/gif';
+      case 'webp': return 'image/webp';
+      case 'bmp': return 'image/bmp';
+      case 'jpg':
+      case 'jpeg':
+      default:
+        return 'image/jpeg';
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontFamily: 'Cairo')),
+        backgroundColor: Colors.redAccent,
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -4148,13 +4312,21 @@ class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerPro
 
   void _handleSend() {
     final text = widget.controller.text.trim();
-    if (text.isEmpty && _pendingAudioBase64 == null) return;
+    if (text.isEmpty && _pendingAudioBase64 == null && _pendingImageBase64 == null) return;
     
     if (_pendingAudioBase64 != null) {
       widget.controller.text = '[AUDIO_MESSAGE:$_pendingAudioMimeType;$_pendingAudioBase64]$text';
       setState(() {
         _pendingAudioBase64 = null;
         _pendingAudioMimeType = null;
+      });
+    } else if (_pendingImageBase64 != null) {
+      final desc = _pendingImageDescription ?? '';
+      widget.controller.text = '[IMAGE_MESSAGE:$_pendingImageMimeType;$_pendingImageBase64;${Uri.encodeComponent(desc)}]$text';
+      setState(() {
+        _pendingImageBase64 = null;
+        _pendingImageMimeType = null;
+        _pendingImageDescription = null;
       });
     }
     widget.onSend();
@@ -4201,6 +4373,90 @@ class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerPro
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (_pendingImageBase64 != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: primaryOlive.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: primaryOlive.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(6),
+                                child: Image.memory(
+                                  base64Decode(_pendingImageBase64!),
+                                  width: 32,
+                                  height: 32,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      _isDescribingImage ? 'جاري قراءة وتفصيل الصورة...' : 'تم إرفاق الصورة بنجاح',
+                                      style: const TextStyle(
+                                        color: primaryOlive,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        fontFamily: 'Cairo',
+                                      ),
+                                    ),
+                                    if (_isDescribingImage)
+                                      const SizedBox(
+                                        height: 10,
+                                        width: 10,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 1.5,
+                                          valueColor: AlwaysStoppedAnimation<Color>(primaryOlive),
+                                        ),
+                                      )
+                                    else if (_pendingImageDescription != null)
+                                      Text(
+                                        _pendingImageDescription!,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: textSecondary,
+                                          fontSize: 10,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: _isDescribingImage ? null : () {
+                            setState(() {
+                              _pendingImageBase64 = null;
+                              _pendingImageMimeType = null;
+                              _pendingImageDescription = null;
+                            });
+                          },
+                          child: Opacity(
+                            opacity: _isDescribingImage ? 0.4 : 1.0,
+                            child: Icon(Icons.close_rounded, color: textSecondary, size: 16),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               if (_pendingAudioBase64 != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8.0),
@@ -4335,6 +4591,41 @@ class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerPro
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Photo Upload Button
+                      GestureDetector(
+                        onTap: (_isDescribingImage || widget.isLoading) ? null : _pickImage,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: _pendingImageBase64 != null ? primaryOlive : bgElevated,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: _pendingImageBase64 != null ? Colors.transparent : borderSubtle),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _isDescribingImage 
+                                    ? Icons.hourglass_empty_rounded 
+                                    : Icons.image_rounded, 
+                                color: _pendingImageBase64 != null ? Colors.black : textSecondary, 
+                                size: 14
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'صورة',
+                                style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: _pendingImageBase64 != null ? Colors.black : textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       // Audio Record Mic Button
                       GestureDetector(
                         onTap: _toggleRecording,
@@ -4438,7 +4729,7 @@ class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerPro
                         ),
                       ),
                       const SizedBox(width: 8),
-                      _AnimatedSendButton(hasText: widget.hasText || _pendingAudioBase64 != null, isLoading: widget.isLoading, onSend: _handleSend),
+                      _AnimatedSendButton(hasText: widget.hasText || _pendingAudioBase64 != null || _pendingImageBase64 != null, isLoading: widget.isLoading, onSend: _handleSend),
                     ],
                   ),
                 ],

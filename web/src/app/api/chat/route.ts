@@ -22,6 +22,38 @@ function stripAudioPrefix(msg: string): string {
   return msg;
 }
 
+function parseMessage(msg: string): { cleanText: string; imageDesc?: string } {
+  let cleanText = msg || '';
+  let imageDesc: string | undefined;
+
+  // 1. Strip audio prefix if present
+  if (cleanText.startsWith('[AUDIO_MESSAGE:')) {
+    const closingBracketIndex = cleanText.indexOf(']');
+    if (closingBracketIndex !== -1) {
+      cleanText = cleanText.substring(closingBracketIndex + 1);
+    }
+  }
+
+  // 2. Extract and strip image prefix if present
+  if (cleanText.startsWith('[IMAGE_MESSAGE:')) {
+    const closingBracketIndex = cleanText.indexOf(']');
+    if (closingBracketIndex !== -1) {
+      const prefix = cleanText.substring(15, closingBracketIndex); // mimeType;base64Data;encodedDescription
+      const parts = prefix.split(';');
+      if (parts[2]) {
+        try {
+          imageDesc = decodeURIComponent(parts[2]);
+        } catch (e) {
+          imageDesc = parts[2];
+        }
+      }
+      cleanText = cleanText.substring(closingBracketIndex + 1);
+    }
+  }
+
+  return { cleanText, imageDesc };
+}
+
 function buildContextString(chunks: CurriculumChunk[]): string {
   if (chunks.length === 0) return '';
   return chunks
@@ -137,7 +169,7 @@ export async function POST(req: NextRequest) {
       isCurriculumActive = true;
     }
 
-    const promptText = stripAudioPrefix(message);
+    const { cleanText: promptText, imageDesc } = parseMessage(message);
 
     // ─── v2 Parallel RAG Pipeline ─────────────────────────────────────────────
     // Default context for no curriculum case
@@ -158,19 +190,26 @@ export async function POST(req: NextRequest) {
       const rawHistory = await db.getChatHistory(undefined, undefined, activeSessionId);
       recentHistory = rawHistory
         .slice(-6)
-        .map(h => ({ sender: h.sender, message: stripAudioPrefix(h.message) }));
+        .map(h => {
+          const { cleanText, imageDesc: histDesc } = parseMessage(h.message);
+          return {
+            sender: h.sender,
+            message: histDesc
+              ? `[وصف الصورة المرفقة من الطالب: ${histDesc}]\n\nالسؤال: ${cleanText}`
+              : cleanText
+          };
+        });
     } else if (history) {
-      recentHistory = history.map((h: any) => ({ sender: h.sender, message: stripAudioPrefix(h.message) }));
+      recentHistory = history.map((h: any) => {
+        const { cleanText, imageDesc: histDesc } = parseMessage(h.message || '');
+        return {
+          sender: h.sender,
+          message: histDesc
+            ? `[وصف الصورة المرفقة من الطالب: ${histDesc}]\n\nالسؤال: ${cleanText}`
+            : cleanText
+        };
+      });
     }
-
-    // Generate AI response stream
-    const deepseekRes = await generateChatResponseStream(
-      promptText,
-      context, // will be overridden in SSE stream with real context
-      recentHistory,
-      selectedModel === 'pro' ? 'deepseek-v4-pro' : 'deepseek-v4-flash',
-      isThinkingEnabled
-    );
 
     // We build the RAG context BEFORE starting the AI stream
     // This is done by building the stream controller that first emits search steps,
@@ -325,10 +364,14 @@ export async function POST(req: NextRequest) {
             context = ragContext;
           }
 
+          const finalPromptText = imageDesc
+            ? `[وصف الصورة المرفقة من الطالب: ${imageDesc}]\n\nالسؤال: ${promptText}`
+            : promptText;
+
           // ─── PHASE 2: Generate Answer with DeepSeek (streaming) ───────────
           // Re-fetch DeepSeek stream with the actual RAG context
           const deepseekRes2 = await generateChatResponseStream(
-            promptText,
+            finalPromptText,
             context,
             recentHistory,
             selectedModel === 'pro' ? 'deepseek-v4-pro' : 'deepseek-v4-flash',

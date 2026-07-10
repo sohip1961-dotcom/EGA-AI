@@ -33,7 +33,8 @@ import {
   Search,
   LogIn,
   Bell,
-  ArrowRight
+  ArrowRight,
+  Image as ImageIcon
 } from 'lucide-react';
 
 interface SearchStep {
@@ -1358,6 +1359,9 @@ export default function App() {
   const skipHistoryReloadRef = useRef(false);
   const tempAudioBlobRef = useRef<Blob | null>(null);
   const [pendingAudio, setPendingAudio] = useState<{ base64: string; mimeType: string } | null>(null);
+  const [pendingImage, setPendingImage] = useState<{ base64: string; mimeType: string; description: string } | null>(null);
+  const [isDescribingImage, setIsDescribingImage] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const speechRecognitionRef = useRef<any>(null);
   const [recording, setRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -1559,7 +1563,7 @@ export default function App() {
 
     const guestLimitReached = !user && guestMessagesCount >= 5;
 
-    let isDisabled = chatLoading;
+    let isDisabled = chatLoading || isDescribingImage;
     let placeholderText = chatSubject ? `اسألني عن أي شيء في منهج ${chatSubject}...` : 'اسألني عن أي شيء...';
 
     if (guestLimitReached) {
@@ -1589,6 +1593,63 @@ export default function App() {
 
     return (
       <form onSubmit={handleSendMessage} style={{ width: '100%', maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
+        {pendingImage && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: 'var(--alpha-white-4)',
+            padding: '8px 12px',
+            borderRadius: '12px',
+            border: '1px solid var(--border-color)',
+            marginBottom: '8px',
+            direction: 'rtl'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <img 
+                src={`data:${pendingImage.mimeType};base64,${pendingImage.base64}`} 
+                alt="Upload preview" 
+                style={{ width: '40px', height: '40px', borderRadius: '6px', objectFit: 'cover', border: '1px solid var(--border-color)' }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                  {isDescribingImage ? 'جاري قراءة وتفصيل الصورة...' : 'تم إرفاق الصورة بنجاح'}
+                </span>
+                {isDescribingImage && (
+                  <span style={{ fontSize: '0.7rem', color: 'var(--primary-color)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Loader2 size={10} className="animate-spin" />
+                    استخراج النصوص والتفاصيل...
+                  </span>
+                )}
+                {!isDescribingImage && pendingImage.description && (
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', maxWidth: '250px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {pendingImage.description}
+                  </span>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={isDescribingImage}
+              onClick={() => {
+                setPendingImage(null);
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: isDescribingImage ? 'not-allowed' : 'pointer',
+                fontSize: '0.9rem',
+                padding: '2px',
+                display: 'flex',
+                alignItems: 'center',
+                opacity: isDescribingImage ? 0.5 : 1
+              }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
         {pendingAudio && (
           <div style={{
             display: 'flex',
@@ -1866,11 +1927,48 @@ export default function App() {
                 {!user && <Lock size={10} style={{ opacity: 0.6 }} />}
               </button>
 
+              {/* Image Upload Button */}
+              <button
+                type="button"
+                disabled={isDisabled || recording}
+                onClick={() => imageInputRef.current?.click()}
+                style={{
+                  background: pendingImage ? 'var(--primary-color)' : 'var(--alpha-white-4)',
+                  border: '1px solid var(--border-color)',
+                  color: pendingImage ? 'var(--text-on-primary)' : 'var(--text-secondary)',
+                  fontSize: '0.75rem',
+                  padding: '4px 10px',
+                  borderRadius: '16px',
+                  fontWeight: 700,
+                  cursor: (isDisabled || recording) ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'var(--transition-fast)',
+                  opacity: (isDisabled || recording) ? 0.6 : 1,
+                  fontFamily: 'var(--font-arabic)',
+                }}
+              >
+                {isDescribingImage ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <ImageIcon size={12} />
+                )}
+                <span>صورة</span>
+              </button>
+              <input
+                type="file"
+                ref={imageInputRef}
+                onChange={handleImageSelect}
+                accept="image/*"
+                style={{ display: 'none' }}
+              />
+
               {/* Send button */}
               <button
                 type="submit"
-                disabled={isDisabled || (!hasMessage && !pendingAudio) || recording}
-                className={`send-button ${(hasMessage || pendingAudio) && !isDisabled && !recording ? 'active' : ''}`}
+                disabled={isDisabled || (!hasMessage && !pendingAudio && !pendingImage) || recording}
+                className={`send-button ${(hasMessage || pendingAudio || pendingImage) && !isDisabled && !recording ? 'active' : ''}`}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="12" y1="19" x2="12" y2="5"></line>
@@ -2470,15 +2568,69 @@ export default function App() {
     }
   };
 
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('حجم الصورة كبير جداً. الحد الأقصى هو 5 ميجابايت.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.split(',')[1];
+      const mimeType = file.type;
+
+      setIsDescribingImage(true);
+      setPendingImage({ base64, mimeType, description: '' });
+
+      try {
+        const res = await fetch('/api/chat/upload-image', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ base64, mimeType })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Failed to describe image');
+        }
+
+        const data = await res.json();
+        setPendingImage({
+          base64,
+          mimeType,
+          description: data.description
+        });
+      } catch (err: any) {
+        console.error('Error describing image:', err);
+        alert(err.message || 'حدث خطأ أثناء قراءة وتفصيل الصورة. يرجى المحاولة مرة أخرى.');
+        setPendingImage(null);
+      } finally {
+        setIsDescribingImage(false);
+        if (imageInputRef.current) {
+          imageInputRef.current.value = '';
+        }
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Chat Operation
   const handleSendMessage = async (e?: React.FormEvent, customText?: string) => {
     if (e) e.preventDefault();
     const messageToSend = customText || inputMessage;
-    if ((!messageToSend.trim() && !pendingAudio) || chatLoading) return;
+    if ((!messageToSend.trim() && !pendingAudio && !pendingImage) || chatLoading) return;
 
     let userMsg = messageToSend;
     if (pendingAudio && !customText) {
       userMsg = `[AUDIO_MESSAGE:${pendingAudio.mimeType};${pendingAudio.base64}]${inputMessage}`;
+    } else if (pendingImage && !customText) {
+      userMsg = `[IMAGE_MESSAGE:${pendingImage.mimeType};${pendingImage.base64};${encodeURIComponent(pendingImage.description)}]${inputMessage}`;
     }
 
     // Client-side coins check
@@ -2543,6 +2695,7 @@ export default function App() {
       setInputMessage('');
     }
     setPendingAudio(null);
+    setPendingImage(null);
     setChatLoading(true);
 
     // Optimistically update message history list
@@ -4099,6 +4252,30 @@ export default function App() {
                                       base64Data={base64Data}
                                       transcription={transcription}
                                     />
+                                  );
+                                }
+                                return (
+                                  <div className="message-bubble-user">
+                                    <div style={{ whiteSpace: 'pre-wrap', direction: 'rtl' }}>{msg.message}</div>
+                                  </div>
+                                );
+                              })()
+                            ) : msg.message.startsWith('[IMAGE_MESSAGE:') ? (
+                              (() => {
+                                const match = msg.message.match(/^\[IMAGE_MESSAGE:([^;]+);([^;]+);([^\]]*)\]([\s\S]*)$/);
+                                if (match) {
+                                  const mimeType = match[1];
+                                  const base64Data = match[2];
+                                  const userText = match[4];
+                                  return (
+                                    <div className="message-bubble-user" style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '350px' }}>
+                                      <img 
+                                        src={`data:${mimeType};base64,${base64Data}`} 
+                                        alt="Uploaded content" 
+                                        style={{ width: '100%', maxHeight: '250px', borderRadius: '8px', objectFit: 'contain' }}
+                                      />
+                                      {userText && <div style={{ whiteSpace: 'pre-wrap', direction: 'rtl', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '6px', marginTop: '2px' }}>{userText}</div>}
+                                    </div>
                                   );
                                 }
                                 return (
