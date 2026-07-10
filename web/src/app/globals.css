@@ -1517,3 +1517,11 @@ button {
 .step-pulse {
   animation: stepPulse 1.5s infinite ease-in-out;
 }
+
+/* SVG Diagram Styles */
+.svg-diagram-wrapper svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+

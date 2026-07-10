@@ -357,21 +357,27 @@ const ThoughtBlock = ({
 
   // SvgDiagram: Renders AI-generated geometric diagrams as sanitized, zoomable SVG
   const SvgDiagram = ({ svgContent }: { svgContent: string }) => {
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+      setMounted(true);
+    }, []);
+
     const sanitized = React.useMemo(() => {
-      if (typeof window === 'undefined') return '';
+      if (!mounted) return '';
       try {
         return DOMPurify.sanitize(svgContent, {
-          USE_PROFILES: { svg: true, svgFilters: false },
-          FORBID_TAGS: ['script', 'foreignObject', 'style'],
+          USE_PROFILES: { svg: true, svgFilters: true },
+          FORBID_TAGS: ['script', 'foreignObject'],
           FORBID_ATTR: ['onload', 'onerror', 'onclick', 'href', 'xlink:href'],
         });
       } catch (e) {
         console.error('SVG sanitize error:', e);
         return '';
       }
-    }, [svgContent]);
+    }, [svgContent, mounted]);
 
-    if (!sanitized) return null;
+    if (!mounted || !sanitized) return null;
 
     return (
       <div
@@ -384,11 +390,13 @@ const ThoughtBlock = ({
           borderRadius: 'var(--radius-md)',
           overflowX: 'auto',
           display: 'flex',
-          justifyContent: 'center'
+          justifyContent: 'center',
+          width: '100%'
         }}
       >
         <div
-          style={{ maxWidth: '100%', color: 'var(--text-main)' }}
+          className="svg-diagram-wrapper"
+          style={{ width: '100%', maxWidth: '600px', color: 'var(--text-main)' }}
           dangerouslySetInnerHTML={{ __html: sanitized }}
         />
       </div>
