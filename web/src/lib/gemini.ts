@@ -93,11 +93,12 @@ export async function generateEmbeddingBatch(texts: string[]): Promise<number[][
   if (!EDENAI_API_KEY || texts.length === 0) return texts.map(() => []);
 
   const BATCH_SIZE = 20;
-  const results: number[][] = [];
-
+  const batches: string[][] = [];
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE).map(t => t.slice(0, 8000));
+    batches.push(texts.slice(i, i + BATCH_SIZE).map(t => t.slice(0, 8000)));
+  }
 
+  const promises = batches.map(async (batch, index) => {
     try {
       const response = await fetch(`${EDENAI_BASE}/text/embeddings`, {
         method: 'POST',
@@ -113,30 +114,27 @@ export async function generateEmbeddingBatch(texts: string[]): Promise<number[][
       });
 
       if (!response.ok) {
-        console.error(`Batch embedding error for batch ${i}: ${response.status}`);
-        results.push(...batch.map(() => []));
-        continue;
+        console.error(`Batch embedding error for batch ${index}: ${response.status}`);
+        return batch.map(() => []);
       }
 
       const data = await response.json();
       const googleKey = Object.keys(data).find(k => k.startsWith('google'));
       const items: { embedding: number[] }[] = googleKey ? (data[googleKey]?.items ?? []) : [];
-      // Ensure length matches batch
+      
+      const batchResults: number[][] = [];
       for (let j = 0; j < batch.length; j++) {
-        results.push(items[j]?.embedding ?? []);
+        batchResults.push(items[j]?.embedding ?? []);
       }
+      return batchResults;
     } catch (err) {
-      console.error(`Batch embedding exception for batch ${i}:`, err);
-      results.push(...batch.map(() => []));
+      console.error(`Batch embedding exception for batch ${index}:`, err);
+      return batch.map(() => []);
     }
+  });
 
-    // Small delay between batches to avoid rate limits
-    if (i + BATCH_SIZE < texts.length) {
-      await new Promise(r => setTimeout(r, 200));
-    }
-  }
-
-  return results;
+  const resolvedBatches = await Promise.all(promises);
+  return resolvedBatches.flat();
 }
 
 // ─── Query Intelligence (ONE combined call) ───────────────────────────────────

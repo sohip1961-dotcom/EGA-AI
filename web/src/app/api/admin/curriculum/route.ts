@@ -41,10 +41,10 @@ async function authorizeAdmin(req: NextRequest): Promise<string | NextResponse> 
 
 // GET list all curriculums (Admin only)
 export async function GET(req: NextRequest) {
-  const authResult = await authorizeAdmin(req);
-  if (authResult instanceof NextResponse) return authResult;
-
   try {
+    const authResult = await authorizeAdmin(req);
+    if (authResult instanceof NextResponse) return authResult;
+
     const curriculums = await db.getCurriculums();
     return NextResponse.json({ success: true, curriculums });
   } catch (error: any) {
@@ -55,10 +55,10 @@ export async function GET(req: NextRequest) {
 
 // POST upload and chunk curriculum (Admin only)
 export async function POST(req: NextRequest) {
-  const authResult = await authorizeAdmin(req);
-  if (authResult instanceof NextResponse) return authResult;
-
   try {
+    const authResult = await authorizeAdmin(req);
+    if (authResult instanceof NextResponse) return authResult;
+
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
     const gradeLevel = (formData.get('grade_level') as string | null)?.trim();
@@ -187,10 +187,10 @@ export async function POST(req: NextRequest) {
 
 // PATCH rename curriculum subject/file name (Admin only)
 export async function PATCH(req: NextRequest) {
-  const authResult = await authorizeAdmin(req);
-  if (authResult instanceof NextResponse) return authResult;
-
   try {
+    const authResult = await authorizeAdmin(req);
+    if (authResult instanceof NextResponse) return authResult;
+
     const { id, subject_name, file_name } = await req.json();
     if (!id || !subject_name || !subject_name.trim()) {
       return NextResponse.json({ error: 'معرف المنهج واسم المادة الجديد مطلوبان' }, { status: 400 });
@@ -211,10 +211,10 @@ export async function PATCH(req: NextRequest) {
 
 // DELETE curriculum (Admin only)
 export async function DELETE(req: NextRequest) {
-  const authResult = await authorizeAdmin(req);
-  if (authResult instanceof NextResponse) return authResult;
-
   try {
+    const authResult = await authorizeAdmin(req);
+    if (authResult instanceof NextResponse) return authResult;
+
     const { id } = await req.json();
     if (!id) {
       return NextResponse.json({ error: 'معرف المنهج مطلوب للحذف' }, { status: 400 });
@@ -289,19 +289,29 @@ function chunkMarkdownHierarchical(markdownText: string): {
     } else {
       // Split by paragraphs when section is too large
       const paragraphs = fullContent.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+      
+      // OPTIMIZATION: Pre-calculate token counts of paragraphs to avoid O(N^2) token counting
+      const paragraphsWithTokens = paragraphs.map(p => ({
+        text: p,
+        tokens: countTokens(p)
+      }));
+
       let buffer = '';
+      let bufferTokens = 0;
       let subIndex = 1;
 
-      for (const para of paragraphs) {
-        const testBuffer = buffer ? `${buffer}\n\n${para}` : para;
-        if (countTokens(testBuffer) > PARENT_MAX_TOKENS && buffer.trim()) {
+      for (const { text, tokens } of paragraphsWithTokens) {
+        const separatorTokens = buffer ? 2 : 0; // approximate for \n\n
+        if (bufferTokens + separatorTokens + tokens > PARENT_MAX_TOKENS && buffer.trim()) {
           parents.push({
             heading: `${section.heading} (${subIndex++})`,
             content: buffer.trim()
           });
-          buffer = para;
+          buffer = text;
+          bufferTokens = tokens;
         } else {
-          buffer = testBuffer;
+          buffer = buffer ? `${buffer}\n\n${text}` : text;
+          bufferTokens += separatorTokens + tokens;
         }
       }
       if (buffer.trim()) {
@@ -354,37 +364,41 @@ function createSlidingWindowChunks(
     }];
   }
 
+  // OPTIMIZATION: Pre-calculate token counts of sentences to avoid O(N^2) repeated counting
+  const sentencesWithTokens = sentences.map(s => ({
+    text: s,
+    tokens: countTokens(s)
+  }));
+
   const chunks: ChildChunk[] = [];
-  let buffer: string[] = [];
+  let buffer: { text: string; tokens: number }[] = [];
   let bufferTokens = 0;
 
-  for (const sentence of sentences) {
-    const sentTokens = countTokens(sentence);
-
-    if (bufferTokens + sentTokens > maxTokens && buffer.length > 0) {
+  for (const item of sentencesWithTokens) {
+    if (bufferTokens + item.tokens > maxTokens && buffer.length > 0) {
       // Emit current buffer as a child chunk
       chunks.push({
         heading: parentHeading,
-        content: buffer.join(' ').trim(),
+        content: buffer.map(b => b.text).join(' ').trim(),
         parentHeading
       });
 
       // Keep overlap: remove sentences from front until within overlap budget
       while (buffer.length > 0 && bufferTokens > overlapTokens) {
         const removed = buffer.shift()!;
-        bufferTokens -= countTokens(removed);
+        bufferTokens -= removed.tokens;
       }
     }
 
-    buffer.push(sentence);
-    bufferTokens += sentTokens;
+    buffer.push(item);
+    bufferTokens += item.tokens;
   }
 
   // Emit remaining buffer
-  if (buffer.length > 0 && buffer.join(' ').trim().length > 5) {
+  if (buffer.length > 0 && buffer.map(b => b.text).join(' ').trim().length > 5) {
     chunks.push({
       heading: parentHeading,
-      content: buffer.join(' ').trim(),
+      content: buffer.map(b => b.text).join(' ').trim(),
       parentHeading
     });
   }

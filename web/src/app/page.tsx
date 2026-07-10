@@ -2703,18 +2703,31 @@ export default function App() {
         body: formData
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      const contentType = res.headers.get('content-type');
+      let errorMessage = 'فشل رفع الملف';
 
-      setAdminMessage({ text: data.message, type: 'success' });
-      setUploadSubject('');
-      setUploadFile(null);
-      
-      // Reset file input
-      const fileInput = document.getElementById('curriculum_file') as HTMLInputElement;
-      if (fileInput) fileInput.value = '';
+      if (contentType && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (res.ok) {
+          setAdminMessage({ text: data.message, type: 'success' });
+          setUploadSubject('');
+          setUploadFile(null);
+          
+          // Reset file input
+          const fileInput = document.getElementById('curriculum_file') as HTMLInputElement;
+          if (fileInput) fileInput.value = '';
 
-      loadCurriculums();
+          loadCurriculums();
+          return;
+        } else {
+          errorMessage = data.error || errorMessage;
+        }
+      } else {
+        const text = await res.text();
+        errorMessage = `خطأ في الخادم (${res.status}): ${text.slice(0, 100)}`;
+      }
+
+      throw new Error(errorMessage);
     } catch (err: any) {
       setAdminMessage({ text: err.message || 'فشل رفع الملف', type: 'danger' });
     } finally {
