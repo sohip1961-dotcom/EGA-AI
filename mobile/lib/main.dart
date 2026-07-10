@@ -2952,7 +2952,6 @@ class _ChatBubbleWidgetState extends State<ChatBubbleWidget> with SingleTickerPr
       final regExp = RegExp(r'^\[IMAGE_MESSAGE:([^;]+);([^;]+);([^\]]*)\]([\s\S]*)$');
       final match = regExp.firstMatch(message);
       if (match != null) {
-        final mimeType = match.group(1)!;
         final base64Data = match.group(2)!;
         final text = match.group(4)!;
         return Align(
@@ -2978,10 +2977,12 @@ class _ChatBubbleWidgetState extends State<ChatBubbleWidget> with SingleTickerPr
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
-                  child: Image.memory(
-                    base64Decode(base64Data),
-                    maxHeight: 250,
-                    fit: BoxFit.contain,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 250),
+                    child: Image.memory(
+                      base64Decode(base64Data),
+                      fit: BoxFit.contain,
+                    ),
                   ),
                 ),
                 if (text.isNotEmpty) ...[
