@@ -1,4 +1,4 @@
-﻿import crypto from 'crypto';
+import crypto from 'crypto';
 
 export interface KashierPlan {
   id: string;
@@ -44,10 +44,16 @@ export const KASHIER_PLANS: Record<string, KashierPlan> = {
 };
 
 export function getKashierCredentials() {
-  const merchantId = process.env.KASHIER_MERCHANT_ID || 'MID-47766-857';
-  const securityKey = process.env.KASHIER_SECURITY_KEY || 'd7cc0690cb162d5aa096ba315c54d751$71694a26c47d6878fc552cbea239aff704d046414247b802b99617ce02797bf10aa4250aa09d01c865e8a5299dde0a88';
-  const apiKey = process.env.KASHIER_API_KEY || '672d719b-9c06-42ac-bffc-c087e6cb4534672d719b-9c06-42ac-bffc-c087e6cb4534';
-  const mode = (process.env.KASHIER_MODE || 'live') as 'live' | 'test';
+  const merchantId = (process.env.KASHIER_MERCHANT_ID || 'MID-47766-857').trim();
+  const securityKey = (process.env.KASHIER_SECURITY_KEY || 'd7cc0690cb162d5aa096ba315c54d751$71694a26c47d6878fc552cbea239aff704d046414247b802b99617ce02797bf10aa4250aa09d01c865e8a5299dde0a88').trim();
+  let apiKey = (process.env.KASHIER_API_KEY || '672d719b-9c06-42ac-bffc-c087e6cb4534').trim();
+
+  // If apiKey was duplicated (72-char double UUID), take single 36-char UUID
+  if (apiKey.length === 72 && apiKey.slice(0, 36) === apiKey.slice(36)) {
+    apiKey = apiKey.slice(0, 36);
+  }
+
+  const mode = (process.env.KASHIER_MODE || 'live').trim() as 'live' | 'test';
 
   return { merchantId, securityKey, apiKey, mode };
 }
@@ -64,7 +70,7 @@ export function generateKashierOrderHash(
   const { merchantId, apiKey, securityKey } = getKashierCredentials();
   const path = `/?payment=${merchantId}.${orderId}.${amount}.${currency}`;
   
-  // Use API key for order hash signature
+  // Use API key for order hash signature (or security key fallback)
   const keyToUse = apiKey || securityKey;
   return crypto.createHmac('sha256', keyToUse).update(path).digest('hex');
 }
