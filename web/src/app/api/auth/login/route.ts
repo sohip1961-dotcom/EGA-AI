@@ -1,7 +1,7 @@
 export const runtime = 'edge';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { hashPassword, generateSessionToken } from '@/lib/auth_helpers';
+import { verifyPassword, hashPasswordSecure, generateSessionToken } from '@/lib/auth_helpers';
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,13 +23,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Verify Password
-    const passwordHash = hashPassword(password);
-    if (profile.password_hash !== passwordHash) {
+    // Verify Password (supports legacy sha256 hashes; upgrades them on success)
+    const { valid, needsRehash } = await verifyPassword(password, profile.password_hash);
+    if (!valid) {
       return NextResponse.json(
         { error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' },
         { status: 401 }
       );
+    }
+    if (needsRehash) {
+      await db.updateProfilePassword(profile.id, await hashPasswordSecure(password));
     }
 
     // Generate Session Token

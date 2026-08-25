@@ -1,3 +1,5 @@
+import { callGeminiFlash } from './gemini';
+
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 
 // Checked lazily (not at module load) so `next build` can evaluate this
@@ -43,7 +45,30 @@ export async function extractSearchKeywords(query: string): Promise<string[]> {
   }
 }
 
-function buildSystemPrompt(context: string): string {
+export type ChatMode = 'socratic' | 'detailed' | 'summary';
+
+const MODE_INSTRUCTIONS: Record<ChatMode, string> = {
+  socratic: `
+
+6. نمط الحوار السقراطي (مفعّل الآن):
+   - ممنوع منعاً باتاً إعطاء الإجابة النهائية أو الحل المباشر لأي سؤال أو مسألة، حتى لو ألحّ الطالب.
+   - وجّه الطالب خطوة بخطوة بأسئلة تمهيدية متدرجة (سقالات تعليمية) تجعله يصل للإجابة بنفسه.
+   - ابدأ بأسئلة عامة تحفّز التفكير، وكلما تعثر الطالب في ردوده عبر الرسائل المتتالية زد تحديد التلميحات تدريجياً دون كشف الحل كاملاً.
+   - عند وصول الطالب للإجابة الصحيحة، أكّدها له واشرح لماذا هي صحيحة.
+   - تظل بقية القواعد (LaTeX، الرسومات، المنهج) سارية على أسئلتك وتلميحاتك.`,
+  detailed: `
+
+6. نمط الشرح المفصل (مفعّل الآن):
+   - قدّم شرحاً شاملاً بأسلوب الكتاب المدرسي المنظم: تعريفات دقيقة، تقسيم بعناوين فرعية، وتدرّج منطقي من الأساسيات للتفاصيل.
+   - أرفق مع كل مفهوم مثالاً عملياً أو تطبيقاً من الحياة الواقعية يقرّب الفكرة للطالب.`,
+  summary: `
+
+6. نمط التلخيص السريع (مفعّل الآن):
+   - أجب بنقاط مختصرة ومركزة (bullet points) تبرز الزبدة وأهم القوانين والتعريفات والمصطلحات فقط، بصياغة مناسبة للمراجعة السريعة قبل الامتحان.
+   - تجنب الشرح المطوّل والاستطرادات؛ استخدم جداول مقارنة قصيرة عند الحاجة، وحافظ على تنسيق LaTeX للمعادلات.`
+};
+
+function buildSystemPrompt(context: string, mode: ChatMode = 'detailed'): string {
   return `أنت "EGS AI" (EGS AI)، مساعد ومعلم ذكي للمناهج المصرية للمرحلتين الإعدادية والثانوية.
 مهمتك هي الشرح والإجابة على أسئلة الطلاب بأسلوب ممتع وشيق ومبسط ومؤدب (مستوحى من أسلوب تبسيط العلوم وتوصيل المعلومات للطلاب).
 
@@ -126,13 +151,27 @@ ${context}
 }
 [/CREATE_EXAM]
 
+4ب. إنشاء كروت المراجعة الذكية (Flashcards) وتحديد آلية الإنشاء مقابل الاقتراح:
+   - عند طلب الطالب صراحة (مثال: "اعمل لي كروت مراجعة للدرس ده"، "أنشئ كروت تعليمية"، "توليد فلاش كاردس"): قم فوراً بإنشاء مجموعة كروت مراجعة واكتب تاج التوليد في نهاية ردك بالتنسيق التالي تماماً (تأكد من كتابة JSON صحيح):
+[CREATE_FLASHCARDS]
+{
+  "subject_name": "اسم المادة المقرر",
+  "title": "عنوان مجموعة الكروت (مثل: ملخص قوانين نيوتن)",
+  "cards": [
+    { "question": "نص السؤال الأول؟", "answer": "الإجابة التوضيحية الأولى" },
+    { "question": "نص السؤال الثاني؟", "answer": "الإجابة التوضيحية الثانية" }
+  ]
+}
+[/CREATE_FLASHCARDS]
+   - عند الشرح العادي أو إذا لاحظت تعثر الطالب في فهم درس ما دون أن يطلب الكروت صراحة: اقترح عليه أولاً في ردك النصي صراحة (مثال: "هل تحب أن أنشئ لك مجموعة كروت مراجعة ذكية لمساعدتك في تثبيت قوانين هذا الدرس والاستدعاء الفعال؟") وانتظر تأكيده بدلاً من توليد الكروت تلقائياً.
+
 5. قواعد عامة:
    - اعتمد بشكل أساسي على "سياق المنهج الدراسي المتاح" المرفق أعلاه للإجابة على الأسئلة.
    - إذا لم تجد الإجابة التفصيلية للسؤال في المنهج المتاح، أو كان السياق خالياً، فيجب عليك إجبارياً وبشكل قاطع أن تبدأ إجابتك مباشرة في السطر الأول تماماً بالتحذير التالي:
 "تنبيه: هذه المعلومة خارج المنهج المقرر عليك يا بطل، ولكنها تفيدك في فهم الدرس..."
 يجب أن يظهر هذا التنبيه كأول جملة في الرد ولا يدمج في منتصف الفقرات.
    - نسّق إجابتك بشكل رائع وواضح باستخدام العناوين الفرعية، والنقاط المرقمة، والجداول والمقاطع العريضة لتبدو منظمة وجذابة وسهلة المذاكرة باللغة العربية بالكامل وبلهجة محببة ومبسطة للطلاب المصريين.
-   - لا تشير أبداً إلى وجود "سياق" أو "ملف مرفوع"؛ تعامل كمعلم حقيقي متصل معهم مباشرة.`;
+   - لا تشير أبداً إلى وجود "سياق" أو "ملف مرفوع"؛ تعامل كمعلم حقيقي متصل معهم مباشرة.${MODE_INSTRUCTIONS[mode]}`;
 }
 
 export async function generateChatResponse(
@@ -185,9 +224,10 @@ export async function generateChatResponseStream(
   context: string,
   history: { sender: 'user' | 'ai'; message: string }[],
   modelName: 'deepseek-v4-flash' | 'deepseek-v4-pro' = 'deepseek-v4-flash',
-  thinkingEnabled: boolean = false
+  thinkingEnabled: boolean = false,
+  mode: ChatMode = 'detailed'
 ): Promise<Response> {
-  const systemPrompt = buildSystemPrompt(context);
+  const systemPrompt = buildSystemPrompt(context, mode);
 
   const formattedMessages = history.map(msg => ({
     role: msg.sender === 'user' ? 'user' : 'assistant',
@@ -211,6 +251,108 @@ export async function generateChatResponseStream(
       model: modelName === 'deepseek-v4-pro' ? 'deepseek-reasoner' : 'deepseek-chat',
       messages: [
         { role: 'system', content: systemPrompt },
+        ...formattedMessages
+      ],
+      stream: true,
+      stream_options: { include_usage: true },
+      thinking: {
+        type: thinkingEnabled ? 'enabled' : 'disabled'
+      }
+    })
+  });
+}
+
+export async function validateResponseAgainstContext(
+  generatedAnswer: string,
+  rawContext: string
+): Promise<{ isValid: boolean; reason?: string }> {
+  // If the rawContext is the default "no curriculum" warning context, it's valid
+  if (rawContext.includes("لا يوجد ملف منهج دراسي مرفوع حالياً")) {
+    return { isValid: true };
+  }
+
+  const prompt = `أنت مصحح ومراجع جودة في نظام تعليمي ذكي للمناهج المصرية.
+مهمتك هي التحقق من إجابة المعلم الذكي على سؤال الطالب ومقارنتها بسياق المنهج الدراسي المتاح.
+
+سياق المنهج المتاح:
+"""
+${rawContext.slice(0, 6000)}
+"""
+
+إجابة المعلم المقترحة:
+"""
+${generatedAnswer}
+"""
+
+مهمتك:
+1. حدد ما إذا كانت الإجابة المقترحة تقدم معلومات أو مفاهيم علمية/تاريخية أكاديمية خارجة عن سياق المنهج المتاح بشكل واضح وبدون إضافة التنبيه الإلزامي في السطر الأول ("تنبيه: هذه المعلومة خارج المنهج المقرر عليك يا بطل...").
+2. حدد ما إذا كانت الإجابة المقترحة تهلوس ببيانات علمية أو تزييف حقائق غير موجودة بالمرة في المنهج المتاح.
+3. إذا كانت الإجابة مقيدة بسياق المنهج، أو قامت بتنبيه الطالب بشكل سليم عن المعلومات الخارجية في أول سطر، فاعتبرها صالحة (isValid: true).
+4. إذا خالفت الإجابة ذلك وأدخلت معلومات أكاديمية خارج المنهج كأنها داخل المنهج بدون التحذير، أو هلست بحقائق غير صحيحة، فاعتبرها غير صالحة (isValid: false).
+
+أعد الإخراج كـ JSON فقط بالهيكل التالي وبدون علامات كود ماركداون:
+{
+  "isValid": true|false,
+  "reason": "سبب عدم الصلاحية بالتفصيل إن وجدت"
+}`;
+
+  try {
+    const raw = await callGeminiFlash(prompt, 300);
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return { isValid: true };
+    const parsed = JSON.parse(jsonMatch[0]);
+    return {
+      isValid: parsed.isValid !== false,
+      reason: parsed.reason
+    };
+  } catch (e) {
+    console.error("Validation error:", e);
+    return { isValid: true }; // fail-safe: pass if verification fails
+  }
+}
+
+export async function generateStrictRewriteStream(
+  originalAnswer: string,
+  context: string,
+  history: { sender: 'user' | 'ai'; message: string }[],
+  modelName: 'deepseek-v4-flash' | 'deepseek-v4-pro' = 'deepseek-v4-flash',
+  thinkingEnabled: boolean = false,
+  mode: ChatMode = 'detailed'
+): Promise<Response> {
+  const baseSystemPrompt = buildSystemPrompt(context, mode);
+  const rewritePrompt = `${baseSystemPrompt}
+
+[تنبيه هام للمصحح]: الإجابة السابقة كانت غير دقيقة أو أدخلت مفاهيم خارج المنهج بدون التنبيه المطلوب.
+أعد كتابة الإجابة السابقة بالكامل فوراً مع الالتزام التام بحدود سياق المنهج الدراسي المرفق أعلاه.
+امنع أي استطراد أكاديمي خارج المنهج، وإذا اضطررت لذكر معلومة خارجية لتسهيل الفهم، ابدأ إجابتك إجبارياً في السطر الأول بـ:
+"تنبيه: هذه المعلومة خارج المنهج المقرر عليك يا بطل، ولكنها تفيدك في فهم الدرس..."
+الإجابة السابقة التي تحتاج لإعادة كتابة:
+"""
+${originalAnswer}
+"""`;
+
+  const formattedMessages = history.map(msg => ({
+    role: msg.sender === 'user' ? 'user' : 'assistant',
+    content: msg.message
+  }));
+
+  // Append a user instruction asking to rewrite
+  formattedMessages.push({
+    role: 'user',
+    content: 'أعد كتابة إجابتك الأخيرة لتكون مطابقة تماماً للمنهج وبدون تفاصيل خارجية.'
+  });
+
+  return fetch(DEEPSEEK_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${getDeepSeekApiKey()}`,
+      'Accept-Encoding': 'identity'
+    },
+    body: JSON.stringify({
+      model: modelName === 'deepseek-v4-pro' ? 'deepseek-reasoner' : 'deepseek-chat',
+      messages: [
+        { role: 'system', content: rewritePrompt },
         ...formattedMessages
       ],
       stream: true,

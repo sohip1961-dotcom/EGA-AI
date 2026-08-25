@@ -2,9 +2,61 @@ export const runtime = 'edge';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifySessionToken } from '@/lib/auth_helpers';
+import { callGeminiFlash } from '@/lib/gemini';
 
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
+
+async function generateExamWithAI(systemPrompt: string, gradeLevel: string, subjectName: string): Promise<{ content: string; coinsCost: number }> {
+  const deepseekApiKey = process.env.DEEPSEEK_API_KEY || '';
+  if (deepseekApiKey) {
+    try {
+      const response = await fetch(DEEPSEEK_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${deepseekApiKey}`
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `Generate an exam for grade level ${gradeLevel} and subject ${subjectName}.` }
+          ],
+          temperature: 0.8
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const content = data.choices[0]?.message?.content?.trim() || '';
+        const promptTokens = data.usage?.prompt_tokens || 0;
+        const completionTokens = data.usage?.completion_tokens || 0;
+        const egpCost = (promptTokens / 1000000) * 30 + (completionTokens / 1000000) * 50;
+        const coinsCost = egpCost * 12.5;
+        return { content, coinsCost };
+      } else {
+        console.warn('DeepSeek exam generation returned status:', response.status, ', falling back to Gemini Flash.');
+      }
+    } catch (e) {
+      console.warn('DeepSeek fetch error, falling back to Gemini Flash:', e);
+    }
+  }
+
+  // Fallback to Gemini Flash via EdenAI
+  const prompt = `${systemPrompt}\n\nUser request: Generate an exam for grade level ${gradeLevel} and subject ${subjectName}.`;
+  const content = await callGeminiFlash(prompt, 1800);
+  return { content, coinsCost: 0.5 };
+}
+
+function parseGeneratedExam(content: string): any {
+  let cleaned = content.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+  }
+  return JSON.parse(cleaned);
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,9 +98,6 @@ export async function POST(req: NextRequest) {
     const targetCurr = curriculums.find(c => c.grade_level === grade_level && c.subject_name === subject_name);
     
     if (targetCurr) {
-      // Fetch some chunks
-      const allCurrs = await db.getCurriculums();
-      // Since db.ts doesn't export a generic getChunks, we check if Supabase is enabled or read from local
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
       const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
       const isSupabaseEnabled = supabaseUrl !== '' && supabaseServiceKey !== '';
@@ -65,7 +114,6 @@ export async function POST(req: NextRequest) {
           curriculumText = chunks.map((c: any) => c.content).join('\n\n');
         }
       } else {
-        // Read local
         if (process.env.NEXT_RUNTIME !== 'edge') {
           const fs = require('fs');
           const DB_FILE = './db_data.json';
@@ -142,42 +190,8 @@ ${questionInstructions}
   ]
 }`;
 
-    const response = await fetch(DEEPSEEK_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Generate an exam for grade level ${grade_level} and subject ${subject_name}.` }
-        ],
-        temperature: 0.8
-      })
-    });
-
-    if (!response.ok) {
-      console.error('DeepSeek generation failed:', await response.text());
-      return NextResponse.json({ error: 'فشل توليد الامتحان بواسطة الذكاء الاصطناعي' }, { status: 502 });
-    }
-
-    const data = await response.json();
-    let content = data.choices[0].message.content.trim();
-    
-    // Cleanup any code block backticks if AI outputs them anyway
-    if (content.startsWith('```')) {
-      content = content.replace(/^```json/, '').replace(/```$/, '').trim();
-    }
-
-    const examData = JSON.parse(content);
-    
-    // Calculate coin cost based on DeepSeek API usage
-    const promptTokens = data.usage?.prompt_tokens || 0;
-    const completionTokens = data.usage?.completion_tokens || 0;
-    const egpCost = (promptTokens / 1000000) * 30 + (completionTokens / 1000000) * 50;
-    const coinsCost = egpCost * 12.5;
+    const { content, coinsCost } = await generateExamWithAI(systemPrompt, grade_level, subject_name);
+    const examData = parseGeneratedExam(content);
 
     await db.deductCoins(userId, null, coinsCost);
 
@@ -192,7 +206,14 @@ ${questionInstructions}
       device_id: deviceId || undefined
     });
 
-    return NextResponse.json(newExam);
+    // Withhold model answers and explanations until submission
+    return NextResponse.json({
+      ...newExam,
+      questions: (newExam.questions || []).map((q: any) => {
+        const { correct_answer, explanation, ...rest } = q;
+        return rest;
+      })
+    });
   } catch (error: any) {
     console.error('Generate Exam Error:', error);
     return NextResponse.json({ error: 'حدث خطأ أثناء توليد وحفظ الامتحان' }, { status: 500 });

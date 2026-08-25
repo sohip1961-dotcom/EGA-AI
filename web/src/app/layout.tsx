@@ -83,7 +83,7 @@ export default function RootLayout({
     '@context': 'https://schema.org',
     '@type': 'WebApplication',
     'name': 'EGS AI',
-    'alternateName': 'EGS AI Beta',
+    'alternateName': 'EGS AI',
     'description': 'منصة EGS AI هي وكيل ومساعد ذكي مدعوم بالذكاء الاصطناعي مخصص لطلاب المدارس الإعدادية والثانوية في مصر، مرتبط بالمنهج الدراسي لمساعدتك في المذاكرة وحل الأسئلة فوراً وبدقة.',
     'url': siteUrl,
     'applicationCategory': 'EducationalApplication',

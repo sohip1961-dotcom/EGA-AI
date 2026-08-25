@@ -1,16 +1,54 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { verifySessionToken } from '@/lib/auth_helpers';
 
 const EDENAI_API_KEY = process.env.EDENAI_API_KEY || '';
 const EDENAI_BASE = 'https://api.edenai.run/v2';
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const IMAGE_ANALYSIS_COIN_COST = 0.5;
 
 export async function POST(req: NextRequest) {
   try {
+    // Auth + metering: this route proxies a paid VQA provider
+    const authHeader = req.headers.get('Authorization');
+    let userId: string | null = null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      userId = verifySessionToken(authHeader.substring(7));
+    }
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'تسجيل الدخول مطلوب لتحليل الصور.', code: 'login_required' },
+        { status: 401 }
+      );
+    }
+
+    const profile = await db.getProfile(userId);
+    if (!profile) {
+      return NextResponse.json({ error: 'لم يتم العثور على ملف المستخدم' }, { status: 404 });
+    }
+    const hasUnlimitedCredit = profile.role === 'admin' || !!profile.unlimited_credit;
+    const coins = profile.coins === undefined ? 0.0 : profile.coins;
+    if (!hasUnlimitedCredit && coins <= 0) {
+      return NextResponse.json(
+        { error: 'ليس لديك رصيد كافٍ من النقاط لتحليل الصورة.' },
+        { status: 429 }
+      );
+    }
+
     const { base64, mimeType } = await req.json();
 
     if (!base64) {
       return NextResponse.json(
         { error: 'بيانات الصورة مطلوبة' },
         { status: 400 }
+      );
+    }
+
+    // ~3/4 ratio of base64 length to bytes; enforce the 5 MB client cap server-side
+    if (base64.length * 0.75 > MAX_IMAGE_BYTES) {
+      return NextResponse.json(
+        { error: 'حجم الصورة يتجاوز الحد الأقصى المسموح (5 ميجابايت)' },
+        { status: 413 }
       );
     }
 
@@ -82,6 +120,8 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
+
+    await db.deductCoins(userId, null, IMAGE_ANALYSIS_COIN_COST);
 
     return NextResponse.json({ description });
   } catch (error: any) {

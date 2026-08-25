@@ -12,9 +12,11 @@ export interface Profile {
   password_hash: string;
   created_at: string;
   coins?: number;
+  points?: number;
   last_active_date?: string;
   unlimited_credit?: boolean;
   terms_accepted_at?: string | null;
+  study_streak?: number;
 }
 
 export interface PendingRegistration {
@@ -26,6 +28,14 @@ export interface PendingRegistration {
   otp: string;
   created_at: string;
   terms_accepted_at?: string | null;
+  expires_at?: string | null;
+}
+
+export interface PasswordReset {
+  user_id: string;
+  otp: string;
+  expires_at: string;
+  created_at: string;
 }
 
 export interface Report {
@@ -101,6 +111,8 @@ export interface ChatMessage {
   coins_cost?: number;
 }
 
+export type ChatMode = 'socratic' | 'detailed' | 'summary';
+
 export interface ChatSession {
   id: string;
   user_id?: string;
@@ -108,7 +120,9 @@ export interface ChatSession {
   title: string;
   subject_name: string;
   grade_level: string;
+  mode?: ChatMode;
   created_at: string;
+  engagement_points_awarded?: boolean;
 }
 
 export interface ExamQuestion {
@@ -141,6 +155,43 @@ export interface ExamSubmission {
   score: number;
   evaluation: string;
   submitted_at: string;
+  points_awarded?: number;
+  is_first_attempt?: boolean;
+}
+
+export interface FlashcardDeck {
+  id: string;
+  user_id: string;
+  subject_name: string;
+  grade_level: string;
+  title: string;
+  created_at: string;
+}
+
+export interface Flashcard {
+  id: string;
+  deck_id: string;
+  question: string;
+  answer: string;
+  box: number;
+  next_review_at: string;
+  created_at: string;
+}
+
+export interface PaymentTransaction {
+  id: string;
+  user_id?: string | null;
+  order_id: string;
+  plan_id: string;
+  amount: number;
+  currency: string;
+  status: 'pending' | 'success' | 'failed' | 'refunded';
+  provider: string;
+  transaction_id?: string | null;
+  payment_method?: string | null;
+  raw_response?: any;
+  created_at: string;
+  updated_at: string;
 }
 
 // Initialize local DB file if missing
@@ -159,7 +210,7 @@ function initLocalDB() {
           grade_level: '3_high',
           plan_type: 'max',
           role: 'admin',
-          password_hash: '343f7ea65b1d1ed5b5980d214808c2e06379a8b97586db4d6c97874d4440c174', // 'ss01281293992'
+          password_hash: '343f7ea65b1d1ed5b5980d214808c2e06379a8b97586db4d6c97874d4440c174',
           created_at: new Date().toISOString(),
           coins: 1000.0,
           last_active_date: new Date().toISOString().split('T')[0],
@@ -167,6 +218,7 @@ function initLocalDB() {
         }
       ],
       pending_registrations: [],
+      password_resets: [],
       device_guests: [],
       curriculums: [],
       curriculum_chunks: [],
@@ -179,7 +231,10 @@ function initLocalDB() {
       exam_submissions: [],
       reports: [],
       notifications: [],
-      app_versions: []
+      app_versions: [],
+      flashcard_decks: [],
+      flashcards: [],
+      payment_transactions: []
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf8');
   }
@@ -191,6 +246,7 @@ function readLocalDB() {
     return {
       profiles: [],
       pending_registrations: [],
+      password_resets: [],
       device_guests: [],
       curriculums: [],
       curriculum_chunks: [],
@@ -201,7 +257,10 @@ function readLocalDB() {
       exam_submissions: [],
       reports: [],
       notifications: [],
-      app_versions: []
+      app_versions: [],
+      flashcard_decks: [],
+      flashcards: [],
+      payment_transactions: []
     };
   }
   const fs = require('fs');
@@ -211,6 +270,11 @@ function readLocalDB() {
     const raw = fs.readFileSync(DB_FILE, 'utf8');
     const parsed = JSON.parse(raw);
     let changed = false;
+
+    if (!parsed.payment_transactions) {
+      parsed.payment_transactions = [];
+      changed = true;
+    }
     
     if (!parsed.chat_sessions) {
       parsed.chat_sessions = [];
@@ -280,6 +344,11 @@ function readLocalDB() {
       changed = true;
     }
 
+    if (!parsed.password_resets) {
+      parsed.password_resets = [];
+      changed = true;
+    }
+
     if (changed) {
       fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), 'utf8');
     }
@@ -297,7 +366,7 @@ function readLocalDB() {
           grade_level: '3_high',
           plan_type: 'max',
           role: 'admin',
-          password_hash: '343f7ea65b1d1ed5b5980d214808c2e06379a8b97586db4d6c97874d4440c174', // 'ss01281293992'
+          password_hash: '343f7ea65b1d1ed5b5980d214808c2e06379a8b97586db4d6c97874d4440c174',
           created_at: new Date().toISOString(),
           coins: 1000.0,
           last_active_date: new Date().toISOString().split('T')[0],
@@ -305,6 +374,7 @@ function readLocalDB() {
         }
       ],
       pending_registrations: [],
+      password_resets: [],
       device_guests: [],
       curriculums: [],
       curriculum_chunks: [],
@@ -345,19 +415,56 @@ if (isSupabaseEnabled) {
   console.log("Database Mode: Local JSON File Database Enabled.");
 }
 
-// Helper: Check and reset profile coins daily
+// Daily coin caps per plan. Replenishment tops the balance UP TO the cap on the
+// first request of a new day — it never reduces a balance already above the cap.
+export const DAILY_COIN_CAPS: Record<string, number> = {
+  free: 15.0,
+  pro: 50.0,
+  max: 100.0
+};
+
+// Helper: Daily coin replenishment + activity date refresh + streak update
 async function checkAndResetDailyCoins(profile: Profile): Promise<Profile> {
   const today = new Date().toISOString().split('T')[0];
   if (profile.last_active_date !== today) {
+    const cap = DAILY_COIN_CAPS[profile.plan_type] ?? DAILY_COIN_CAPS.free;
+    const current = profile.coins === undefined ? 0.0 : profile.coins;
+    const newCoins = Math.max(current, cap);
+
+    // Calculate new streak
+    let newStreak = profile.study_streak || 1;
+    if (profile.last_active_date) {
+      const todayDate = new Date(today);
+      const lastActiveDate = new Date(profile.last_active_date);
+      const diffTime = todayDate.getTime() - lastActiveDate.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays === 1) {
+        newStreak = (profile.study_streak || 1) + 1;
+      } else if (diffDays > 1) {
+        newStreak = 1;
+      }
+    } else {
+      newStreak = 1;
+    }
+
     profile.last_active_date = today;
-    
+    profile.coins = newCoins;
+    profile.study_streak = newStreak;
+
     if (supabase) {
-      await supabase.from('profiles').update({ last_active_date: today }).eq('id', profile.id);
+      await supabase.from('profiles').update({ 
+        last_active_date: today, 
+        coins: newCoins,
+        study_streak: newStreak
+      }).eq('id', profile.id);
     } else {
       const data = readLocalDB();
       const p = data.profiles.find((x: any) => x.id === profile.id);
       if (p) {
         p.last_active_date = today;
+        p.coins = newCoins;
+        p.study_streak = newStreak;
         writeLocalDB(data);
       }
     }
@@ -502,7 +609,7 @@ export const db = {
     }
   },
 
-  async createPendingRegistration(email: string, name: string, gradeLevel: string, passwordHash: string, otp: string = '111111', termsAcceptedAt?: string, phone?: string): Promise<PendingRegistration> {
+  async createPendingRegistration(email: string, name: string, gradeLevel: string, passwordHash: string, otp: string, termsAcceptedAt?: string, phone?: string, expiresAt?: string): Promise<PendingRegistration> {
     const pending = {
       email: email.toLowerCase(),
       phone: phone || undefined,
@@ -511,7 +618,8 @@ export const db = {
       password_hash: passwordHash,
       otp,
       created_at: new Date().toISOString(),
-      terms_accepted_at: termsAcceptedAt || null
+      terms_accepted_at: termsAcceptedAt || null,
+      expires_at: expiresAt || null
     };
 
     if (supabase) {
@@ -533,6 +641,41 @@ export const db = {
     } else {
       const data = readLocalDB();
       data.pending_registrations = data.pending_registrations.filter((pr: PendingRegistration) => pr.email?.toLowerCase() !== email.toLowerCase());
+      writeLocalDB(data);
+    }
+  },
+
+  // Password reset OTPs
+  async getPasswordReset(userId: string): Promise<PasswordReset | null> {
+    if (supabase) {
+      const { data, error } = await supabase.from('password_resets').select('*').eq('user_id', userId).maybeSingle();
+      if (error) return null;
+      return data;
+    } else {
+      const data = readLocalDB();
+      return (data.password_resets || []).find((pr: PasswordReset) => pr.user_id === userId) || null;
+    }
+  },
+
+  async createPasswordReset(userId: string, otp: string, expiresAt: string): Promise<void> {
+    const reset = { user_id: userId, otp, expires_at: expiresAt, created_at: new Date().toISOString() };
+    if (supabase) {
+      const { error } = await supabase.from('password_resets').upsert(reset);
+      if (error) throw error;
+    } else {
+      const data = readLocalDB();
+      data.password_resets = (data.password_resets || []).filter((pr: PasswordReset) => pr.user_id !== userId);
+      data.password_resets.push(reset);
+      writeLocalDB(data);
+    }
+  },
+
+  async deletePasswordReset(userId: string): Promise<void> {
+    if (supabase) {
+      await supabase.from('password_resets').delete().eq('user_id', userId);
+    } else {
+      const data = readLocalDB();
+      data.password_resets = (data.password_resets || []).filter((pr: PasswordReset) => pr.user_id !== userId);
       writeLocalDB(data);
     }
   },
@@ -1084,6 +1227,21 @@ export const db = {
     }
   },
 
+  async updateChatSessionEngagement(sessionId: string): Promise<boolean> {
+    if (supabase) {
+      const { error } = await supabase.from('chat_sessions').update({ engagement_points_awarded: true }).eq('id', sessionId);
+      return !error;
+    } else {
+      const data = readLocalDB();
+      const s = (data.chat_sessions || []).find((x: any) => x.id === sessionId);
+      if (s) {
+        s.engagement_points_awarded = true;
+        writeLocalDB(data);
+      }
+      return true;
+    }
+  },
+
   async getChatSessions(userId?: string, deviceId?: string): Promise<ChatSession[]> {
     if (supabase) {
       let query = supabase.from('chat_sessions').select('*');
@@ -1115,7 +1273,8 @@ export const db = {
     subjectName: string,
     gradeLevel: string,
     userId?: string,
-    deviceId?: string
+    deviceId?: string,
+    mode: ChatMode = 'detailed'
   ): Promise<ChatSession> {
     const session: ChatSession = {
       id: crypto.randomUUID(),
@@ -1124,11 +1283,18 @@ export const db = {
       title,
       subject_name: subjectName,
       grade_level: gradeLevel,
+      mode,
       created_at: new Date().toISOString()
     };
 
     if (supabase) {
-      const { error } = await supabase.from('chat_sessions').insert(session);
+      let { error } = await supabase.from('chat_sessions').insert(session);
+      if (error && (error.code === 'PGRST204' || (error.message && error.message.includes("mode")))) {
+        // Fallback: retry without the mode column if it's missing from the schema cache
+        const { mode: _, ...sessionWithoutMode } = session;
+        const retryResult = await supabase.from('chat_sessions').insert(sessionWithoutMode);
+        error = retryResult.error;
+      }
       if (error) throw error;
     } else {
       const data = readLocalDB();
@@ -1137,6 +1303,24 @@ export const db = {
       writeLocalDB(data);
     }
     return session;
+  },
+
+  async updateChatSessionMode(sessionId: string, mode: ChatMode): Promise<void> {
+    if (supabase) {
+      const { error } = await supabase.from('chat_sessions').update({ mode }).eq('id', sessionId);
+      if (error && (error.code === 'PGRST204' || (error.message && error.message.includes("mode")))) {
+        console.warn("Could not update chat session mode because the 'mode' column is missing from the database. Please run the migrations.");
+        return;
+      }
+      if (error) throw error;
+    } else {
+      const data = readLocalDB();
+      const session = (data.chat_sessions || []).find((s: ChatSession) => s.id === sessionId);
+      if (session) {
+        session.mode = mode;
+        writeLocalDB(data);
+      }
+    }
   },
 
   async deleteChatSession(sessionId: string): Promise<boolean> {
@@ -1531,14 +1715,24 @@ export const db = {
   },
 
   async createExamSubmission(submission: Omit<ExamSubmission, 'id' | 'submitted_at'>): Promise<ExamSubmission> {
-    const newSub = {
+    const newSub: any = {
       ...submission,
       id: crypto.randomUUID(),
       submitted_at: new Date().toISOString()
     };
 
     if (supabase) {
-      const { data, error } = await supabase.from('exam_submissions').insert(newSub).select().single();
+      let { data, error } = await supabase.from('exam_submissions').insert(newSub).select().single();
+      if (error) {
+        console.warn('Exam submission insert warning, retrying without phase 3 columns:', error.message);
+        // Fallback for databases where migration_phase3.sql has not been executed yet
+        const { points_awarded, is_first_attempt, ...fallbackSub } = newSub;
+        const retry = await supabase.from('exam_submissions').insert(fallbackSub).select().single();
+        if (!retry.error && retry.data) {
+          data = retry.data;
+          error = null;
+        }
+      }
       if (error) throw error;
       return data;
     } else {
@@ -1819,6 +2013,500 @@ export const db = {
       writeLocalDB(data);
       return true;
     }
+  },
+
+  async addCoins(userId: string, amount: number): Promise<number> {
+    const profile = await this.getProfile(userId);
+    if (!profile) return 0;
+    const currentCoins = profile.coins === undefined ? 50.0 : profile.coins;
+    const newCoins = currentCoins + amount;
+    
+    if (supabase) {
+      await supabase.from('profiles').update({ coins: newCoins }).eq('id', userId);
+    } else {
+      const data = readLocalDB();
+      const p = data.profiles.find((x: any) => x.id === userId);
+      if (p) {
+        p.coins = newCoins;
+        writeLocalDB(data);
+      }
+    }
+    return newCoins;
+  },
+
+  async addPoints(userId: string, amount: number): Promise<number> {
+    const profile = await this.getProfile(userId);
+    if (!profile) return 0;
+    const currentPoints = profile.points || 0;
+    const newPoints = currentPoints + amount;
+    
+    if (supabase) {
+      try {
+        await supabase.from('profiles').update({ points: newPoints }).eq('id', userId);
+      } catch (e) {
+        console.warn('addPoints update failed:', e);
+      }
+    } else {
+      const data = readLocalDB();
+      const p = data.profiles.find((x: any) => x.id === userId);
+      if (p) {
+        p.points = newPoints;
+        writeLocalDB(data);
+      }
+    }
+    return newPoints;
+  },
+
+  async hasSubmittedExam(examId: string, userId?: string, deviceId?: string): Promise<boolean> {
+    if (supabase) {
+      let query = supabase.from('exam_submissions').select('id', { count: 'exact', head: true }).eq('exam_id', examId);
+      if (userId) query = query.eq('user_id', userId);
+      else if (deviceId) query = query.eq('device_id', deviceId);
+      const { count } = await query;
+      return (count || 0) > 0;
+    } else {
+      const data = readLocalDB();
+      const subs = data.exam_submissions || [];
+      return subs.some((s: any) => s.exam_id === examId && (userId ? s.user_id === userId : s.device_id === deviceId));
+    }
+  },
+
+  async getLeaderboard(gradeLevel?: string, limit: number = 20): Promise<any[]> {
+    if (supabase) {
+      const { data, error } = await supabase.rpc('get_leaderboard', {
+        p_grade_level: gradeLevel || null,
+        p_limit: limit
+      });
+      if (error) {
+        console.error('get_leaderboard RPC error:', error);
+        return [];
+      }
+      return data || [];
+    } else {
+      const data = readLocalDB();
+      const students = data.profiles.filter((p: any) => {
+        if (p.role !== 'student') return false;
+        if (gradeLevel && p.grade_level !== gradeLevel) return false;
+        const email = (p.email || '').toLowerCase();
+        const name = (p.name || '').toLowerCase();
+        if (email.includes('test') || email.includes('trial')) return false;
+        if (name.includes('test') || name.includes('trial') || p.name?.includes('اختباري') || p.name?.includes('تجريبي')) return false;
+        return true;
+      });
+      
+      const stats = students.map((p: any) => {
+        const userSubmissions = data.exam_submissions ? data.exam_submissions.filter((es: any) => es.user_id === p.id) : [];
+        const avgAccuracy = userSubmissions.length > 0 
+          ? userSubmissions.reduce((acc: number, curr: any) => acc + curr.score, 0) / userSubmissions.length
+          : 0.0;
+        return {
+          user_id: p.id,
+          name: p.name,
+          grade_level: p.grade_level,
+          coins: p.coins || 0,
+          points: p.points || 0,
+          study_streak: p.study_streak || 1,
+          average_accuracy: Math.round(avgAccuracy * 100) / 100
+        };
+      });
+      
+      stats.sort((a: any, b: any) => {
+        if ((b.points || 0) !== (a.points || 0)) return (b.points || 0) - (a.points || 0);
+        if (b.study_streak !== a.study_streak) return b.study_streak - a.study_streak;
+        return b.average_accuracy - a.average_accuracy;
+      });
+      
+      return stats.slice(0, limit).map((s: any, idx: number) => ({
+        ...s,
+        rank_number: idx + 1
+      }));
+    }
+  },
+
+  async getFlashcardDecks(userId: string): Promise<any[]> {
+    if (supabase) {
+      const { data: decks, error: decksErr } = await supabase
+        .from('flashcard_decks')
+        .select('*')
+        .eq('user_id', userId);
+      
+      if (decksErr || !decks) return [];
+
+      const result = [];
+      const today = new Date().toISOString();
+
+      for (const deck of decks) {
+        const { count, error: countErr } = await supabase
+          .from('flashcards')
+          .select('id', { count: 'exact', head: true })
+          .eq('deck_id', deck.id)
+          .lte('next_review_at', today);
+        
+        const { count: totalCount } = await supabase
+          .from('flashcards')
+          .select('id', { count: 'exact', head: true })
+          .eq('deck_id', deck.id);
+
+        result.push({
+          ...deck,
+          due_count: countErr ? 0 : (count || 0),
+          total_count: totalCount || 0
+        });
+      }
+      return result;
+    } else {
+      const data = readLocalDB();
+      const decks = (data.flashcard_decks || []).filter((d: any) => d.user_id === userId);
+      const todayStr = new Date().toISOString();
+      
+      return decks.map((deck: any) => {
+        const cards = (data.flashcards || []).filter((c: any) => c.deck_id === deck.id);
+        const dueCards = cards.filter((c: any) => c.next_review_at <= todayStr);
+        return {
+          ...deck,
+          due_count: dueCards.length,
+          total_count: cards.length
+        };
+      });
+    }
+  },
+
+  async createFlashcardDeck(
+    userId: string,
+    subjectName: string,
+    gradeLevel: string,
+    title: string,
+    cards: Omit<Flashcard, 'id' | 'deck_id' | 'box' | 'next_review_at' | 'created_at'>[]
+  ): Promise<any> {
+    const deckId = crypto.randomUUID();
+    const today = new Date().toISOString();
+    const newDeck = {
+      id: deckId,
+      user_id: userId,
+      subject_name: subjectName,
+      grade_level: gradeLevel,
+      title,
+      created_at: today
+    };
+
+    const newCards = cards.map(c => ({
+      id: crypto.randomUUID(),
+      deck_id: deckId,
+      question: c.question,
+      answer: c.answer,
+      box: 1,
+      next_review_at: today,
+      created_at: today
+    }));
+
+    if (supabase) {
+      const { data: deck, error: deckErr } = await supabase.from('flashcard_decks').insert(newDeck).select().single();
+      if (deckErr) throw deckErr;
+      
+      const { error: cardsErr } = await supabase.from('flashcards').insert(newCards);
+      if (cardsErr) throw cardsErr;
+
+      return { ...deck, cards: newCards };
+    } else {
+      const data = readLocalDB();
+      if (!data.flashcard_decks) data.flashcard_decks = [];
+      if (!data.flashcards) data.flashcards = [];
+
+      data.flashcard_decks.push(newDeck);
+      data.flashcards.push(...newCards);
+      writeLocalDB(data);
+
+      return { ...newDeck, cards: newCards };
+    }
+  },
+
+  async getFlashcardsDue(deckId: string): Promise<any[]> {
+    const today = new Date().toISOString();
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('flashcards')
+        .select('*')
+        .eq('deck_id', deckId)
+        .lte('next_review_at', today)
+        .order('created_at', { ascending: true });
+      if (error) return [];
+      return data || [];
+    } else {
+      const data = readLocalDB();
+      const cards = (data.flashcards || []).filter((c: any) => c.deck_id === deckId && c.next_review_at <= today);
+      return cards.sort((a: any, b: any) => a.created_at.localeCompare(b.created_at));
+    }
+  },
+
+  async reviewFlashcard(cardId: string, rating: number): Promise<any> {
+    const intervals = [1, 2, 4, 7, 14];
+    
+    let card: any = null;
+    if (supabase) {
+      const { data } = await supabase.from('flashcards').select('*').eq('id', cardId).maybeSingle();
+      card = data;
+    } else {
+      const data = readLocalDB();
+      card = (data.flashcards || []).find((c: any) => c.id === cardId) || null;
+    }
+
+    if (!card) throw new Error('Flashcard not found');
+
+    let currentBox = card.box || 1;
+    let nextBox = currentBox;
+
+    if (rating >= 4) {
+      nextBox = Math.min(5, currentBox + 1);
+    } else if (rating === 3) {
+      nextBox = currentBox;
+    } else {
+      nextBox = 1;
+    }
+
+    const intervalDays = intervals[nextBox - 1];
+    const nextReview = new Date();
+    nextReview.setDate(nextReview.getDate() + intervalDays);
+    const nextReviewStr = nextReview.toISOString();
+
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('flashcards')
+        .update({ box: nextBox, next_review_at: nextReviewStr })
+        .eq('id', cardId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    } else {
+      const data = readLocalDB();
+      const c = data.flashcards.find((x: any) => x.id === cardId);
+      if (c) {
+        c.box = nextBox;
+        c.next_review_at = nextReviewStr;
+        writeLocalDB(data);
+      }
+      return { ...card, box: nextBox, next_review_at: nextReviewStr };
+    }
+  },
+
+  async getFlashcardsBySubject(userId: string, subjectName: string): Promise<{ decks: any[]; cards: any[] }> {
+    if (supabase) {
+      const { data: decks, error: dErr } = await supabase
+        .from('flashcard_decks')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('subject_name', subjectName);
+      if (dErr || !decks || decks.length === 0) return { decks: [], cards: [] };
+
+      const deckIds = decks.map((d: any) => d.id);
+      const deckTitleMap: Record<string, string> = {};
+      decks.forEach((d: any) => { deckTitleMap[d.id] = d.title; });
+
+      const { data: cards, error: cErr } = await supabase
+        .from('flashcards')
+        .select('*')
+        .in('deck_id', deckIds)
+        .order('created_at', { ascending: true });
+
+      const cardsWithTitle = (cards || []).map((c: any) => ({
+        ...c,
+        deck_title: deckTitleMap[c.deck_id] || ''
+      }));
+
+      return { decks, cards: cardsWithTitle };
+    } else {
+      const data = readLocalDB();
+      const decks = (data.flashcard_decks || []).filter((d: any) => d.user_id === userId && d.subject_name === subjectName);
+      const deckIds = new Set(decks.map((d: any) => d.id));
+      const deckTitleMap: Record<string, string> = {};
+      decks.forEach((d: any) => { deckTitleMap[d.id] = d.title; });
+
+      const cards = (data.flashcards || [])
+        .filter((c: any) => deckIds.has(c.deck_id))
+        .map((c: any) => ({ ...c, deck_title: deckTitleMap[c.deck_id] || '' }));
+
+      return { decks, cards };
+    }
+  },
+
+  async updateFlashcardDeck(deckId: string, userId: string, title: string): Promise<boolean> {
+    const cleanTitle = title.trim();
+    if (supabase) {
+      const { error } = await supabase.from('flashcard_decks').update({ title: cleanTitle }).eq('id', deckId).eq('user_id', userId);
+      return !error;
+    } else {
+      const data = readLocalDB();
+      const deck = (data.flashcard_decks || []).find((d: any) => d.id === deckId && d.user_id === userId);
+      if (!deck) return false;
+      deck.title = cleanTitle;
+      writeLocalDB(data);
+      return true;
+    }
+  },
+
+  async deleteFlashcardDeck(deckId: string, userId: string): Promise<boolean> {
+    if (supabase) {
+      const { error: cardsErr } = await supabase.from('flashcards').delete().eq('deck_id', deckId);
+      const { error: deckErr } = await supabase.from('flashcard_decks').delete().eq('id', deckId).eq('user_id', userId);
+      return !deckErr && !cardsErr;
+    } else {
+      const data = readLocalDB();
+      data.flashcards = (data.flashcards || []).filter((c: any) => c.deck_id !== deckId);
+      data.flashcard_decks = (data.flashcard_decks || []).filter((d: any) => !(d.id === deckId && d.user_id === userId));
+      writeLocalDB(data);
+      return true;
+    }
+  },
+
+  async updateFlashcard(cardId: string, question: string, answer: string): Promise<boolean> {
+    if (supabase) {
+      const { error } = await supabase.from('flashcards').update({ question, answer }).eq('id', cardId);
+      return !error;
+    } else {
+      const data = readLocalDB();
+      const card = (data.flashcards || []).find((c: any) => c.id === cardId);
+      if (!card) return false;
+      card.question = question;
+      card.answer = answer;
+      writeLocalDB(data);
+      return true;
+    }
+  },
+
+  async deleteFlashcard(cardId: string): Promise<boolean> {
+    if (supabase) {
+      const { error } = await supabase.from('flashcards').delete().eq('id', cardId);
+      return !error;
+    } else {
+      const data = readLocalDB();
+      data.flashcards = (data.flashcards || []).filter((c: any) => c.id !== cardId);
+      writeLocalDB(data);
+      return true;
+    }
+  },
+
+  // Payment Transactions
+  async createPaymentTransaction(tx: Omit<PaymentTransaction, 'id' | 'created_at' | 'updated_at'>): Promise<PaymentTransaction> {
+    const newTx: PaymentTransaction = {
+      id: crypto.randomUUID(),
+      ...tx,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    if (supabase) {
+      const { data, error } = await supabase.from('payment_transactions').insert(newTx).select().single();
+      if (error) {
+        // Fallback if table doesn't exist yet: return newTx in memory
+        console.warn('Supabase payment insert warning:', error.message);
+        return newTx;
+      }
+      return data;
+    } else {
+      const data = readLocalDB();
+      data.payment_transactions = data.payment_transactions || [];
+      data.payment_transactions.push(newTx);
+      writeLocalDB(data);
+      return newTx;
+    }
+  },
+
+  async getPaymentTransactionByOrderId(orderId: string): Promise<PaymentTransaction | null> {
+    if (supabase) {
+      const { data, error } = await supabase.from('payment_transactions').select('*').eq('order_id', orderId).maybeSingle();
+      if (error || !data) return null;
+      return data;
+    } else {
+      const data = readLocalDB();
+      return (data.payment_transactions || []).find((t: PaymentTransaction) => t.order_id === orderId) || null;
+    }
+  },
+
+  async updatePaymentTransactionStatus(
+    orderId: string,
+    status: 'pending' | 'success' | 'failed' | 'refunded',
+    transactionId?: string | null,
+    paymentMethod?: string | null,
+    rawResponse?: any
+  ): Promise<PaymentTransaction | null> {
+    const now = new Date().toISOString();
+    const updatePayload: any = { status, updated_at: now };
+    if (transactionId !== undefined) updatePayload.transaction_id = transactionId;
+    if (paymentMethod !== undefined) updatePayload.payment_method = paymentMethod;
+    if (rawResponse !== undefined) updatePayload.raw_response = rawResponse;
+
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('payment_transactions')
+        .update(updatePayload)
+        .eq('order_id', orderId)
+        .select()
+        .maybeSingle();
+      if (error) {
+        console.warn('Supabase payment update warning:', error.message);
+        return null;
+      }
+      return data;
+    } else {
+      const data = readLocalDB();
+      const tx = (data.payment_transactions || []).find((t: PaymentTransaction) => t.order_id === orderId);
+      if (!tx) return null;
+      Object.assign(tx, updatePayload);
+      writeLocalDB(data);
+      return tx;
+    }
+  },
+
+  async activateSubscription(userId: string, planId: string, orderId?: string): Promise<{ success: boolean; profile?: Profile | null }> {
+    const profile = await this.getProfile(userId);
+    if (!profile) return { success: false };
+
+    let bonusCoins = 500.0;
+    let planTitle = 'باقة برو (شهر)';
+    if (planId === 'pro_2m' || planId === '2_months') {
+      bonusCoins = 1000.0;
+      planTitle = 'باقة برو (شهرين)';
+    } else if (planId === 'pro_3m' || planId === '3_months') {
+      bonusCoins = 2500.0;
+      planTitle = 'باقة برو (3 أشهر)';
+    }
+
+    const currentCoins = profile.coins ?? 50.0;
+    const newCoins = currentCoins + bonusCoins;
+    const today = new Date().toISOString().split('T')[0];
+
+    // Upgrade profile to pro
+    if (supabase) {
+      await supabase.from('profiles').update({
+        plan_type: 'pro',
+        coins: newCoins,
+        last_active_date: today
+      }).eq('id', userId);
+    } else {
+      const data = readLocalDB();
+      const p = (data.profiles || []).find((x: Profile) => x.id === userId);
+      if (p) {
+        p.plan_type = 'pro';
+        p.coins = newCoins;
+        p.last_active_date = today;
+        writeLocalDB(data);
+      }
+    }
+
+    // Create in-app confirmation notification
+    try {
+      await this.createNotification({
+        title: 'تم تفعيل اشتراكك بنجاح',
+        body: `تهانينا! تم تفعيل ${planTitle} وإضافة ${bonusCoins} نقطة إلى رصيدك. استمتع بميزات المساعد الذكي غير المحدودة.`,
+        type: 'success',
+        target: 'web'
+      });
+    } catch {
+      // Non-blocking
+    }
+
+    const updatedProfile = await this.getProfile(userId);
+    return { success: true, profile: updatedProfile };
   }
 };
 

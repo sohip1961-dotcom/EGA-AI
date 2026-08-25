@@ -36,7 +36,13 @@ async function verifyGoogleIdToken(token: string, clientId: string): Promise<any
   if (payload.iss !== 'accounts.google.com' && payload.iss !== 'https://accounts.google.com') {
     throw new Error('جهة إصدار رمز الدخول غير موثوقة');
   }
-  if (payload.aud !== clientId) {
+  const allowedClientIds = [
+    clientId,
+    process.env.ANDROID_GOOGLE_CLIENT_ID || '868945795931-6hp5uq0eb234pbd3nck1jvvbv4p76kht.apps.googleusercontent.com',
+    '868945795931-v00sqknb9qsgcq7hid3t2rkps2vu1348.apps.googleusercontent.com'
+  ].filter(Boolean);
+
+  if (!allowedClientIds.includes(payload.aud)) {
     throw new Error('رمز الدخول غير مخصص لهذا التطبيق (Client ID mismatch)');
   }
 

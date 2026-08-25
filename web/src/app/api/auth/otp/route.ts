@@ -23,8 +23,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Verify OTP (Check for test fallback code 111111 as well)
-    if (otp !== '111111' && otp !== pending.otp) {
+    // Verify OTP with expiry
+    if (pending.expires_at && Date.now() > new Date(pending.expires_at).getTime()) {
+      await db.deletePendingRegistration(email);
+      return NextResponse.json(
+        { error: 'انتهت صلاحية رمز التحقق. يرجى التسجيل مرة أخرى للحصول على رمز جديد.' },
+        { status: 400 }
+      );
+    }
+    if (otp !== pending.otp) {
       return NextResponse.json(
         { error: 'رمز التحقق غير صحيح.' },
         { status: 400 }

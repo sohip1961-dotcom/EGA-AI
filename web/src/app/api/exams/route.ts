@@ -3,6 +3,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifySessionToken } from '@/lib/auth_helpers';
 
+// Model answers and explanations must never reach the client before submission.
+// They are returned only by /api/exams/submit as per-question corrections.
+function sanitizeExam(exam: any) {
+  return {
+    ...exam,
+    questions: (exam.questions || []).map((q: any) => {
+      const { correct_answer, explanation, ...rest } = q;
+      return rest;
+    })
+  };
+}
+
 // GET /api/exams - Fetch available exams
 export async function GET(req: NextRequest) {
   try {
@@ -10,7 +22,7 @@ export async function GET(req: NextRequest) {
     const deviceIdHeader = req.headers.get('x-device-id');
     const url = new URL(req.url);
     const subjectName = url.searchParams.get('subject_name') || undefined;
-    
+
     let userId: string | null = null;
     let deviceId: string | null = deviceIdHeader || null;
     let gradeLevel: string | undefined = undefined;
@@ -29,7 +41,7 @@ export async function GET(req: NextRequest) {
     }
 
     const exams = await db.getExams(gradeLevel, subjectName, userId, deviceId || undefined);
-    return NextResponse.json(exams);
+    return NextResponse.json(exams.map(sanitizeExam));
   } catch (error: any) {
     console.error('GET Exams Error:', error);
     return NextResponse.json({ error: 'حدث خطأ أثناء جلب الامتحانات' }, { status: 500 });
@@ -70,7 +82,7 @@ export async function POST(req: NextRequest) {
       device_id: deviceId || undefined
     });
 
-    return NextResponse.json(newExam);
+    return NextResponse.json(sanitizeExam(newExam));
   } catch (error: any) {
     console.error('POST Exams Error:', error);
     return NextResponse.json({ error: 'حدث خطأ أثناء حفظ الامتحان' }, { status: 500 });

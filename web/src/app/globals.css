@@ -170,6 +170,12 @@ button {
 .h-screen { height: 100vh; height: 100dvh; }
 .w-screen { width: 100vw; }
 .overflow-hidden { overflow: hidden; }
+.standalone-page-scroll {
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .border-r { border-right: 1px solid var(--border-color); }
 
 /* =============================================
@@ -1115,6 +1121,11 @@ button {
   font-weight: 400;
 }
 
+.form-input option {
+  background: var(--card-bg);
+  color: var(--text-main);
+}
+
 .form-label {
   font-size: 0.82rem;
   font-weight: 700;
@@ -1523,5 +1534,306 @@ button {
   width: 100%;
   height: auto;
   display: block;
+}
+
+/* Phase 2 Flashcard Flip Animation & Grid Styles */
+.flashcard-perspective {
+  perspective: 1000px;
+}
+
+.flashcard-container {
+  position: relative;
+  width: 100%;
+  height: 280px;
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+.flashcard-container.flipped {
+  transform: rotateY(180deg);
+}
+
+.flashcard-front, .flashcard-back {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  text-align: center;
+  box-shadow: var(--shadow-md);
+  user-select: none;
+  background: var(--card-bg);
+  color: var(--text-main);
+  transition: var(--transition);
+}
+
+.flashcard-front {
+  background: linear-gradient(135deg, var(--card-bg) 0%, var(--card-bg-hover) 100%);
+  color: var(--text-main);
+}
+
+.flashcard-back {
+  background: linear-gradient(135deg, var(--success-bg) 0%, var(--card-bg) 100%);
+  color: var(--text-main);
+  transform: rotateY(180deg);
+  border-color: var(--border-primary);
+}
+
+/* Light Theme Overrides for Flashcards */
+html[data-theme='light'] .flashcard-front {
+  background: linear-gradient(135deg, #FFFFFF 0%, #F4F6F0 100%);
+  color: #1C1E17;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08);
+}
+
+html[data-theme='light'] .flashcard-back {
+  background: linear-gradient(135deg, #F5F9EC 0%, #FFFFFF 100%);
+  color: #1C1E17;
+  border: 1.5px solid rgba(125, 161, 70, 0.4);
+  box-shadow: 0 10px 25px -5px rgba(125, 161, 70, 0.15);
+}
+
+html[data-theme='light'] .flashcard-card-item {
+  background: #FFFFFF;
+  color: #1C1E17;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+}
+
+html[data-theme='light'] .flashcard-view-mode-toggle {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* Flashcard Grid Layout */
+.flashcard-grid-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .flashcard-grid-container {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+}
+
+.flashcard-card-item {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.flashcard-card-item:hover {
+  border-color: rgba(125, 161, 70, 0.4);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+.flashcard-answer-box {
+  background: rgba(125, 161, 70, 0.08);
+  border: 1px solid rgba(125, 161, 70, 0.25);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-top: 8px;
+  animation: flashcardFadeIn 0.25s ease-in-out;
+}
+
+@keyframes flashcardFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.flashcard-view-mode-toggle {
+  display: flex;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+}
+
+.flashcard-view-mode-btn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.flashcard-view-mode-btn.active {
+  background: var(--primary-color, #7DA146);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(125, 161, 70, 0.4);
+}
+
+/* Playing Cards Stack (كوتشينة الكروت) Mechanics & Animations */
+.playing-card-stack-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 580px;
+  margin: 0 auto;
+  min-height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.playing-card-deck-layer {
+  position: absolute;
+  width: 100%;
+  height: 280px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-md);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+  pointer-events: none;
+}
+
+html[data-theme='light'] .playing-card-deck-layer {
+  background: #FFFFFF;
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+}
+
+.playing-card-slide-off {
+  animation: playingCardDealAway 0.45s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes playingCardDealAway {
+  0% {
+    transform: translateX(0) translateY(0) rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translateX(-120px) translateY(-30px) rotate(-15deg) scale(0.95);
+    opacity: 0.7;
+  }
+  100% {
+    transform: translateX(-350px) translateY(80px) rotate(-35deg) scale(0.8);
+    opacity: 0;
+  }
+}
+
+/* Leaderboard Page Styles */
+.leaderboard-rank {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-weight: bold;
+  font-size: 0.9rem;
+}
+
+.rank-gold {
+  background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+  color: #000;
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+}
+
+.rank-silver {
+  background: linear-gradient(135deg, #E0E0E0 0%, #9E9E9E 100%);
+  color: #000;
+  box-shadow: 0 0 10px rgba(224, 224, 224, 0.4);
+}
+
+.rank-bronze {
+  background: linear-gradient(135deg, #CD7F32 0%, #8B4513 100%);
+  color: #fff;
+  box-shadow: 0 0 10px rgba(205, 127, 50, 0.4);
+}
+
+.rank-default {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary, #c8ccc0);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.leaderboard-row {
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+
+.leaderboard-row:hover {
+  transform: translateX(-4px);
+  background-color: var(--card-hover, #22251c) !important;
+}
+
+/* Timer Warning animation */
+.timer-pulse {
+  animation: timerPulse 1s infinite alternate;
+}
+
+@keyframes timerPulse {
+  0% {
+    box-shadow: 0 0 4px rgba(248, 113, 113, 0.4);
+    border-color: rgba(248, 113, 113, 0.4);
+  }
+  100% {
+    box-shadow: 0 0 16px rgba(248, 113, 113, 0.8);
+    border-color: rgba(248, 113, 113, 0.8);
+  }
+}
+
+.points-plus-badge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ffd700;
+  color: #000;
+  font-weight: 900;
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(255, 215, 0, 0.6);
+  animation: pointsFlyUp 1.5s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes pointsFlyUp {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 0) scale(0.7);
+  }
+  20% {
+    opacity: 1;
+    transform: translate(-50%, -10px) scale(1.2);
+  }
+  70% {
+    opacity: 1;
+    transform: translate(-50%, -16px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -24px) scale(0.8);
+  }
 }
 

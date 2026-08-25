@@ -21,6 +21,19 @@
       "role": "student",
       "password_hash": "343f7ea65b1d1ed5b5980d214808c2e06379a8b97586db4d6c97874d4440c174",
       "created_at": "2026-06-20T08:42:31.769Z"
+    },
+    {
+      "id": "f0000000-0000-4000-a000-000000000001",
+      "phone": "01000000000",
+      "email": "test@egsaiedu.com",
+      "name": "حساب اختباري (Test Account)",
+      "grade_level": "3_high",
+      "plan_type": "max",
+      "role": "admin",
+      "unlimited_credit": true,
+      "coins": 10000,
+      "password_hash": "pbkdf2$100000$h0SjDuidjcSD8T3EPG1nRA==$pKLZrAFUqLdoMTyheDcKFq9o02smj/kIrJu03RWzHM8=",
+      "created_at": "2026-07-30T13:35:52.543Z"
     }
   ],
   "pending_registrations": [],
@@ -166,5 +179,6 @@
       "key": "website_link",
       "value": "http://localhost:3000"
     }
-  ]
+  ],
+  "payment_transactions": []
 }

@@ -1,40 +1,25 @@
 export const runtime = 'edge';
 import { NextRequest, NextResponse } from 'next/server';
-import { db, CurriculumChunk, applyRRF } from '@/lib/db';
+import { db, CurriculumChunk, ChatMode, applyRRF } from '@/lib/db';
 import { verifySessionToken } from '@/lib/auth_helpers';
-import { generateChatResponseStream } from '@/lib/deepseek';
+import { generateChatResponseStream, validateResponseAgainstContext, generateStrictRewriteStream } from '@/lib/deepseek';
 import {
   analyzeQueryIntelligence,
   generateEmbedding,
   assessContextGap,
+  classifyEngagement,
   QueryIntelligence
 } from '@/lib/gemini';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function stripAudioPrefix(msg: string): string {
-  if (msg && msg.startsWith('[AUDIO_MESSAGE:')) {
-    const closingBracketIndex = msg.indexOf(']');
-    if (closingBracketIndex !== -1) {
-      return msg.substring(closingBracketIndex + 1);
-    }
-  }
-  return msg;
-}
+const VALID_MODES: ChatMode[] = ['socratic', 'detailed', 'summary'];
 
 function parseMessage(msg: string): { cleanText: string; imageDesc?: string } {
   let cleanText = msg || '';
   let imageDesc: string | undefined;
 
-  // 1. Strip audio prefix if present
-  if (cleanText.startsWith('[AUDIO_MESSAGE:')) {
-    const closingBracketIndex = cleanText.indexOf(']');
-    if (closingBracketIndex !== -1) {
-      cleanText = cleanText.substring(closingBracketIndex + 1);
-    }
-  }
-
-  // 2. Extract and strip image prefix if present
+  // Extract and strip image prefix if present
   if (cleanText.startsWith('[IMAGE_MESSAGE:')) {
     const closingBracketIndex = cleanText.indexOf(']');
     if (closingBracketIndex !== -1) {
@@ -54,6 +39,14 @@ function parseMessage(msg: string): { cleanText: string; imageDesc?: string } {
   return { cleanText, imageDesc };
 }
 
+function buildPromptText(cleanText: string, imageDesc?: string): string {
+  let text = cleanText;
+  if (imageDesc) {
+    text = `[وصف الصورة المرفقة من الطالب: ${imageDesc}]\n\nالسؤال: ${text}`;
+  }
+  return text;
+}
+
 function buildContextString(chunks: CurriculumChunk[]): string {
   if (chunks.length === 0) return '';
   return chunks
@@ -61,15 +54,31 @@ function buildContextString(chunks: CurriculumChunk[]): string {
     .join('\n\n');
 }
 
+function buildHierarchicalContextString(parentChunks: CurriculumChunk[], childChunks: CurriculumChunk[]): string {
+  if (parentChunks.length === 0) return '';
+  return parentChunks
+    .map((parent, index) => {
+      const matchedChildren = childChunks.filter(c => c.parent_id === parent.id);
+      const childHighlights = matchedChildren.map(c => `  - جزء مطابق دقيق: ${c.content}`).join('\n');
+      
+      return `--- القسم ${index + 1}: [${parent.heading}] ---\n` +
+             `محتوى الدرس الكامل:\n${parent.content}\n` +
+             (matchedChildren.length > 0 ? `\nمطابقات الجمل المحددة:\n${childHighlights}\n` : '') +
+             `-----------------------------------------`;
+    })
+    .join('\n\n');
+}
+
 // ─── Main POST Handler ────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
-    let { message, grade_level, subject_name, session_id, history, model, thinking } = await req.json();
+    let { message, grade_level, subject_name, session_id, history, model, thinking, mode } = await req.json();
     if (grade_level) grade_level = grade_level.trim();
     if (subject_name) subject_name = subject_name.trim();
 
     const selectedModel = model === 'pro' ? 'pro' : 'flash';
     const isThinkingEnabled = !!thinking;
+    const chatMode: ChatMode = VALID_MODES.includes(mode) ? mode : 'detailed';
 
     if (!message || !subject_name) {
       return NextResponse.json(
@@ -113,8 +122,7 @@ export async function POST(req: NextRequest) {
     coins = profile.coins === undefined ? 50.0 : profile.coins;
     targetGrade = profile.grade_level?.trim();
 
-    // Beta: Pro model + Thinking are unlocked for all registered users (no payment tiers yet).
-    // (userId is always present at this point — guests are rejected above.)
+    // Pro model + Thinking features unlocked for registered accounts.
 
     // Check coins (unlimited for admins / unlimited_credit accounts)
     const hasUnlimitedCredit = profile.role === 'admin' || !!profile.unlimited_credit;
@@ -148,8 +156,14 @@ export async function POST(req: NextRequest) {
     if (userId) {
       if (!activeSessionId) {
         const title = message.length > 35 ? message.substring(0, 35) + '...' : message;
-        const newSession = await db.createChatSession(title, subject_name, targetGrade, userId, undefined);
+        const newSession = await db.createChatSession(title, subject_name, targetGrade, userId, undefined, chatMode);
         activeSessionId = newSession.id;
+      } else {
+        // Keep the stored mode in sync so reopening the conversation restores it
+        const existingSession = await db.getChatSession(activeSessionId);
+        if (existingSession && (existingSession.mode || 'detailed') !== chatMode) {
+          await db.updateChatSessionMode(activeSessionId, chatMode);
+        }
       }
     } else {
       activeSessionId = session_id || 'guest-session';
@@ -194,9 +208,7 @@ export async function POST(req: NextRequest) {
           const { cleanText, imageDesc: histDesc } = parseMessage(h.message);
           return {
             sender: h.sender,
-            message: histDesc
-              ? `[وصف الصورة المرفقة من الطالب: ${histDesc}]\n\nالسؤال: ${cleanText}`
-              : cleanText
+            message: buildPromptText(cleanText, histDesc)
           };
         });
     } else if (history) {
@@ -204,9 +216,7 @@ export async function POST(req: NextRequest) {
         const { cleanText, imageDesc: histDesc } = parseMessage(h.message || '');
         return {
           sender: h.sender,
-          message: histDesc
-            ? `[وصف الصورة المرفقة من الطالب: ${histDesc}]\n\nالسؤال: ${cleanText}`
-            : cleanText
+          message: buildPromptText(cleanText, histDesc)
         };
       });
     }
@@ -248,30 +258,76 @@ export async function POST(req: NextRequest) {
               console.error('Query intelligence failed, using fallback:', intellErr);
             }
 
+            // Dynamic Curriculum Router
+            let activeGrade = targetGrade;
+            let activeSubject = subject_name;
+
+            if (intelligence.metadata?.gradeLevel || intelligence.metadata?.subject) {
+              const routerGrade = intelligence.metadata.gradeLevel || targetGrade;
+              const routerSubject = intelligence.metadata.subject || subject_name;
+              
+              const routerCurr = allCurriculums.find(c => c.grade_level === routerGrade && c.subject_name === routerSubject);
+              if (routerCurr) {
+                activeGrade = routerGrade;
+                activeSubject = routerSubject;
+                emitSearchStep('routing', '🗺️', `تم توجيه البحث تلقائياً إلى منهج: ${activeSubject} (${activeGrade === '3_high' ? 'الصف الثالث الثانوي' : activeGrade})`);
+              }
+            }
+
             emitSearchStep('searching', '🔍', intelligence.searchAnnouncement);
 
             // Step 2: PARALLEL — Embed HyDE + BM25 search simultaneously
-            // Only HyDE is embedded for vector search (matches document format better than raw query)
             const [hydeEmbedding, bm25Chunks] = await Promise.all([
               generateEmbedding(intelligence.hydePassage).catch(e => {
                 console.error('HyDE embedding failed:', e);
                 return [] as number[];
               }),
-              db.bm25SearchCurriculum(targetGrade, subject_name, intelligence.arabicKeywords, intelligence.englishKeywords)
+              db.bm25SearchCurriculum(activeGrade, activeSubject, intelligence.arabicKeywords, intelligence.englishKeywords)
             ]);
 
-            // Step 3: Vector search with HyDE embedding only (single embedding call total)
+            // Step 3: Vector search with HyDE embedding
             let vectorChunks: CurriculumChunk[] = [];
             if (hydeEmbedding.length > 0) {
               try {
-                vectorChunks = await db.vectorSearchCurriculum(targetGrade, subject_name, hydeEmbedding);
+                vectorChunks = await db.vectorSearchCurriculum(activeGrade, activeSubject, hydeEmbedding);
               } catch (vecErr) {
                 console.error('Vector search failed, using BM25 only:', vecErr);
               }
             }
 
-            // Step 4: RRF fusion (k=60): score = Σ(m in M) [ 1/(k + rank_m(d)) ]
-            const fusedChildChunks = applyRRF(vectorChunks, bm25Chunks, 60).slice(0, 8);
+            // Step 4: RRF fusion (k=60) with metadata boosting for unit/chapter
+            const scores = new Map<string, { chunk: CurriculumChunk; score: number }>();
+            
+            vectorChunks.forEach((chunk, rank) => {
+              const score = 1 / (60 + rank + 1);
+              scores.set(chunk.id, { chunk, score });
+            });
+            
+            bm25Chunks.forEach((chunk, rank) => {
+              const score = 1 / (60 + rank + 1);
+              const existing = scores.get(chunk.id);
+              scores.set(chunk.id, { chunk, score: (existing?.score || 0) + score });
+            });
+            
+            if (intelligence.metadata?.unit || intelligence.metadata?.chapter) {
+              const unitTerm = intelligence.metadata.unit?.trim().toLowerCase();
+              const chapterTerm = intelligence.metadata.chapter?.trim().toLowerCase();
+              
+              for (const [id, item] of scores.entries()) {
+                const heading = (item.chunk.heading || '').toLowerCase();
+                let boost = 1.0;
+                if (unitTerm && heading.includes(unitTerm)) boost += 1.5;
+                if (chapterTerm && heading.includes(chapterTerm)) boost += 1.5;
+                if (boost > 1.0) {
+                  item.score = item.score * boost;
+                }
+              }
+            }
+
+            const fusedChildChunks = Array.from(scores.values())
+              .sort((a, b) => b.score - a.score)
+              .map(({ chunk }) => chunk)
+              .slice(0, 8);
 
             // Step 5: Expand child chunks → fetch their parent chunks (full sections for context)
             let contextChunks: CurriculumChunk[] = [];
@@ -290,13 +346,12 @@ export async function POST(req: NextRequest) {
               contextChunks = fusedChildChunks;
             }
 
-            // Step 6: Query-type routing (no API call for direct/overview)
+            // Step 6: Query-type routing
             if (intelligence.queryType === 'overview') {
-              // Overview: Immediately inject curriculum summary (no gap analysis needed)
               emitSearchStep('summary', '📚', 'سأستعرض محتوى المنهج الكامل...');
               const [summary, outline] = await Promise.all([
-                db.getCurriculumSummary(targetGrade, subject_name),
-                db.getFullCurriculumOutline(targetGrade, subject_name)
+                db.getCurriculumSummary(activeGrade, activeSubject),
+                db.getFullCurriculumOutline(activeGrade, activeSubject)
               ]);
               if (summary) {
                 ragContext = `ملخص المنهج الشامل:\n${summary}\n\n`;
@@ -304,46 +359,44 @@ export async function POST(req: NextRequest) {
               if (outline.length > 0) {
                 ragContext += `محاور المنهج الدراسي:\n${outline.map((h, i) => `${i + 1}. ${h}`).join('\n')}\n\n`;
               }
-              ragContext += buildContextString(contextChunks.slice(0, 4));
+              ragContext += buildHierarchicalContextString(contextChunks.slice(0, 4), fusedChildChunks);
 
             } else if (intelligence.queryType === 'direct' && contextChunks.length >= 3) {
               // Direct query with good results: skip gap analysis entirely
-              ragContext = buildContextString(contextChunks.slice(0, 8));
+              ragContext = buildHierarchicalContextString(contextChunks.slice(0, 8), fusedChildChunks);
 
             } else {
               // Inferential/problem_solving or thin results: conditional gap analysis
-              ragContext = buildContextString(contextChunks.slice(0, 8));
+              ragContext = buildHierarchicalContextString(contextChunks.slice(0, 8), fusedChildChunks);
 
               if (contextChunks.length < 3) {
-                // Only call Gemini gap analysis when results are insufficient
                 emitSearchStep('assessing', '📊', 'أتحقق من كفاية المعلومات المسترجعة...');
 
                 try {
                   const gap = await assessContextGap(promptText, ragContext);
 
                   if (!gap.sufficient && gap.missingTopics.length > 0) {
-                    // Round 2: BM25 only for missing topics (fast, no embedding)
                     for (const topic of gap.missingTopics.slice(0, 2)) {
                       emitSearchStep('followup', '🔍', `سأبحث أيضاً عن: ${topic}`);
                       try {
                         const extraChunks = await db.bm25SearchCurriculum(
-                          targetGrade, subject_name, [topic], [topic]
+                          activeGrade, activeSubject, [topic], [topic]
                         );
                         // Add new results, deduplicate
                         const existingIds = new Set(contextChunks.map(c => c.id));
                         const newChunks = extraChunks.filter(c => !existingIds.has(c.id));
                         contextChunks.push(...newChunks.slice(0, 3));
+                        fusedChildChunks.push(...extraChunks.slice(0, 3));
                       } catch (extraErr) {
                         console.error(`Round 2 search for "${topic}" failed:`, extraErr);
                       }
                     }
-                    ragContext = buildContextString(contextChunks.slice(0, 8));
+                    ragContext = buildHierarchicalContextString(contextChunks.slice(0, 8), fusedChildChunks);
                   }
 
-                  // If still insufficient, inject curriculum summary as fallback
                   if (!gap.sufficient && contextChunks.length < 2) {
                     emitSearchStep('summary', '📚', 'سأراجع ملخص المنهج الكامل...');
-                    const summary = await db.getCurriculumSummary(targetGrade, subject_name);
+                    const summary = await db.getCurriculumSummary(activeGrade, activeSubject);
                     if (summary) {
                       ragContext = `ملخص المنهج:\n${summary}\n\n${ragContext}`;
                     }
@@ -364,9 +417,7 @@ export async function POST(req: NextRequest) {
             context = ragContext;
           }
 
-          const finalPromptText = imageDesc
-            ? `[وصف الصورة المرفقة من الطالب: ${imageDesc}]\n\nالسؤال: ${promptText}`
-            : promptText;
+          const finalPromptText = buildPromptText(promptText, imageDesc);
 
           // ─── PHASE 2: Generate Answer with DeepSeek (streaming) ───────────
           // Re-fetch DeepSeek stream with the actual RAG context
@@ -375,7 +426,8 @@ export async function POST(req: NextRequest) {
             context,
             recentHistory,
             selectedModel === 'pro' ? 'deepseek-v4-pro' : 'deepseek-v4-flash',
-            isThinkingEnabled
+            isThinkingEnabled,
+            chatMode
           );
 
           if (!deepseekRes2.ok) {
@@ -394,7 +446,6 @@ export async function POST(req: NextRequest) {
 
           let fullThought = '';
           let fullContent = '';
-          let hasStartedContent = false;
           const thoughtStartTime = Date.now();
           let thoughtDuration = 0;
           let streamBuffer = '';
@@ -429,21 +480,9 @@ export async function POST(req: NextRequest) {
                   if (!delta) continue;
 
                   if (delta.reasoning_content) {
-                    const chunk = delta.reasoning_content;
-                    fullThought += chunk;
-                    controller.enqueue(encoder.encode(
-                      `data: ${JSON.stringify({ type: 'thought', content: chunk })}\n\n`
-                    ));
+                    fullThought += delta.reasoning_content;
                   } else if (delta.content) {
-                    if (!hasStartedContent) {
-                      hasStartedContent = true;
-                      thoughtDuration = (Date.now() - thoughtStartTime) / 1000;
-                    }
-                    const chunk = delta.content;
-                    fullContent += chunk;
-                    controller.enqueue(encoder.encode(
-                      `data: ${JSON.stringify({ type: 'content', content: chunk })}\n\n`
-                    ));
+                    fullContent += delta.content;
                   }
                 } catch (e) {
                   // Ignore partial JSON parse errors
@@ -452,14 +491,108 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          if (!hasStartedContent && fullThought) {
-            thoughtDuration = (Date.now() - thoughtStartTime) / 1000;
+          // Fact verification step
+          emitSearchStep('verifying', '🛡️', 'أتحقق من دقة وموثوقية الإجابة...');
+          const validation = await validateResponseAgainstContext(fullContent, context);
+
+          let finalThought = fullThought;
+          let finalContent = fullContent;
+          let isRewritten = false;
+
+          if (!validation.isValid) {
+            emitSearchStep('rewriting', '⚠️', 'أعيد صياغة الإجابة لتتطابق تماماً مع كتابك المدرسي...');
+            const rewriteRes = await generateStrictRewriteStream(
+              fullContent,
+              context,
+              recentHistory,
+              selectedModel === 'pro' ? 'deepseek-v4-pro' : 'deepseek-v4-flash',
+              isThinkingEnabled,
+              chatMode
+            );
+
+            if (rewriteRes.ok) {
+              isRewritten = true;
+              const rewriteReader = rewriteRes.body?.getReader();
+              if (rewriteReader) {
+                let rewriteBuffer = '';
+                finalThought = '';
+                finalContent = '';
+
+                while (true) {
+                  const { done, value } = await rewriteReader.read();
+                  if (done) break;
+
+                  rewriteBuffer += decoder.decode(value, { stream: true });
+                  const lines = rewriteBuffer.split('\n');
+                  rewriteBuffer = lines.pop() || '';
+
+                  for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+
+                    if (trimmed.startsWith('data: ')) {
+                      const dataStr = trimmed.slice(6);
+                      if (dataStr === '[DONE]') break;
+
+                      try {
+                        const parsed = JSON.parse(dataStr);
+                        if (parsed.usage) {
+                          promptTokens = parsed.usage.prompt_tokens || 0;
+                          completionTokens = parsed.usage.completion_tokens || 0;
+                        }
+
+                        const delta = parsed.choices?.[0]?.delta;
+                        if (delta) {
+                          if (delta.reasoning_content) {
+                            finalThought += delta.reasoning_content;
+                            controller.enqueue(encoder.encode(
+                              `data: ${JSON.stringify({ type: 'thought', content: delta.reasoning_content })}\n\n`
+                            ));
+                          } else if (delta.content) {
+                            finalContent += delta.content;
+                            controller.enqueue(encoder.encode(
+                              `data: ${JSON.stringify({ type: 'content', content: delta.content })}\n\n`
+                            ));
+                          }
+                        }
+                      } catch (e) {}
+                    }
+                  }
+                }
+              }
+            }
           }
 
+          if (!isRewritten) {
+            // Stream the valid response from the buffer with typewriter speed delay
+            if (finalThought) {
+              const chunkSize = 25;
+              for (let i = 0; i < finalThought.length; i += chunkSize) {
+                const chunk = finalThought.slice(i, i + chunkSize);
+                controller.enqueue(encoder.encode(
+                  `data: ${JSON.stringify({ type: 'thought', content: chunk })}\n\n`
+                ));
+                await new Promise(resolve => setTimeout(resolve, 5));
+              }
+            }
+
+            if (finalContent) {
+              const chunkSize = 40;
+              for (let i = 0; i < finalContent.length; i += chunkSize) {
+                const chunk = finalContent.slice(i, i + chunkSize);
+                controller.enqueue(encoder.encode(
+                  `data: ${JSON.stringify({ type: 'content', content: chunk })}\n\n`
+                ));
+                await new Promise(resolve => setTimeout(resolve, 8));
+              }
+            }
+          }
+
+          thoughtDuration = (Date.now() - thoughtStartTime) / 1000;
           const finalDuration = thoughtDuration > 0 ? thoughtDuration : 0;
-          const combinedMessage = fullThought
-            ? `<thought duration="${Math.round(finalDuration)}">${fullThought}</thought>${fullContent}`
-            : fullContent;
+          const combinedMessage = finalThought
+            ? `<thought duration="${Math.round(finalDuration)}">${finalThought}</thought>${finalContent}`
+            : finalContent;
 
           // Coin cost calculation
           let egpCost = 0;
@@ -476,13 +609,34 @@ export async function POST(req: NextRequest) {
             await db.addChatMessage('ai', combinedMessage, userId, undefined, activeSessionId, coinsCost);
           }
 
+          let pointsAwarded = 0;
+          let totalPoints: number | undefined = undefined;
+
+          if (userId && activeSessionId) {
+            try {
+              const session = await db.getChatSession(activeSessionId);
+              if (session && !session.engagement_points_awarded) {
+                const isEngaged = await classifyEngagement(message, combinedMessage);
+                if (isEngaged) {
+                  pointsAwarded = 3;
+                  totalPoints = await db.addPoints(userId, 3);
+                  await db.updateChatSessionEngagement(activeSessionId);
+                }
+              }
+            } catch (pErr) {
+              console.error('Error classifying engagement points:', pErr);
+            }
+          }
+
           controller.enqueue(encoder.encode(
             `data: ${JSON.stringify({
               type: 'done',
               session_id: activeSessionId,
               duration: Math.round(finalDuration),
               coins_used: Number(coinsCost.toFixed(4)),
-              remaining_coins: Number(remainingCoins.toFixed(2))
+              remaining_coins: Number(remainingCoins.toFixed(2)),
+              points_awarded: pointsAwarded,
+              total_points: totalPoints
             })}\n\n`
           ));
 

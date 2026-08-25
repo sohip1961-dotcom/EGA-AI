@@ -1,7 +1,8 @@
 export const runtime = 'edge';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { verifySessionToken, hashPassword } from '@/lib/auth_helpers';
+import { verifySessionToken, hashPasswordSecure, generateOtp, OTP_TTL_MS } from '@/lib/auth_helpers';
+import { sendOtpEmail } from '@/lib/email';
 
 // Helper: Get user id from headers
 function getUserId(req: NextRequest): string | null {
@@ -58,10 +59,24 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'send-otp') {
-      // Create pending password reset in database if needed, or just return success with mock instructions
+      if (!profile.email) {
+        return NextResponse.json({ error: 'لا يوجد بريد إلكتروني مسجل لهذا الحساب.' }, { status: 400 });
+      }
+
+      const otpCode = generateOtp();
+      const sent = await sendOtpEmail(profile.email, otpCode, 'reset');
+      if (!sent.ok) {
+        return NextResponse.json(
+          { error: 'تعذر إرسال رمز التحقق إلى بريدك الإلكتروني. يرجى المحاولة مرة أخرى بعد قليل.' },
+          { status: 502 }
+        );
+      }
+
+      await db.createPasswordReset(userId, otpCode, new Date(Date.now() + OTP_TTL_MS).toISOString());
+
       return NextResponse.json({
         success: true,
-        message: 'تم إرسال رمز التحقق التجريبي بنجاح. يرجى استخدام "111111" للتأكيد.'
+        message: 'تم إرسال رمز التحقق إلى بريدك الإلكتروني.'
       });
     }
 
@@ -70,15 +85,21 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'رمز التحقق وكلمة المرور الجديدة مطلوبان' }, { status: 400 });
       }
 
-      if (otp !== '111111') {
-        return NextResponse.json({ error: 'رمز التحقق غير صحيح. يرجى استخدام الرمز التجريبي "111111".' }, { status: 400 });
+      const reset = await db.getPasswordReset(userId);
+      if (!reset || Date.now() > new Date(reset.expires_at).getTime()) {
+        if (reset) await db.deletePasswordReset(userId);
+        return NextResponse.json({ error: 'انتهت صلاحية رمز التحقق. يرجى طلب رمز جديد.' }, { status: 400 });
+      }
+      if (otp !== reset.otp) {
+        return NextResponse.json({ error: 'رمز التحقق غير صحيح.' }, { status: 400 });
       }
 
-      const passwordHash = hashPassword(new_password);
+      const passwordHash = await hashPasswordSecure(new_password);
       const updated = await db.updateProfilePassword(userId, passwordHash);
       if (!updated) {
         return NextResponse.json({ error: 'فشل تحديث كلمة المرور' }, { status: 500 });
       }
+      await db.deletePasswordReset(userId);
 
       return NextResponse.json({
         success: true,

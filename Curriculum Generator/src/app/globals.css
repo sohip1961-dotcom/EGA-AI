@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
+
+:root {
+  --bg-main: #0D0E0B;
+  --bg-surface: #141611;
+  --bg-card: #1C1F18;
+  --border-color: #2D3227;
+  --brand-primary: #7DA146;
+  --brand-hover: #93B856;
+  --text-main: #F4F6F0;
+  --text-muted: #9AA08F;
+  --status-pending: #EAB308;
+  --status-processing: #3B82F6;
+  --status-completed: #22C55E;
+  --status-failed: #EF4444;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-family: 'Tajawal', sans-serif;
+  direction: rtl;
+  min-height: 100vh;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-main);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-primary);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1.2s linear infinite;
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 900px) {
+  div[style*="gridTemplateColumns: 1fr 380px"] {
+    grid-template-columns: 1fr !important;
+  }
+  div[style*="position: sticky"] {
+    position: static !important;
+  }
+}

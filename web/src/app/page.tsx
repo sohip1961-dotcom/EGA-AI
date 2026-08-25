@@ -34,7 +34,31 @@ import {
   LogIn,
   Bell,
   ArrowRight,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Mic,
+  GraduationCap,
+  ListChecks,
+  MessageCircleQuestion,
+  Undo2,
+  Crop,
+  Brush,
+  Brain,
+  Trophy,
+  Flame,
+  Coins,
+  Award,
+  Edit2,
+  Trash2,
+  PlusCircle,
+  Layers,
+  Grid,
+  Eye,
+  EyeOff,
+  RotateCcw,
+  CheckCircle2,
+  Phone,
+  CheckCircle,
+  ShieldCheck
 } from 'lucide-react';
 
 interface SearchStep {
@@ -50,6 +74,7 @@ interface ChatMessage {
   thought?: string;
   isThinking?: boolean;
   duration?: number;
+  hasError?: boolean;
   searchSteps?: SearchStep[]; // v2 RAG search steps for display
 }
 
@@ -120,163 +145,7 @@ const CodeBlock = ({ code, language }: { code: string; language: string }) => {
   );
 };
 
-const AudioPlayerMessage = ({ mimeType, base64Data, transcription }: { mimeType: string; base64Data: string; transcription: string }) => {
-  const [playing, setPlaying] = useState(false);
-  const [showText, setShowText] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  const togglePlay = () => {
-    if (!audioRef.current) return;
-    if (playing) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play().catch(err => console.error('Audio play error:', err));
-    }
-  };
-
-  const handleTimeUpdate = () => {
-    if (audioRef.current) {
-      setCurrentTime(audioRef.current.currentTime);
-    }
-  };
-
-  const handleLoadedMetadata = () => {
-    if (audioRef.current) {
-      setDuration(audioRef.current.duration);
-    }
-  };
-
-  const handleEnded = () => {
-    setPlaying(false);
-    setCurrentTime(0);
-  };
-
-  const formatTime = (time: number) => {
-    if (isNaN(time)) return '0:00';
-    const mins = Math.floor(time / 60);
-    const secs = Math.floor(time % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  return (
-    <div className="audio-player-message" style={{
-      background: 'rgba(255, 255, 255, 0.05)',
-      border: '1px solid var(--border-color)',
-      borderRadius: '16px',
-      padding: '12px 16px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '10px',
-      width: '100%',
-      maxWidth: '320px',
-      boxShadow: 'var(--shadow-sm)',
-      direction: 'rtl'
-    }}>
-      <audio
-        ref={audioRef}
-        src={`data:${mimeType};base64,${base64Data}`}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onTimeUpdate={handleTimeUpdate}
-        onLoadedMetadata={handleLoadedMetadata}
-        onEnded={handleEnded}
-      />
-      
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <button
-          type="button"
-          onClick={togglePlay}
-          style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '50%',
-            background: 'var(--primary-color)',
-            color: '#fff',
-            border: 'none',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            fontSize: '1rem',
-            boxShadow: '0 2px 8px rgba(125, 161, 70, 0.3)'
-          }}
-        >
-          {playing ? '⏸️' : '▶️'}
-        </button>
-
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <input
-            type="range"
-            min={0}
-            max={duration || 100}
-            value={currentTime}
-            onChange={(e) => {
-              if (audioRef.current) {
-                audioRef.current.currentTime = parseFloat(e.target.value);
-                setCurrentTime(audioRef.current.currentTime);
-              }
-            }}
-            style={{
-              width: '100%',
-              height: '4px',
-              borderRadius: '2px',
-              accentColor: 'var(--primary-color)',
-              background: 'rgba(255, 255, 255, 0.2)',
-              cursor: 'pointer'
-            }}
-          />
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-            <span>{formatTime(currentTime)}</span>
-            <span>{formatTime(duration)}</span>
-          </div>
-        </div>
-      </div>
-
-      {transcription && (
-        <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '8px' }}>
-          <button
-            type="button"
-            onClick={() => setShowText(!showText)}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--primary-color)',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              padding: '2px 0',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontFamily: 'var(--font-arabic)'
-            }}
-          >
-            <span>{showText ? '📖 إخفاء النص المقروء' : '📖 عرض النص المقروء'}</span>
-          </button>
-          {showText && (
-            <div style={{
-              marginTop: '8px',
-              padding: '8px 12px',
-              background: 'rgba(255, 255, 255, 0.02)',
-              borderLeft: '2px solid var(--primary-color)',
-              borderRadius: '4px',
-              fontSize: '0.85rem',
-              color: 'var(--text-main)',
-              lineHeight: '1.4',
-              whiteSpace: 'pre-wrap'
-            }}>
-              {transcription}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const ThoughtBlock = ({ 
+const ThoughtBlock = ({
   thought, 
   duration, 
   isThinking 
@@ -922,12 +791,14 @@ const ThoughtBlock = ({
     content, 
     sender,
     onGoToExams,
-    onAnswerSubmit
+    onAnswerSubmit,
+    onGoToFlashcards
   }: { 
     content: string; 
     sender: 'user' | 'ai';
     onGoToExams: (exam: any) => void;
     onAnswerSubmit: (text: string) => void;
+    onGoToFlashcards?: (subjectName: string) => void;
   }) => {
     if (sender === 'user') {
       return <div style={{ whiteSpace: 'pre-wrap', direction: 'rtl' }}>{content}</div>;
@@ -936,6 +807,7 @@ const ThoughtBlock = ({
     let displayContent = content;
     let quizData: any = null;
     let examData: any = null;
+    let flashcardsData: any = null;
 
     const quizRegex = /\[QUIZ_QUESTION\]([\s\S]*?)\[\/QUIZ_QUESTION\]/;
     const quizMatch = content.match(quizRegex);
@@ -959,11 +831,49 @@ const ThoughtBlock = ({
       }
     }
 
+    const flashcardsRegex = /\[CREATE_FLASHCARDS\]([\s\S]*?)\[\/CREATE_FLASHCARDS\]/;
+    const flashcardsMatch = content.match(flashcardsRegex);
+    if (flashcardsMatch) {
+      displayContent = displayContent.replace(flashcardsMatch[0], '');
+      try {
+        flashcardsData = JSON.parse(flashcardsMatch[1].trim());
+      } catch (e) {
+        console.error('Flashcards JSON parse error:', e);
+      }
+    }
+
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
         {displayContent.trim() && <MarkdownMessage content={displayContent} />}
         {quizData && <InteractiveQuizCard quiz={quizData} onAnswerSubmit={onAnswerSubmit} />}
         {examData && <InteractiveExamInviteCard exam={examData} onGoToExams={() => onGoToExams(examData)} />}
+        {flashcardsData && (
+          <div className="glass" style={{ padding: '16px 20px', borderRadius: '14px', border: '1px solid var(--primary-color)', background: 'rgba(125, 161, 70, 0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginTop: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ background: 'var(--primary-color)', color: '#000', padding: '10px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Brain size={24} />
+              </div>
+              <div>
+                <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 900, color: 'var(--text-main)' }}>
+                  {flashcardsData.title || 'مجموعة كروت جديدة'}
+                </h4>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  {flashcardsData.subject_name} • {flashcardsData.cards?.length || 0} كارت تعليمي
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                if (onGoToFlashcards) onGoToFlashcards(flashcardsData.subject_name);
+              }}
+              className="btn-primary"
+              style={{ padding: '8px 16px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 800, border: 'none', cursor: 'pointer' }}
+            >
+              مراجعة الكروت الآن
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -1066,15 +976,283 @@ const ThoughtBlock = ({
     );
   };
 
+// ─── Image Editor (crop + freehand markup, dependency-free) ──────────────────
+const EDITOR_BRUSH_COLORS = ['#7DA146', '#91B854', '#EAD7B7', '#f87171', '#fbbf24', '#FFFFFF', '#0D0E0B'];
+
+const ImageEditorModal = ({
+  src,
+  mimeType,
+  onConfirm,
+  onCancel,
+}: {
+  src: string;
+  mimeType: string;
+  onConfirm: (base64: string, mimeType: string) => void;
+  onCancel: () => void;
+}) => {
+  const [tool, setTool] = useState<'crop' | 'brush'>('brush');
+  const [brushColor, setBrushColor] = useState(EDITOR_BRUSH_COLORS[0]);
+  const [strokes, setStrokes] = useState<{ color: string; points: { x: number; y: number }[] }[]>([]);
+  const [cropRect, setCropRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const drawingRef = useRef(false);
+  const cropStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Redraw overlay (strokes + crop rect) whenever state changes
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img || !imgSize) return;
+    canvas.width = img.clientWidth;
+    canvas.height = img.clientHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const sx = img.clientWidth / imgSize.w;
+    const sy = img.clientHeight / imgSize.h;
+    for (const stroke of strokes) {
+      if (stroke.points.length < 2) continue;
+      ctx.strokeStyle = stroke.color;
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(stroke.points[0].x * sx, stroke.points[0].y * sy);
+      for (const p of stroke.points.slice(1)) ctx.lineTo(p.x * sx, p.y * sy);
+      ctx.stroke();
+    }
+    if (cropRect) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(cropRect.x * sx, cropRect.y * sy, cropRect.w * sx, cropRect.h * sy);
+      ctx.strokeStyle = '#7DA146';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(cropRect.x * sx, cropRect.y * sy, cropRect.w * sx, cropRect.h * sy);
+      ctx.restore();
+    }
+  }, [strokes, cropRect, imgSize]);
+
+  const toImageCoords = (e: React.PointerEvent): { x: number; y: number } | null => {
+    const img = imgRef.current;
+    if (!img || !imgSize) return null;
+    const rect = img.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * imgSize.w;
+    const y = ((e.clientY - rect.top) / rect.height) * imgSize.h;
+    return {
+      x: Math.max(0, Math.min(imgSize.w, x)),
+      y: Math.max(0, Math.min(imgSize.h, y))
+    };
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    const pt = toImageCoords(e);
+    if (!pt) return;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    if (tool === 'brush') {
+      drawingRef.current = true;
+      setStrokes(prev => [...prev, { color: brushColor, points: [pt] }]);
+    } else {
+      cropStartRef.current = pt;
+      setCropRect({ x: pt.x, y: pt.y, w: 0, h: 0 });
+    }
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const pt = toImageCoords(e);
+    if (!pt) return;
+    if (tool === 'brush' && drawingRef.current) {
+      setStrokes(prev => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last) next[next.length - 1] = { ...last, points: [...last.points, pt] };
+        return next;
+      });
+    } else if (tool === 'crop' && cropStartRef.current) {
+      const start = cropStartRef.current;
+      setCropRect({
+        x: Math.min(start.x, pt.x),
+        y: Math.min(start.y, pt.y),
+        w: Math.abs(pt.x - start.x),
+        h: Math.abs(pt.y - start.y)
+      });
+    }
+  };
+
+  const handlePointerUp = () => {
+    drawingRef.current = false;
+    cropStartRef.current = null;
+    if (cropRect && (cropRect.w < 10 || cropRect.h < 10)) setCropRect(null);
+  };
+
+  const handleUndo = () => {
+    if (tool === 'crop' && cropRect) {
+      setCropRect(null);
+    } else {
+      setStrokes(prev => prev.slice(0, -1));
+    }
+  };
+
+  const exportImage = () => {
+    const img = imgRef.current;
+    if (!img || !imgSize) return;
+    const region = cropRect && cropRect.w >= 10 && cropRect.h >= 10
+      ? cropRect
+      : { x: 0, y: 0, w: imgSize.w, h: imgSize.h };
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(region.w);
+    canvas.height = Math.round(region.h);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(img, region.x, region.y, region.w, region.h, 0, 0, canvas.width, canvas.height);
+    ctx.lineWidth = Math.max(3, imgSize.w / 250);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const stroke of strokes) {
+      if (stroke.points.length < 2) continue;
+      ctx.strokeStyle = stroke.color;
+      ctx.beginPath();
+      ctx.moveTo(stroke.points[0].x - region.x, stroke.points[0].y - region.y);
+      for (const p of stroke.points.slice(1)) ctx.lineTo(p.x - region.x, p.y - region.y);
+      ctx.stroke();
+    }
+    // JPEG keeps the payload small; step quality down until it fits the 5 MB cap
+    let quality = 0.92;
+    let dataUrl = canvas.toDataURL('image/jpeg', quality);
+    while (dataUrl.length * 0.75 > 5 * 1024 * 1024 && quality > 0.4) {
+      quality -= 0.12;
+      dataUrl = canvas.toDataURL('image/jpeg', quality);
+    }
+    onConfirm(dataUrl.split(',')[1], 'image/jpeg');
+  };
+
+  const toolButtonStyle = (active: boolean): React.CSSProperties => ({
+    display: 'flex',
+    alignItems: 'center',
+    gap: '5px',
+    padding: '6px 12px',
+    borderRadius: '10px',
+    border: '1px solid var(--border-color)',
+    background: active ? 'var(--primary-color)' : 'var(--alpha-white-4)',
+    color: active ? 'var(--text-on-primary)' : 'var(--text-main)',
+    fontSize: '0.78rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    fontFamily: 'var(--font-arabic)',
+  });
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(10px)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px' }}>
+      <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '640px', maxHeight: '95vh', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-xl)', display: 'flex', flexDirection: 'column', overflow: 'hidden', direction: 'rtl' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--border-color)' }}>
+          <span style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-main)', fontFamily: 'var(--font-arabic)' }}>تعديل الصورة قبل الإرسال</span>
+          <button type="button" onClick={onCancel} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '4px' }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', padding: '10px 18px' }}>
+          <button type="button" onClick={() => setTool('brush')} style={toolButtonStyle(tool === 'brush')}>
+            <Brush size={13} />
+            <span>رسم</span>
+          </button>
+          <button type="button" onClick={() => setTool('crop')} style={toolButtonStyle(tool === 'crop')}>
+            <Crop size={13} />
+            <span>قص</span>
+          </button>
+          <button type="button" onClick={handleUndo} style={toolButtonStyle(false)}>
+            <Undo2 size={13} />
+            <span>تراجع</span>
+          </button>
+          {tool === 'brush' && (
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              {EDITOR_BRUSH_COLORS.map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setBrushColor(c)}
+                  aria-label={`لون ${c}`}
+                  style={{
+                    width: '20px',
+                    height: '20px',
+                    borderRadius: '50%',
+                    background: c,
+                    border: brushColor === c ? '2px solid var(--text-main)' : '1px solid var(--border-color)',
+                    cursor: 'pointer',
+                    padding: 0,
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div ref={containerRef} style={{ margin: '0 18px', flex: 1, minHeight: '200px', maxHeight: '55vh', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderRadius: '12px', background: 'var(--input-bg)', touchAction: 'none' }}>
+          <div style={{ position: 'relative', display: 'inline-block' }}>
+            <img
+              ref={imgRef}
+              src={src}
+              alt="Edit preview"
+              draggable={false}
+              onLoad={(e) => setImgSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+              style={{ maxWidth: '100%', maxHeight: '55vh', userSelect: 'none', display: 'block' }}
+            />
+            <canvas
+              ref={canvasRef}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              style={{ position: 'absolute', top: 0, left: 0, cursor: 'crosshair' }}
+            />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', padding: '14px 18px' }}>
+          <button
+            type="button"
+            onClick={exportImage}
+            style={{ flex: 1, padding: '10px', background: 'var(--primary-color)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--font-arabic)' }}
+          >
+            تأكيد
+          </button>
+          <button
+            type="button"
+            onClick={() => onConfirm(src.split(',')[1], mimeType)}
+            style={{ flex: 1, padding: '10px', background: 'var(--alpha-white-4)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--font-arabic)' }}
+          >
+            استخدام بدون تعديل
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
 
   // Navigation & Views
-  const [activeTab, setActiveTab] = useState<'chat' | 'admin' | 'beta' | 'profile' | 'exams'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'admin' | 'beta' | 'subscriptions' | 'profile' | 'exams' | 'flashcards' | 'leaderboard'>('chat');
 
   // Points / Coins & Model States
   const [coins, setCoins] = useState<number>(50.0);
+  const [points, setPoints] = useState<number>(0);
+  const [pointsBonusAnim, setPointsBonusAnim] = useState<number | null>(null);
+
+  const triggerPointsAnim = (amount: number) => {
+    setPointsBonusAnim(amount);
+    setTimeout(() => {
+      setPointsBonusAnim(null);
+    }, 1800);
+  };
+
   const [selectedModel, setSelectedModel] = useState<'flash' | 'pro'>('flash');
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(false);
+  const [chatMode, setChatMode] = useState<'socratic' | 'detailed' | 'summary'>('detailed');
 
   // Theme State
   const [theme, setTheme] = useState<'system' | 'light' | 'dark'>('system');
@@ -1109,6 +1287,43 @@ export default function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
 
+  // Phase 2: Flashcards & Leaderboard States
+  const [flashcardDecks, setFlashcardDecks] = useState<any[]>([]);
+  const [loadingDecks, setLoadingDecks] = useState(false);
+  const [selectedDeck, setSelectedDeck] = useState<any | null>(null);
+  const [deckCards, setDeckCards] = useState<any[]>([]);
+  const [currentCardIndex, setCurrentCardIndex] = useState(0);
+  const [isCardFlipped, setIsCardFlipped] = useState(false);
+  
+  const [generatingDecks, setGeneratingDecks] = useState(false);
+  const [flashcardTopic, setFlashcardTopic] = useState('');
+  const [flashcardCount, setFlashcardCount] = useState(5);
+  const [flashcardSubject, setFlashcardSubject] = useState('');
+
+  // Subject Stack & Manual Flashcard States
+  const [selectedFlashcardSubject, setSelectedFlashcardSubject] = useState<string | null>(null);
+  const [subjectDecks, setSubjectDecks] = useState<any[]>([]);
+  const [subjectCards, setSubjectCards] = useState<any[]>([]);
+  const [activeStackIndex, setActiveStackIndex] = useState(0);
+  const [flashcardViewMode, setFlashcardViewMode] = useState<'grid' | 'stack'>('grid');
+  const [isDealingAway, setIsDealingAway] = useState(false);
+  const [revealedAnswers, setRevealedAnswers] = useState<Record<string, boolean>>({});
+  const [deckFilter, setDeckFilter] = useState<string | null>(null);
+  const [doneCards, setDoneCards] = useState<any[]>([]);
+  const [editingCard, setEditingCard] = useState<any | null>(null);
+  const [showFlashcardCreateModal, setShowFlashcardCreateModal] = useState(false);
+  const [flashcardCreateMode, setFlashcardCreateMode] = useState<'ai' | 'manual'>('ai');
+  const [manualDeckTitle, setManualDeckTitle] = useState('');
+  const [manualCardsList, setManualCardsList] = useState<{ question: string; answer: string }[]>([
+    { question: '', answer: '' }
+  ]);
+  const [editingDeck, setEditingDeck] = useState<any | null>(null);
+  const [pendingOpenSubject, setPendingOpenSubject] = useState<string | null>(null);
+  
+  const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+  const [leaderboardFilter, setLeaderboardFilter] = useState<'all' | 'my'>('my');
+
   // Exam Customization State
   const [showExamCreateModal, setShowExamCreateModal] = useState(false);
   const [examTopic, setExamTopic] = useState('');
@@ -1117,7 +1332,359 @@ export default function App() {
   const [examMcqCount, setExamMcqCount] = useState<number>(2);
   const [examTfCount, setExamTfCount] = useState<number>(2);
   const [examEssayCount, setExamEssayCount] = useState<number>(1);
+  const [examTimeRemaining, setExamTimeRemaining] = useState<number>(0);
+
+  // Kashier Payment & Subscription States
+  const [subscribingPlan, setSubscribingPlan] = useState<string | null>(null);
+  const [paymentSuccessData, setPaymentSuccessData] = useState<{
+    planTitle: string;
+    amount: number;
+    bonusCoins: number;
+  } | null>(null);
+  const [paymentErrorToast, setPaymentErrorToast] = useState<string | null>(null);
+
+  const handleSubscribe = async (planId: string) => {
+    if (!user || !token) {
+      setAuthTab('login');
+      setShowAuthModal(true);
+      return;
+    }
+
+    setSubscribingPlan(planId);
+    try {
+      const res = await fetch('/api/payment/kashier/initialize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ plan_id: planId })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'فشل تجهيز طلب الدفع');
+      }
+
+      const order = data.order;
+      const redirectUrl = `https://checkout.kashier.io/?merchantId=${order.merchantId}&orderId=${order.orderId}&amount=${order.amount}&currency=${order.currency}&hash=${order.hash}&mode=${order.mode}&merchantRedirect=${encodeURIComponent(order.merchantRedirect)}&serverWebhook=${encodeURIComponent(order.serverWebhook)}&allowedMethods=${encodeURIComponent(order.allowedMethods)}&display=ar`;
+
+      window.location.href = redirectUrl;
+    } catch (err: any) {
+      console.error('Subscription error:', err);
+      setPaymentErrorToast(err.message || 'حدث خطأ أثناء بدء عملية الدفع عبر كاشير.');
+      setTimeout(() => setPaymentErrorToast(null), 5000);
+    } finally {
+      setSubscribingPlan(null);
+    }
+  };
   
+  // Phase 2 Helper Functions
+  const fetchFlashcardDecks = async () => {
+    if (!token) return;
+    setLoadingDecks(true);
+    try {
+      const res = await fetch('/api/flashcards', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setFlashcardDecks(data.decks || []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingDecks(false);
+    }
+  };
+
+  const fetchDueCards = async (deckId: string) => {
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/flashcards/review?deck_id=${deckId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setDeckCards(data.cards || []);
+        setCurrentCardIndex(0);
+        setIsCardFlipped(false);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const submitCardReview = async (cardId: string, rating: number) => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/flashcards/review', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ card_id: cardId, rating })
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (currentCardIndex < deckCards.length - 1) {
+          setIsCardFlipped(false);
+          setTimeout(() => {
+            setCurrentCardIndex(prev => prev + 1);
+          }, 300);
+        } else {
+          alert('تهانينا! لقد أكملت مراجعة جميع الكروت المستحقة في هذه المجموعة.');
+          setSelectedDeck(null);
+          fetchFlashcardDecks();
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchSubjectCards = async (subjectName: string) => {
+    if (!token) return;
+    setLoadingDecks(true);
+    try {
+      const res = await fetch(`/api/flashcards/subject?subject_name=${encodeURIComponent(subjectName)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSubjectDecks(data.decks || []);
+        setSubjectCards(data.cards || []);
+        setActiveStackIndex(0);
+        setDoneCards([]);
+        setIsCardFlipped(false);
+        setFlashcardViewMode('grid');
+        setRevealedAnswers({});
+        setDeckFilter(null);
+        setSelectedFlashcardSubject(subjectName);
+      }
+    } catch (e) {
+      console.error('Fetch subject cards error:', e);
+    } finally {
+      setLoadingDecks(false);
+    }
+  };
+
+  const advancePlayingCard = (targetIndex?: number) => {
+    if (isDealingAway) return;
+    setIsDealingAway(true);
+    setTimeout(() => {
+      setIsCardFlipped(false);
+      if (targetIndex !== undefined) {
+        setActiveStackIndex(targetIndex);
+      } else {
+        setActiveStackIndex(prev => prev + 1);
+      }
+      setIsDealingAway(false);
+    }, 420);
+  };
+
+  const submitSubjectCardReview = async (cardId: string, rating: number) => {
+    if (!token) return;
+    try {
+      const currentCard = subjectCards[activeStackIndex];
+      fetch('/api/flashcards/review', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ card_id: cardId, rating })
+      }).catch(err => console.error(err));
+      if (currentCard) {
+        setDoneCards(prev => [...prev, currentCard]);
+      }
+      advancePlayingCard();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSaveCardEdit = async (cardId: string, question: string, answer: string) => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/flashcards/card', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ id: cardId, question, answer })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSubjectCards(prev => prev.map(c => c.id === cardId ? { ...c, question, answer } : c));
+        setEditingCard(null);
+      } else {
+        alert(data.error || 'فشل تعديل الكارت');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeleteCard = async (cardId: string) => {
+    if (!token || !confirm('هل أنت تأكد من حذف هذا الكارت؟')) return;
+    try {
+      const res = await fetch(`/api/flashcards/card?id=${cardId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSubjectCards(prev => prev.filter(c => c.id !== cardId));
+        setEditingCard(null);
+      } else {
+        alert(data.error || 'فشل حذف الكارت');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleRenameDeck = async (deckId: string, newTitle: string) => {
+    if (!token || !newTitle.trim()) return;
+    try {
+      const res = await fetch('/api/flashcards', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ id: deckId, title: newTitle.trim() })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditingDeck(null);
+        fetchFlashcardDecks();
+        if (selectedFlashcardSubject) {
+          fetchSubjectCards(selectedFlashcardSubject);
+        }
+      } else {
+        alert(data.error || 'فشل إعادة التسمية');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeleteDeck = async (deckId: string) => {
+    if (!token || !confirm('هل أنت تأكد من حذف هذه المجموعة بالكامل؟')) return;
+    try {
+      const res = await fetch(`/api/flashcards?id=${deckId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchFlashcardDecks();
+        if (selectedFlashcardSubject) {
+          fetchSubjectCards(selectedFlashcardSubject);
+        }
+      } else {
+        alert(data.error || 'فشل حذف المجموعة');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleManualCreateDeck = async () => {
+    if (!token || !flashcardSubject || !manualDeckTitle) return;
+    const validCards = manualCardsList.filter(c => c.question.trim() && c.answer.trim());
+    if (validCards.length === 0) {
+      alert('يرجى إضافة كارت واحد على الأقل يحتوي على سؤال وإجابة');
+      return;
+    }
+
+    setGeneratingDecks(true);
+    try {
+      const res = await fetch('/api/flashcards', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          subject_name: flashcardSubject,
+          grade_level: user?.grade_level || '1_high',
+          title: manualDeckTitle,
+          cards: validCards
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowFlashcardCreateModal(false);
+        setManualDeckTitle('');
+        setManualCardsList([{ question: '', answer: '' }]);
+        fetchFlashcardDecks();
+        if (selectedFlashcardSubject === flashcardSubject) {
+          fetchSubjectCards(flashcardSubject);
+        }
+      } else {
+        alert(data.error || 'فشل إنشاء الكروت');
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setGeneratingDecks(false);
+    }
+  };
+
+  const generateFlashcardDeck = async () => {
+    if (!token || !flashcardSubject || !flashcardTopic) return;
+    setGeneratingDecks(true);
+    try {
+      const res = await fetch('/api/flashcards/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          subject_name: flashcardSubject,
+          grade_level: user?.grade_level || '1_high',
+          topic: flashcardTopic,
+          count: flashcardCount
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setFlashcardTopic('');
+        fetchFlashcardDecks();
+      } else {
+        alert(data.error || 'فشل توليد الكروت');
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setGeneratingDecks(false);
+    }
+  };
+
+  const fetchLeaderboard = async (filter: 'all' | 'my') => {
+    if (!token) return;
+    setLoadingLeaderboard(true);
+    try {
+      const res = await fetch(`/api/leaderboard?grade_level=${filter}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setLeaderboardData(data.leaderboard || []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingLeaderboard(false);
+    }
+  };
+
   // Auth Form Inputs
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -1337,6 +1904,9 @@ export default function App() {
       if (!res.ok) throw new Error(data.error || 'فشل تصحيح الامتحان');
 
       setExamResult(data);
+      localStorage.removeItem('egs_active_exam_id');
+      localStorage.removeItem('egs_active_exam_time');
+      setExamTimeRemaining(0);
       loadExamsData();
     } catch (e: any) {
       alert(e.message || 'فشل تصحيح الامتحان');
@@ -1350,147 +1920,105 @@ export default function App() {
       loadExamsData();
     }
   }, [activeTab, chatSubject, user?.grade_level]);
+
+  // Exam timer countdown effect
+  useEffect(() => {
+    let interval: any;
+    if (selectedExam && !examResult && examTimeRemaining > 0) {
+      interval = setInterval(() => {
+        setExamTimeRemaining(prev => {
+          const next = prev - 1;
+          localStorage.setItem('egs_active_exam_time', String(next));
+          if (next <= 0) {
+            clearInterval(interval);
+            setTimeout(() => {
+              handleSubmitExam();
+            }, 100);
+          }
+          return next;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [selectedExam, examResult, examTimeRemaining]);
+
+  // Restore active exam on mount or when exams load
+  useEffect(() => {
+    const savedExamId = localStorage.getItem('egs_active_exam_id');
+    const savedTime = localStorage.getItem('egs_active_exam_time');
+    
+    if (savedExamId && savedTime && exams.length > 0) {
+      const activeExam = exams.find(e => e.id === savedExamId);
+      if (activeExam) {
+        setSelectedExam(activeExam);
+        setExamTimeRemaining(parseInt(savedTime, 10));
+      }
+    }
+  }, [exams]);
+
+  useEffect(() => {
+    if (activeTab === 'flashcards' && token) {
+      fetchFlashcardDecks();
+    }
+  }, [activeTab, token]);
+
+  useEffect(() => {
+    if (activeTab === 'leaderboard' && token) {
+      fetchLeaderboard(leaderboardFilter);
+    }
+  }, [activeTab, token, leaderboardFilter]);
+
+  // Kashier Payment Result Listener (from redirect)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentResult = urlParams.get('payment_result');
+    const plan = urlParams.get('plan');
+
+    if (paymentResult === 'success') {
+      const planTitle = plan === 'pro_3m' ? 'اشتراك 3 أشهر' : (plan === 'pro_2m' ? 'اشتراك شهرين' : 'اشتراك شهر (Pro)');
+      const bonusCoins = plan === 'pro_3m' ? 2500 : (plan === 'pro_2m' ? 1000 : 500);
+      const amount = plan === 'pro_3m' ? 250 : (plan === 'pro_2m' ? 100 : 50);
+
+      setPaymentSuccessData({
+        planTitle,
+        amount,
+        bonusCoins
+      });
+
+      const savedToken = localStorage.getItem('egs_token');
+      if (savedToken) {
+        fetch('/api/config', { headers: { 'Authorization': `Bearer ${savedToken}` } })
+          .then(r => r.json())
+          .then(d => {
+            if (d.user) {
+              setUser(d.user);
+              setCoins(d.user.coins ?? 50.0);
+              localStorage.setItem('egs_user', JSON.stringify(d.user));
+            }
+          })
+          .catch(() => {});
+      }
+
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (paymentResult === 'failed') {
+      setPaymentErrorToast('تعذرت عملية الدفع عبر كاشير أو تم إلغاؤها من قبل العميل.');
+      setTimeout(() => setPaymentErrorToast(null), 6000);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // New audio recording and API states
   const skipHistoryReloadRef = useRef(false);
-  const tempAudioBlobRef = useRef<Blob | null>(null);
-  const [pendingAudio, setPendingAudio] = useState<{ base64: string; mimeType: string } | null>(null);
   const [pendingImage, setPendingImage] = useState<{ base64: string; mimeType: string; description: string } | null>(null);
   const [isDescribingImage, setIsDescribingImage] = useState(false);
+  const [editingImage, setEditingImage] = useState<{ dataUrl: string; mimeType: string } | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const speechRecognitionRef = useRef<any>(null);
-  const [recording, setRecording] = useState(false);
-  const [recordingDuration, setRecordingDuration] = useState(0);
-  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-  const [transcribing, setTranscribing] = useState(false);
-  const [showGeminiModal, setShowGeminiModal] = useState(false);
-  const [geminiKeyInput, setGeminiKeyInput] = useState('');
   const [showModelMenu, setShowModelMenu] = useState(false);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const key = localStorage.getItem('egs_gemini_api_key');
-      if (key) setGeminiKeyInput(key);
-    }
-  }, []);
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (recording) {
-      interval = setInterval(() => {
-        setRecordingDuration(prev => prev + 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [recording]);
-
-  const startWebRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      const chunks: BlobPart[] = [];
-      
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      let recognition: any = null;
-      let transcriptText = '';
-
-      if (SpeechRecognition) {
-        recognition = new SpeechRecognition();
-        recognition.lang = 'ar-EG';
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        
-        recognition.onresult = (event: any) => {
-          let currentTranscript = '';
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-              transcriptText += event.results[i][0].transcript;
-            } else {
-              currentTranscript += event.results[i][0].transcript;
-            }
-          }
-          const fullText = transcriptText + currentTranscript;
-          if (fullText.trim()) {
-            setInputMessage(fullText);
-          }
-        };
-
-        recognition.onerror = (event: any) => {
-          const errorType = event.error;
-          console.warn('Speech recognition error type:', errorType);
-          if (errorType === 'not-allowed') {
-            alert('يرجى السماح بصلاحية الميكروفون لتشغيل ميزة تحويل الصوت إلى نص.');
-          }
-        };
-
-        recognition.start();
-        speechRecognitionRef.current = recognition;
-      } else {
-        console.warn('SpeechRecognition is not supported in this browser.');
-      }
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
-      
-      recorder.onstop = async () => {
-        if (speechRecognitionRef.current) {
-          try {
-            speechRecognitionRef.current.stop();
-          } catch (e) {}
-          speechRecognitionRef.current = null;
-        }
-
-        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
-        stream.getTracks().forEach(t => t.stop());
-
-        setTranscribing(true);
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = () => {
-          const base64String = (reader.result as string).split(',')[1];
-          setPendingAudio({
-            base64: base64String,
-            mimeType: 'audio/webm'
-          });
-          setTranscribing(false);
-        };
-      };
-
-      recorder.start();
-      setMediaRecorder(recorder);
-      setRecording(true);
-      setRecordingDuration(0);
-    } catch (err: any) {
-      alert(`فشل بدء التسجيل: ${err.message || err}`);
-    }
-  };
-
-  const stopWebRecording = () => {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop();
-      setRecording(false);
-    }
-    if (speechRecognitionRef.current) {
-      try {
-        speechRecognitionRef.current.stop();
-      } catch (e) {}
-      speechRecognitionRef.current = null;
-    }
-  };
-
-  const transcribeWebAudio = async (blob: Blob) => {
-    // Left as stub to prevent external reference failures
-  };
-
-  const handleSaveGeminiKey = (key: string) => {
-    localStorage.setItem('egs_gemini_api_key', key);
-    setShowGeminiModal(false);
-  };
+  const [showModeMenu, setShowModeMenu] = useState(false);
 
   // Helper for suggestions clicking
   const handleSuggestionClick = (text: string) => {
@@ -1525,8 +2053,11 @@ export default function App() {
 
   const getActiveSubjectsForGrade = (grade: string) => {
     const filtered = curriculums.filter(c => c.grade_level === grade);
-    if (activeCurriculumIds.length === 0) return filtered;
-    return filtered.filter(c => activeCurriculumIds.includes(c.id));
+    if (activeCurriculumIds.length === 0) return filtered.length > 0 ? filtered : curriculums;
+    const active = filtered.filter(c => activeCurriculumIds.includes(c.id));
+    if (active.length > 0) return active;
+    if (filtered.length > 0) return filtered;
+    return curriculums;
   };
 
   useEffect(() => {
@@ -1591,6 +2122,19 @@ export default function App() {
       setShowModelMenu(false);
     };
 
+    const CHAT_MODES: { key: 'socratic' | 'detailed' | 'summary'; label: string; icon: React.ReactNode }[] = [
+      { key: 'socratic', label: 'سقراطي', icon: <MessageCircleQuestion size={13} /> },
+      { key: 'detailed', label: 'شرح مفصل', icon: <GraduationCap size={13} /> },
+      { key: 'summary', label: 'ملخص', icon: <ListChecks size={13} /> },
+    ];
+    const activeModeInfo = CHAT_MODES.find(m => m.key === chatMode) || CHAT_MODES[1];
+
+    const handleModeSelect = (mode: 'socratic' | 'detailed' | 'summary') => {
+      setChatMode(mode);
+      localStorage.setItem('egs_chat_mode', mode);
+      setShowModeMenu(false);
+    };
+
     return (
       <form onSubmit={handleSendMessage} style={{ width: '100%', maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
         {pendingImage && (
@@ -1650,41 +2194,6 @@ export default function App() {
             </button>
           </div>
         )}
-        {pendingAudio && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            background: 'rgba(125, 161, 70, 0.1)',
-            border: '1px solid var(--primary-color)',
-            borderRadius: '12px',
-            padding: '8px 14px',
-            marginBottom: '10px',
-            direction: 'rtl'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--primary-color)', fontSize: '0.85rem', fontWeight: 600 }}>
-              <span>تم تسجيل رسالة صوتية بنجاح</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setPendingAudio(null);
-              }}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--text-muted)',
-                cursor: 'pointer',
-                fontSize: '0.9rem',
-                padding: '2px',
-                display: 'flex',
-                alignItems: 'center'
-              }}
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
         <div className="input-textarea-container">
           <textarea
             ref={isCentered ? null : textareaRef}
@@ -1696,8 +2205,8 @@ export default function App() {
                 handleSendMessage(e as any);
               }
             }}
-            placeholder={recording ? 'جاري تسجيل الصوت... اضغط على زر الإيقاف للإتمام' : placeholderText}
-            disabled={isDisabled || recording}
+            placeholder={placeholderText}
+            disabled={isDisabled}
             rows={1}
             style={{
               width: '100%',
@@ -1896,6 +2405,77 @@ export default function App() {
 
 
 
+              {/* Interaction mode selector (socratic / detailed / summary) */}
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowModeMenu(prev => !prev)}
+                  style={{
+                    background: chatMode !== 'detailed' ? 'var(--primary-color)' : 'var(--alpha-white-4)',
+                    border: '1px solid var(--border-color)',
+                    color: chatMode !== 'detailed' ? 'var(--text-on-primary)' : 'var(--text-secondary)',
+                    fontSize: '0.75rem',
+                    padding: '4px 10px',
+                    borderRadius: '16px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    transition: 'var(--transition-fast)',
+                    fontFamily: 'var(--font-arabic)',
+                  }}
+                >
+                  {activeModeInfo.icon}
+                  <span>{activeModeInfo.label}</span>
+                </button>
+                {showModeMenu && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '100%',
+                    right: 0,
+                    marginBottom: '8px',
+                    background: 'var(--card-bg)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '12px',
+                    boxShadow: 'var(--shadow-lg)',
+                    padding: '6px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                    zIndex: 1000,
+                    minWidth: '160px',
+                  }}>
+                    {CHAT_MODES.map(m => (
+                      <button
+                        key={m.key}
+                        type="button"
+                        onClick={() => handleModeSelect(m.key)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '6px 12px',
+                          background: chatMode === m.key ? 'var(--primary-light)' : 'transparent',
+                          color: chatMode === m.key ? 'var(--primary-color)' : 'var(--text-main)',
+                          border: 'none',
+                          borderRadius: '8px',
+                          fontSize: '0.8rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          textAlign: 'right',
+                          width: '100%',
+                          fontFamily: 'var(--font-arabic)',
+                        }}
+                      >
+                        {m.icon}
+                        <span>{m.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Thinking Button (CoT) — unlocked for all registered users during beta */}
               <button
                 type="button"
@@ -1930,7 +2510,7 @@ export default function App() {
               {/* Image Upload Button */}
               <button
                 type="button"
-                disabled={isDisabled || recording}
+                disabled={isDisabled}
                 onClick={() => imageInputRef.current?.click()}
                 style={{
                   background: pendingImage ? 'var(--primary-color)' : 'var(--alpha-white-4)',
@@ -1940,12 +2520,12 @@ export default function App() {
                   padding: '4px 10px',
                   borderRadius: '16px',
                   fontWeight: 700,
-                  cursor: (isDisabled || recording) ? 'not-allowed' : 'pointer',
+                  cursor: isDisabled ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '4px',
                   transition: 'var(--transition-fast)',
-                  opacity: (isDisabled || recording) ? 0.6 : 1,
+                  opacity: isDisabled ? 0.6 : 1,
                   fontFamily: 'var(--font-arabic)',
                 }}
               >
@@ -1967,8 +2547,8 @@ export default function App() {
               {/* Send button */}
               <button
                 type="submit"
-                disabled={isDisabled || (!hasMessage && !pendingAudio && !pendingImage) || recording}
-                className={`send-button ${(hasMessage || pendingAudio || pendingImage) && !isDisabled && !recording ? 'active' : ''}`}
+                disabled={isDisabled || (!hasMessage && !pendingImage)}
+                className={`send-button ${(hasMessage || pendingImage) && !isDisabled ? 'active' : ''}`}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="12" y1="19" x2="12" y2="5"></line>
@@ -2093,6 +2673,7 @@ export default function App() {
           setUser(data.user);
           localStorage.setItem('egs_user', JSON.stringify(data.user));
           setCoins(data.user.coins === undefined ? 50.0 : data.user.coins);
+          setPoints(data.user.points || 0);
         }
       });
   };
@@ -2103,6 +2684,11 @@ export default function App() {
     const savedTheme = localStorage.getItem('egs_theme') || 'system';
     setTheme(savedTheme as any);
     applyTheme(savedTheme);
+
+    const savedChatMode = localStorage.getItem('egs_chat_mode');
+    if (savedChatMode === 'socratic' || savedChatMode === 'detailed' || savedChatMode === 'summary') {
+      setChatMode(savedChatMode);
+    }
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleSystemThemeChange = () => {
@@ -2578,58 +3164,60 @@ export default function App() {
     }
 
     const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result as string;
-      const base64 = dataUrl.split(',')[1];
-      const mimeType = file.type;
-
-      setIsDescribingImage(true);
-      setPendingImage({ base64, mimeType, description: '' });
-
-      try {
-        const res = await fetch('/api/chat/upload-image', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ base64, mimeType })
-        });
-
-        if (!res.ok) {
-          const errData = await res.json();
-          throw new Error(errData.error || 'Failed to describe image');
-        }
-
-        const data = await res.json();
-        setPendingImage({
-          base64,
-          mimeType,
-          description: data.description
-        });
-      } catch (err: any) {
-        console.error('Error describing image:', err);
-        alert(err.message || 'حدث خطأ أثناء قراءة وتفصيل الصورة. يرجى المحاولة مرة أخرى.');
-        setPendingImage(null);
-      } finally {
-        setIsDescribingImage(false);
-        if (imageInputRef.current) {
-          imageInputRef.current.value = '';
-        }
+    reader.onload = () => {
+      // Open the crop/markup editor first; upload happens on confirm
+      setEditingImage({ dataUrl: reader.result as string, mimeType: file.type });
+      if (imageInputRef.current) {
+        imageInputRef.current.value = '';
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleEditedImage = async (base64: string, mimeType: string) => {
+    setEditingImage(null);
+    setIsDescribingImage(true);
+    setPendingImage({ base64, mimeType, description: '' });
+
+    try {
+      const storedToken = localStorage.getItem('egs_token') || token;
+      const res = await fetch('/api/chat/upload-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(storedToken ? { 'Authorization': `Bearer ${storedToken}` } : {})
+        },
+        body: JSON.stringify({ base64, mimeType })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to describe image');
+      }
+
+      const data = await res.json();
+      setPendingImage({
+        base64,
+        mimeType,
+        description: data.description
+      });
+    } catch (err: any) {
+      console.error('Error describing image:', err);
+      alert(err.message || 'حدث خطأ أثناء قراءة وتفصيل الصورة. يرجى المحاولة مرة أخرى.');
+      setPendingImage(null);
+    } finally {
+      setIsDescribingImage(false);
+    }
   };
 
   // Chat Operation
   const handleSendMessage = async (e?: React.FormEvent, customText?: string) => {
     if (e) e.preventDefault();
     const messageToSend = customText || inputMessage;
-    if ((!messageToSend.trim() && !pendingAudio && !pendingImage) || chatLoading) return;
+    if ((!messageToSend.trim() && !pendingImage) || chatLoading) return;
 
     let userMsg = messageToSend;
-    if (pendingAudio && !customText) {
-      userMsg = `[AUDIO_MESSAGE:${pendingAudio.mimeType};${pendingAudio.base64}]${inputMessage}`;
-    } else if (pendingImage && !customText) {
+    if (pendingImage && !customText) {
       userMsg = `[IMAGE_MESSAGE:${pendingImage.mimeType};${pendingImage.base64};${encodeURIComponent(pendingImage.description)}]${inputMessage}`;
     }
 
@@ -2694,7 +3282,6 @@ export default function App() {
     if (!customText) {
       setInputMessage('');
     }
-    setPendingAudio(null);
     setPendingImage(null);
     setChatLoading(true);
 
@@ -2721,6 +3308,7 @@ export default function App() {
           session_id: activeSessionId,
           model: selectedModel,
           thinking: thinkingEnabled,
+          mode: chatMode,
           history: !user ? messages.map(m => ({ sender: m.sender, message: m.message })) : undefined
         })
       });
@@ -2841,15 +3429,6 @@ export default function App() {
                       clearInterval(timerInterval);
                     }
                     currentContent += dataObj.content;
-                    fetch('/api/log', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        event: 'stream_content_received',
-                        contentLength: currentContent.length,
-                        chunk: dataObj.content
-                      })
-                    }).catch(() => {});
                     setMessages(prev => {
                       const next = [...prev];
                       if (next.length > 0 && next[next.length - 1].sender === 'ai') {
@@ -2861,6 +3440,24 @@ export default function App() {
                       }
                       return next;
                     });
+                  } else if (dataObj.type === 'error') {
+                    if (isThinking) {
+                      isThinking = false;
+                      clearInterval(timerInterval);
+                    }
+                    const errMessage = dataObj.message || dataObj.content || 'حدث خطأ أثناء معالجة الطلب.';
+                    setMessages(prev => {
+                      const next = [...prev];
+                      if (next.length > 0 && next[next.length - 1].sender === 'ai') {
+                        next[next.length - 1] = {
+                          ...next[next.length - 1],
+                          message: `⚠️ **حدث خطأ!**\n\n${errMessage}`,
+                          isThinking: false,
+                          hasError: true
+                        };
+                      }
+                      return next;
+                    });
                   } else if (dataObj.type === 'done') {
                     isThinking = false;
                     clearInterval(timerInterval);
@@ -2868,17 +3465,6 @@ export default function App() {
                     if (dataObj.duration) {
                       currentDuration = dataObj.duration;
                     }
-
-                    fetch('/api/log', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        event: 'stream_done_received',
-                        duration: currentDuration,
-                        session_id: dataObj.session_id,
-                        finalContentLength: currentContent.length
-                      })
-                    }).catch(() => {});
 
                     setMessages(prev => {
                       const next = [...prev];
@@ -2905,6 +3491,23 @@ export default function App() {
                           setUser(parsedUser);
                         } catch (e) {}
                       }
+                    }
+
+                    if (dataObj.points_awarded && dataObj.points_awarded > 0) {
+                      triggerPointsAnim(dataObj.points_awarded);
+                      setPoints(prev => {
+                        const newP = dataObj.total_points !== undefined ? dataObj.total_points : prev + dataObj.points_awarded;
+                        const storedUser = localStorage.getItem('egs_user');
+                        if (storedUser) {
+                          try {
+                            const parsedUser = JSON.parse(storedUser);
+                            parsedUser.points = newP;
+                            localStorage.setItem('egs_user', JSON.stringify(parsedUser));
+                            setUser(parsedUser);
+                          } catch (e) {}
+                        }
+                        return newP;
+                      });
                     }
 
                     // If this was a new session (activeSessionId was null), select it and reload sessions list
@@ -3482,7 +4085,7 @@ export default function App() {
       if (!res.ok) throw new Error(data.error);
 
       setProfileOtpStep(true);
-      setProfileMessage({ text: 'تم إرسال رمز التحقق التجريبي. يرجى استخدام "111111" للتأكيد.', type: 'success' });
+      setProfileMessage({ text: 'تم إرسال رمز التحقق إلى بريدك الإلكتروني.', type: 'success' });
     } catch (err: any) {
       setProfileMessage({ text: err.message || 'فشل إرسال رمز التحقق.', type: 'danger' });
     } finally {
@@ -3612,7 +4215,6 @@ export default function App() {
             </div>
             <h1 style={{ fontSize: '1.6rem', fontWeight: 900, letterSpacing: '-0.5px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
               <span className="text-gradient">EGS AI</span>
-              <span style={{ fontSize: '0.62rem', fontWeight: 800, color: 'var(--primary-color)', background: 'var(--primary-light)', border: '1px solid rgba(125,161,70,0.25)', borderRadius: 'var(--radius-full)', padding: '2px 7px', letterSpacing: '0.02em' }}>BETA</span>
             </h1>
             <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: '3px' }}>
               مساعدك الذكي في المنهج الدراسي
@@ -3626,10 +4228,15 @@ export default function App() {
             {[
               { icon: <Plus size={17} />, label: 'دردشة جديدة', action: () => { setActiveSessionId(null); setMessages([]); setActiveTab('chat'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'chat' && !activeSessionId },
               { icon: <Search size={17} />, label: 'البحث في الدردشات', action: () => { setActiveTab('chat'); setShowSearch(prev => !prev); if (isMobile) setSidebarOpen(false); }, isActive: showSearch },
-              { icon: <Sparkles size={17} />, label: 'النسخة التجريبية (Beta)', action: () => { setActiveTab('beta'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'beta' },
+              { icon: <CreditCard size={17} />, label: 'باقات الاشتراك', action: () => { setActiveTab('subscriptions'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'subscriptions' || activeTab === 'beta' },
               { icon: <FileText size={17} />, label: 'الامتحانات والاختبارات', action: () => { setActiveTab('exams'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'exams' },
-              ...(user ? [{ icon: <User size={17} />, label: 'الملف الشخصي', action: () => { setActiveTab('profile'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'profile' }] : []),
+              ...(user ? [
+                { icon: <Brain size={17} />, label: 'المدرب الذكي (الكروت)', action: () => { setActiveTab('flashcards'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'flashcards' },
+                { icon: <Trophy size={17} />, label: 'لوحة المتصدرين', action: () => { setActiveTab('leaderboard'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'leaderboard' },
+                { icon: <User size={17} />, label: 'الملف الشخصي', action: () => { setActiveTab('profile'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'profile' }
+              ] : []),
               ...(user?.role === 'admin' ? [{ icon: <Settings size={17} />, label: 'لوحة التحكم', action: () => { setActiveTab('admin'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'admin' }] : []),
+              { icon: <Phone size={17} />, label: 'تواصل معنا', action: () => { window.location.href = '/contact'; }, isActive: false },
               { icon: <Globe size={17} />, label: 'التطبيقات المتاحة', action: () => alert('تطبيق الهاتف المحمول متوفر للتحميل!'), isActive: false }
             ].map((item, idx) => (
               <button
@@ -3690,6 +4297,9 @@ export default function App() {
                             return;
                           }
                           setActiveSessionId(s.id);
+                          if ((s as any).mode === 'socratic' || (s as any).mode === 'detailed' || (s as any).mode === 'summary') {
+                            setChatMode((s as any).mode);
+                          }
                           if (isMobile) setSidebarOpen(false);
                         }}
                         className={`sidebar-session-item ${activeSessionId === s.id ? 'active' : ''}`}
@@ -3811,6 +4421,15 @@ export default function App() {
               </button>
             </div>
           )}
+
+          {/* Quick Footer Policy & Contact Links */}
+          <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '0.72rem' }}>
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>الخصوصية</a>
+            <span style={{ color: 'var(--border-color)' }}>•</span>
+            <a href="/terms#refund" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>الإرجاع والاشتراكات</a>
+            <span style={{ color: 'var(--border-color)' }}>•</span>
+            <a href="/contact" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>تواصل معنا</a>
+          </div>
         </div>
 
 
@@ -3897,8 +4516,17 @@ export default function App() {
 
               {/* User actions (RTL: left side on mobile, right on desktop) */}
               <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px', order: isMobile ? 2 : 1 }}>
+                {user && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(255, 215, 0, 0.1)', padding: isMobile ? '4px 8px' : '4px 12px', borderRadius: 'var(--radius-full)', fontSize: isMobile ? '0.72rem' : '0.8rem', fontWeight: 800, color: '#ffd700', border: '1px solid rgba(255, 215, 0, 0.2)', position: 'relative' }}>
+                    <Trophy size={13} />
+                    <span>{points} {isMobile ? 'نقاط' : 'نقاط الترتيب'}</span>
+                    {pointsBonusAnim && (
+                      <span className="points-plus-badge">+{pointsBonusAnim}</span>
+                    )}
+                  </div>
+                )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--alpha-white-4)', padding: isMobile ? '4px 8px' : '4px 12px', borderRadius: 'var(--radius-full)', fontSize: isMobile ? '0.72rem' : '0.8rem', fontWeight: 700, color: 'var(--primary-color)' }}>
-                  <span>{coins.toFixed(isMobile ? 1 : 2)} {isMobile ? 'ن' : 'نقطة'}</span>
+                  <span>{coins.toFixed(isMobile ? 1 : 2)} {isMobile ? 'عملة' : 'عملة'}</span>
                 </div>
                 <div style={{ position: 'relative' }}>
                   <button
@@ -3974,7 +4602,7 @@ export default function App() {
                 </div>
                 {!isMobile && (
                   <button
-                    onClick={() => setActiveTab('beta')}
+                    onClick={() => setActiveTab('subscriptions')}
                     className="pulse-primary"
                     style={{
                       background: 'var(--primary-light)',
@@ -3990,8 +4618,8 @@ export default function App() {
                       gap: '6px'
                     }}
                   >
-                    <Sparkles size={13} />
-                    <span>Beta</span>
+                    <CreditCard size={13} />
+                    <span>الاشتراكات</span>
                   </button>
                 )}
                 {user ? (
@@ -4241,22 +4869,15 @@ export default function App() {
                           msg.sender === 'user' ? (
                             msg.message.startsWith('[AUDIO_MESSAGE:') ? (
                               (() => {
-                                const match = msg.message.match(/^\[AUDIO_MESSAGE:([^;]+);([^\]]+)\]([\s\S]*)$/);
-                                if (match) {
-                                  const mimeType = match[1];
-                                  const base64Data = match[2];
-                                  const transcription = match[3];
-                                  return (
-                                    <AudioPlayerMessage
-                                      mimeType={mimeType}
-                                      base64Data={base64Data}
-                                      transcription={transcription}
-                                    />
-                                  );
-                                }
+                                const match = msg.message.match(/^\[AUDIO_MESSAGE:[^;]+;[^\]]+\]([\s\S]*)$/);
+                                const remainingText = match ? match[1] : '';
                                 return (
                                   <div className="message-bubble-user">
-                                    <div style={{ whiteSpace: 'pre-wrap', direction: 'rtl' }}>{msg.message}</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                                      <Mic size={13} />
+                                      <span>رسالة صوتية (لم تعد مدعومة)</span>
+                                    </div>
+                                    {remainingText && <div style={{ whiteSpace: 'pre-wrap', direction: 'rtl', marginTop: '4px' }}>{remainingText}</div>}
                                   </div>
                                 );
                               })()
@@ -4295,11 +4916,38 @@ export default function App() {
                                 <FormattedChatMessage 
                                   content={msg.message} 
                                   sender={msg.sender} 
-                                  onGoToExams={(exam) => {
+                                  onGoToExams={async (exam) => {
+                                    // Chat-emitted exams have no id yet; persist via API first
+                                    if (!exam.id) {
+                                      try {
+                                        const storedToken = localStorage.getItem('egs_token') || token;
+                                        const res = await fetch('/api/exams', {
+                                          method: 'POST',
+                                          headers: {
+                                            'Content-Type': 'application/json',
+                                            ...(storedToken ? { 'Authorization': `Bearer ${storedToken}` } : {})
+                                          },
+                                          body: JSON.stringify({
+                                            title: exam.title,
+                                            subject_name: exam.subject_name || chatSubject,
+                                            grade_level: exam.grade_level || (user ? user.grade_level : chatGrade),
+                                            questions: exam.questions
+                                          })
+                                        });
+                                        const data = await res.json();
+                                        if (res.ok) exam = data;
+                                      } catch (e) {
+                                        console.error('Failed to persist chat exam:', e);
+                                      }
+                                    }
                                     setSelectedExam(exam);
                                     setActiveTab('exams');
                                   }}
                                   onAnswerSubmit={(text) => {}}
+                                  onGoToFlashcards={(subj) => {
+                                    setActiveTab('flashcards');
+                                    fetchSubjectCards(subj);
+                                  }}
                                 />
                               ) : (
                                 <div className="typing-dots">
@@ -4407,8 +5055,8 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW 2: Beta Notice */}
-        {activeTab === 'beta' && (
+        {/* VIEW 2: Subscriptions Page */}
+        {(activeTab === 'subscriptions' || activeTab === 'beta') && (
           <div className="mobile-main-with-nav" style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '24px 16px' : '40px 24px', background: 'var(--bg-color)' }}>
             {isMobile && (
               <button 
@@ -4435,40 +5083,233 @@ export default function App() {
                 <span>العودة للدردشة</span>
               </button>
             )}
-            <div style={{ maxWidth: '700px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }} className="animate-scale-in">
+            <div style={{ maxWidth: '920px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '32px' }} className="animate-scale-in">
 
+              {/* Title & Header */}
               <div style={{ textAlign: 'center' }}>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'var(--primary-light)', color: 'var(--primary-color)', padding: '6px 16px', borderRadius: 'var(--radius-full)', fontSize: '0.85rem', fontWeight: 800, marginBottom: '16px' }}>
-                  <Sparkles size={15} />
-                  <span>نسخة تجريبية (Beta)</span>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'var(--primary-light)', color: 'var(--primary-color)', padding: '6px 16px', borderRadius: 'var(--radius-full)', fontSize: '0.85rem', fontWeight: 800, marginBottom: '14px' }}>
+                  <CreditCard size={15} />
+                  <span>الاشتراكات والأسعار الرسمية</span>
                 </div>
-                <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-color)' }}>EGS AI ما زالت في مرحلة تجريبية</h2>
-                <p style={{ color: 'var(--text-muted)', marginTop: '10px', fontSize: '0.95rem', lineHeight: '1.7' }}>
-                  نعمل حالياً على تطوير النسخة النهائية من المنصة. خلال فترة البيتا، جميع الميزات المتاحة — بما في ذلك نموذج Pro وميزة التفكير — مفتوحة مجاناً لكل الطلاب المسجلين.
+                <h2 style={{ fontSize: isMobile ? '1.5rem' : '1.9rem', fontWeight: 900, color: 'var(--primary-color)' }}>
+                  اختر باقة الاشتراك المناسبة لك
+                </h2>
+                <p style={{ color: 'var(--text-muted)', marginTop: '8px', fontSize: '0.92rem', lineHeight: '1.7', maxWidth: '640px', margin: '8px auto 0' }}>
+                  احصل على التفعيل الفوري للمساعد الذكي الفائق (Pro Model)، ميزة التفكير المستفيض، وتوليد امتحانات تفاعلية غير محدودة.
                 </p>
               </div>
 
+              {/* 3 Pricing Cards Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '20px' }}>
+                
+                {/* Plan 1: 1 Month Pro (50 EGP) */}
+                <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-lg)', background: 'var(--card-bg)', border: '2px solid var(--primary-color)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+                  <div style={{ position: 'absolute', top: '14px', left: '14px', background: 'var(--primary-color)', color: '#0D0E0B', fontSize: '0.68rem', fontWeight: 900, padding: '3px 10px', borderRadius: 'var(--radius-full)' }}>
+                    الباقة الأكثر شعبية
+                  </div>
+                  <h3 style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--primary-color)', marginBottom: '6px' }}>اشتراك شهر (Pro)</h3>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', margin: '12px 0 16px' }}>
+                    <span style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--text-main)' }}>50</span>
+                    <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-muted)' }}>ج.م / شهرياً</span>
+                  </div>
+                  <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', marginBottom: '16px' }} />
+                  <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={15} color="var(--primary-color)" /> استخدام كامل لنموذج Pro الفائق</li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={15} color="var(--primary-color)" /> تفعيل ميزة التفكير المستفيض (Deep Thinking)</li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={15} color="var(--primary-color)" /> تجديد رصيد النقاط والأسئلة اليومية</li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={15} color="var(--primary-color)" /> إنشاء امتحانات تفاعلية غير محدودة</li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={15} color="var(--primary-color)" /> دعم فني مباشر عبر الواتساب</li>
+                  </ul>
+                  <button
+                    onClick={() => handleSubscribe('pro_1m')}
+                    disabled={subscribingPlan !== null}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'var(--primary-color)',
+                      color: 'var(--text-on-primary)',
+                      fontWeight: 800,
+                      fontSize: '0.9rem',
+                      border: 'none',
+                      cursor: subscribingPlan !== null ? 'not-allowed' : 'pointer',
+                      opacity: subscribingPlan !== null && subscribingPlan !== 'pro_1m' ? 0.6 : 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      transition: 'var(--transition)'
+                    }}
+                  >
+                    {subscribingPlan === 'pro_1m' ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        <span>جاري التجهيز لبوابة كاشير...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard size={16} />
+                        <span>اشترك الآن (كاشير Kashier)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Plan 2: 2 Months (100 EGP) */}
+                <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-lg)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column' }}>
+                  <h3 style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-main)', marginBottom: '6px' }}>اشتراك شهرين</h3>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', margin: '12px 0 16px' }}>
+                    <span style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--text-main)' }}>100</span>
+                    <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-muted)' }}>ج.م / شهرين</span>
+                  </div>
+                  <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', marginBottom: '16px' }} />
+                  <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={15} color="var(--primary-color)" /> جميع ميزات باقة Pro لمدة 60 يوماً</li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={15} color="var(--primary-color)" /> ميزة التفكير المستفيض وحل المسائل</li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={15} color="var(--primary-color)" /> رصيد نقاط مضاعف وتجديد مستمر</li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={15} color="var(--primary-color)" /> امتحانات واختبارات دراسية متقدمة</li>
+                  </ul>
+                  <button
+                    onClick={() => handleSubscribe('pro_2m')}
+                    disabled={subscribingPlan !== null}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'var(--card-bg)',
+                      border: '1px solid var(--primary-color)',
+                      color: 'var(--primary-color)',
+                      fontWeight: 800,
+                      fontSize: '0.9rem',
+                      cursor: subscribingPlan !== null ? 'not-allowed' : 'pointer',
+                      opacity: subscribingPlan !== null && subscribingPlan !== 'pro_2m' ? 0.6 : 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      transition: 'var(--transition)'
+                    }}
+                  >
+                    {subscribingPlan === 'pro_2m' ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        <span>جاري التجهيز لبوابة كاشير...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard size={16} />
+                        <span>اشترك الآن (كاشير Kashier)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Plan 3: 3 Months (250 EGP) */}
+                <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-lg)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+                  <div style={{ position: 'absolute', top: '14px', left: '14px', background: 'var(--primary-light)', color: 'var(--primary-color)', fontSize: '0.68rem', fontWeight: 800, padding: '3px 10px', borderRadius: 'var(--radius-full)' }}>
+                    أفضل قيمة للمراجعات
+                  </div>
+                  <h3 style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-main)', marginBottom: '6px' }}>اشتراك 3 أشهر</h3>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', margin: '12px 0 16px' }}>
+                    <span style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--text-main)' }}>250</span>
+                    <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-muted)' }}>ج.م / 3 أشهر</span>
+                  </div>
+                  <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', marginBottom: '16px' }} />
+                  <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={15} color="var(--primary-color)" /> جميع ميزات باقة Pro لمدة 90 يوماً كاملة</li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={15} color="var(--primary-color)" /> أولوية قصوى وسرعة فائقة في الإجابات</li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={15} color="var(--primary-color)" /> تغطية شاملة لترم كامل في الامتحانات والحلول</li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={15} color="var(--primary-color)" /> متابعة خاصة ودعم فني مخصص</li>
+                  </ul>
+                  <button
+                    onClick={() => handleSubscribe('pro_3m')}
+                    disabled={subscribingPlan !== null}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'var(--card-bg)',
+                      border: '1px solid var(--primary-color)',
+                      color: 'var(--primary-color)',
+                      fontWeight: 800,
+                      fontSize: '0.9rem',
+                      cursor: subscribingPlan !== null ? 'not-allowed' : 'pointer',
+                      opacity: subscribingPlan !== null && subscribingPlan !== 'pro_3m' ? 0.6 : 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      transition: 'var(--transition)'
+                    }}
+                  >
+                    {subscribingPlan === 'pro_3m' ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        <span>جاري التجهيز لبوابة كاشير...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard size={16} />
+                        <span>اشترك الآن (كاشير Kashier)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+              </div>
+
+              {/* Payment Gateway Information (Kashier) */}
               <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-lg)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }}>
-                <h4 style={{ fontWeight: 800, color: 'var(--primary-color)', marginBottom: '10px', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <CreditCard size={16} />
-                  <span>الدفع والاشتراكات</span>
+                <h4 style={{ fontWeight: 800, color: 'var(--primary-color)', marginBottom: '10px', fontSize: '0.98rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <ShieldCheck size={18} />
+                  <span>طرق الدفع الإلكتروني الآمنة عبر بوابة كاشير (Kashier)</span>
                 </h4>
-                <p style={{ lineHeight: '1.7', fontSize: '0.88rem', color: 'var(--text-secondary)', margin: 0 }}>
-                  خاصية الدفع والاشتراكات المدفوعة غير متاحة حالياً وسيتم تفعيلها قريباً مع إطلاق النسخة النهائية من المنصة، قبل شهر أغسطس 2026. سيتم إعلامك بكل التفاصيل فور توفرها.
+                <p style={{ lineHeight: '1.7', fontSize: '0.88rem', color: 'var(--text-secondary)', margin: '0 0 14px' }}>
+                  يتم معالجة كافة المعاملات المالية على الموقع بشكل آمن ومشفر 100% عبر بوابة الدفع <strong>كاشير Kashier</strong> المعتمدة بالبنك المركزي المصري.
+                </p>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', fontSize: '0.8rem', fontWeight: 700 }}>
+                  {['Visa', 'Mastercard', 'ميزة Meeza', 'فودافون كاش', 'أورانج كاش', 'اتصالات كاش', 'WE Pay', 'Instapay'].map((method, i) => (
+                    <span key={i} style={{ background: 'var(--primary-light)', color: 'var(--primary-color)', padding: '5px 12px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(125,161,70,0.2)' }}>
+                      {method}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cancellation & Refund Policy Notice */}
+              <div className="glass" style={{ padding: '20px', borderRadius: 'var(--radius-lg)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)', direction: 'rtl' }}>
+                <h4 style={{ fontWeight: 800, color: 'var(--primary-color)', marginBottom: '8px', fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AlertCircle size={17} />
+                  <span>سياسة الإلغاء والاسترجاع (Refund Policy):</span>
+                </h4>
+                <p style={{ lineHeight: '1.7', fontSize: '0.84rem', color: 'var(--text-secondary)', margin: 0 }}>
+                  يمكنك طلب إلغاء الاشتراك واسترداد المبلغ المدفوع خلال <strong>3 أيام (72 ساعة)</strong> فقط من تاريخ وتوقيت الشراء، <strong>بشرط ألا تكون قد استخدمت أي جزء من نقاط الباقة المتاحة</strong>. في حال استخدام أية نقطة، يعتبر الاشتراك غير قابل للاسترجاع.
                 </p>
               </div>
 
               {/* Points system info card */}
-              <div className="glass" style={{ padding: '20px', borderRadius: 'var(--radius-lg)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)', direction: 'rtl' }}>
-                <h4 style={{ fontWeight: 800, color: 'var(--primary-color)', marginBottom: '8px', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Sparkles size={16} />
-                  <span>نظام النقاط والاحتساب الفعلي للاستهلاك:</span>
-                </h4>
-                <p style={{ lineHeight: '1.6', fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0 }}>
-                  رصيدك من النقاط يُخصم تلقائياً بحسب الاستهلاك الفعلي لكل رسالة (بناءً على طول السؤال والإجابة)، ويتجدد رصيدك يومياً.
-                  <br />
-                  الرصيد الحالي: <strong>{coins.toFixed(2)} نقطة</strong>
-                </p>
+              <div className="glass" style={{ padding: '18px 24px', borderRadius: 'var(--radius-lg)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Sparkles size={18} color="var(--primary-color)" />
+                  <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>رصيد نقاطك الحالي في الحساب:</span>
+                </div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--primary-color)' }}>
+                  {coins.toFixed(2)} نقطة
+                </div>
+              </div>
+
+              {/* Support & Contact Banner */}
+              <div style={{ textAlign: 'center', padding: '16px', background: 'var(--primary-light)', borderRadius: 'var(--radius-lg)', color: 'var(--primary-color)', fontSize: '0.88rem', fontWeight: 700 }}>
+                تحتاج مساعدة أو استفسار بخصوص الاشتراكات؟ تواصل معنا عبر الهاتف/واتساب: <a href="tel:01037220587" style={{ color: 'inherit', textDecoration: 'underline', direction: 'ltr', display: 'inline-block' }}>01037220587</a> أو البريد الإلكتروني: <a href="mailto:sohaib572010@gmail.com" style={{ color: 'inherit', textDecoration: 'underline' }}>sohaib572010@gmail.com</a>
+              </div>
+
+              {/* Website Footer Links */}
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)', textAlign: 'center', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '16px', flexWrap: 'wrap', fontSize: '0.84rem' }}>
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary-color)', fontWeight: 600, textDecoration: 'none' }}>سياسة الخصوصية</a>
+                <span style={{ color: 'var(--border-color)' }}>•</span>
+                <a href="/terms#refund" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary-color)', fontWeight: 600, textDecoration: 'none' }}>سياسة الإرجاع والاسترجاع</a>
+                <span style={{ color: 'var(--border-color)' }}>•</span>
+                <a href="/contact" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary-color)', fontWeight: 600, textDecoration: 'none' }}>نموذج التواصل والدعم الفني</a>
               </div>
 
             </div>
@@ -5298,7 +6139,7 @@ export default function App() {
                 ) : (
                   <form onSubmit={handleVerifyProfileOtp} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                     <div style={{ textAlign: 'center', padding: '10px 0' }}>
-                      <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>أدخل الرمز التجريبي "111111" لتأكيد التغيير</span>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>أدخل رمز التحقق المرسل إلى بريدك الإلكتروني</span>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>رمز التحقق المرسل:</label>
@@ -5307,7 +6148,7 @@ export default function App() {
                         maxLength={6}
                         value={profileOtp}
                         onChange={(e) => setProfileOtp(e.target.value)}
-                        placeholder="111111"
+                        placeholder="------"
                         style={{ padding: '10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', outline: 'none', textAlign: 'center', fontSize: '1.2rem', fontWeight: 700, letterSpacing: '4px', background: 'var(--sidebar-bg)', color: 'var(--text-main)' }}
                       />
                     </div>
@@ -5557,6 +6398,30 @@ export default function App() {
                         </div>
                       </div>
 
+                      {/* Per-question corrections (revealed only after submission) */}
+                      {Array.isArray(examResult.questions_review) && examResult.questions_review.length > 0 && (
+                        <div style={{ width: '100%', textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          <h4 style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--primary-color)', margin: 0 }}>مراجعة الأسئلة والإجابات النموذجية:</h4>
+                          {examResult.questions_review.map((q: any, qIdx: number) => (
+                            <div key={q.id || qIdx} style={{ background: 'var(--sidebar-bg)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                              <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', alignItems: 'flex-start' }}>
+                                <span style={{ background: 'var(--primary-color)', color: 'var(--text-on-primary)', borderRadius: '6px', padding: '2px 8px', fontSize: '0.75rem', fontWeight: 800, flexShrink: 0 }}>س {qIdx + 1}</span>
+                                <span style={{ fontWeight: 700, fontSize: '0.92rem', lineHeight: '1.5' }}>{q.question}</span>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.86rem' }}>
+                                {q.student_answer != null && (
+                                  <div><strong>إجابتك:</strong> <span style={{ color: 'var(--text-secondary)' }}>{String(q.student_answer)}</span></div>
+                                )}
+                                <div><strong>الإجابة النموذجية:</strong> <span style={{ color: 'var(--success-color)', fontWeight: 700 }}>{q.correct_answer}</span></div>
+                                {q.explanation && (
+                                  <div style={{ color: 'var(--text-secondary)', lineHeight: '1.6' }}><strong>الشرح:</strong> {q.explanation}</div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
                       <button
                         onClick={() => {
                           setSelectedExam(null);
@@ -5587,25 +6452,56 @@ export default function App() {
                             المادة: {selectedExam.subject_name} · الصف الدراسي: {GRADE_NAMES[selectedExam.grade_level]}
                           </p>
                         </div>
-                        <button
-                          onClick={() => {
-                            if (Object.keys(activeExamAnswers).length > 0 && !confirm('هل أنت متأكد من مغادرة الامتحان؟ لن يتم حفظ تقدمك.')) return;
-                            setSelectedExam(null);
-                            setActiveExamAnswers({});
-                          }}
-                          style={{
-                            background: 'transparent',
-                            border: '1.5px solid var(--border-color)',
-                            color: 'var(--text-main)',
-                            padding: '6px 14px',
-                            borderRadius: '8px',
-                            cursor: 'pointer',
-                            fontSize: '0.8rem',
-                            fontWeight: 700
-                          }}
-                        >
-                          خروج وإلغاء
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div
+                            className={examTimeRemaining <= 60 ? 'timer-pulse' : ''}
+                            style={{
+                              background: examTimeRemaining <= 60 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(255, 255, 255, 0.04)',
+                              border: examTimeRemaining <= 60 ? '1.5px solid #ef4444' : '1px solid var(--border-color)',
+                              color: examTimeRemaining <= 60 ? '#f87171' : 'var(--text-main)',
+                              padding: '6px 12px',
+                              borderRadius: '8px',
+                              fontWeight: 900,
+                              fontFamily: 'monospace',
+                              fontSize: '0.95rem',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px'
+                            }}
+                          >
+                            <span>⏱️</span>
+                            <span>
+                              {(() => {
+                                const mins = Math.floor(examTimeRemaining / 60);
+                                const secs = examTimeRemaining % 60;
+                                return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                              })()}
+                            </span>
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              if (Object.keys(activeExamAnswers).length > 0 && !confirm('هل أنت متأكد من مغادرة الامتحان؟ لن يتم حفظ تقدمك.')) return;
+                              setSelectedExam(null);
+                              setActiveExamAnswers({});
+                              localStorage.removeItem('egs_active_exam_id');
+                              localStorage.removeItem('egs_active_exam_time');
+                              setExamTimeRemaining(0);
+                            }}
+                            style={{
+                              background: 'transparent',
+                              border: '1.5px solid var(--border-color)',
+                              color: 'var(--text-main)',
+                              padding: '6px 14px',
+                              borderRadius: '8px',
+                              cursor: 'pointer',
+                              fontSize: '0.8rem',
+                              fontWeight: 700
+                            }}
+                          >
+                            خروج وإلغاء
+                          </button>
+                        </div>
                       </div>
 
                       {/* Questions List */}
@@ -5789,6 +6685,10 @@ export default function App() {
                               setSelectedExam(ex);
                               setActiveExamAnswers({});
                               setExamResult(null);
+                              const durationSeconds = (ex.questions?.length || 5) * 120;
+                              localStorage.setItem('egs_active_exam_id', ex.id);
+                              localStorage.setItem('egs_active_exam_time', String(durationSeconds));
+                              setExamTimeRemaining(durationSeconds);
                             }}
                             className="btn-primary"
                             style={{
@@ -5874,6 +6774,897 @@ export default function App() {
           </div>
         )}
 
+        {/* Flashcards (Subject-Level Stacked Active Recall) Tab */}
+        {activeTab === 'flashcards' && (
+          <div style={{ flex: 1, padding: isMobile ? '16px' : '32px', display: 'flex', flexDirection: 'column', gap: '24px', direction: 'rtl', fontFamily: 'var(--font-arabic)', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
+              <div>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--primary-color)', margin: 0 }}>المدرب الذكي (Flashcards)</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', margin: '4px 0 0' }}>مجموعات مراجعة مجمعة حسب المواد الدراسية بنظام الكروت المتراكمة</p>
+              </div>
+
+              {!selectedFlashcardSubject && (
+                <button
+                  onClick={() => {
+                    const activeSubjects = getActiveSubjectsForGrade(user?.grade_level || '3_high');
+                    if (activeSubjects.length > 0) {
+                      setFlashcardSubject(activeSubjects[0].subject_name);
+                    }
+                    setShowFlashcardCreateModal(true);
+                  }}
+                  className="btn-primary"
+                  style={{ padding: '10px 20px', borderRadius: '10px', fontSize: '0.88rem', fontWeight: 700, border: 'none', cursor: 'pointer' }}
+                >
+                  <span>إنشاء كروت تعليمية</span>
+                </button>
+              )}
+            </div>
+
+            {selectedFlashcardSubject ? (
+              <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {/* Header Controls Bar inside Subject */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px', background: 'var(--bg-card)', padding: '16px 20px', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button
+                      onClick={() => setSelectedFlashcardSubject(null)}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.05)', border: '1px solid var(--border-color)', color: 'var(--text-main)', padding: '8px 14px', borderRadius: '10px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700 }}
+                    >
+                      <ArrowRight size={16} />
+                      <span>المواد</span>
+                    </button>
+                    <div>
+                      <h3 style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--primary-color)', margin: 0 }}>{selectedFlashcardSubject}</h3>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        إجمالي {subjectCards.length} كارت تعليمي
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    {/* View Mode Toggle */}
+                    <div className="flashcard-view-mode-toggle">
+                      <button
+                        className={`flashcard-view-mode-btn ${flashcardViewMode === 'grid' ? 'active' : ''}`}
+                        onClick={() => setFlashcardViewMode('grid')}
+                      >
+                        <Grid size={15} />
+                        <span>جميع الكروت</span>
+                      </button>
+                      <button
+                        className={`flashcard-view-mode-btn ${flashcardViewMode === 'stack' ? 'active' : ''}`}
+                        onClick={() => setFlashcardViewMode('stack')}
+                      >
+                        <Layers size={15} />
+                        <span>مراجعة تفاعلية</span>
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setFlashcardSubject(selectedFlashcardSubject);
+                        setShowFlashcardCreateModal(true);
+                      }}
+                      className="btn-primary"
+                      style={{ padding: '8px 16px', borderRadius: '10px', fontSize: '0.82rem', fontWeight: 700, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <Plus size={15} />
+                      <span>كارت جديد</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Deck Filter Pills */}
+                {subjectDecks.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 700 }}>المجموعات:</span>
+                    <button
+                      onClick={() => setDeckFilter(null)}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: '20px',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        border: '1px solid var(--border-color)',
+                        cursor: 'pointer',
+                        background: deckFilter === null ? 'rgba(125, 161, 70, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                        color: deckFilter === null ? 'var(--primary-color)' : 'var(--text-muted)',
+                      }}
+                    >
+                      الكل ({subjectCards.length})
+                    </button>
+                    {subjectDecks.map(d => (
+                      <div
+                        key={d.id}
+                        onClick={() => setDeckFilter(deckFilter === d.id ? null : d.id)}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '20px',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          border: '1px solid var(--border-color)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          background: deckFilter === d.id ? 'rgba(125, 161, 70, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                          color: deckFilter === d.id ? 'var(--primary-color)' : 'var(--text-muted)',
+                        }}
+                      >
+                        <span>{d.title}</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newTitle = prompt('إعادة تسمية المجموعة:', d.title);
+                            if (newTitle) handleRenameDeck(d.id, newTitle);
+                          }}
+                          style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}
+                          title="تعديل الاسم"
+                        >
+                          <Edit2 size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteDeck(d.id);
+                          }}
+                          style={{ background: 'transparent', border: 'none', color: '#ff6b6b', cursor: 'pointer', padding: 0 }}
+                          title="حذف المجموعة"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {loadingDecks ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: '50px' }}>
+                    <Loader2 className="animate-spin" size={32} style={{ color: 'var(--primary-color)' }} />
+                  </div>
+                ) : (() => {
+                  const displayCards = deckFilter ? subjectCards.filter(c => c.deck_id === deckFilter) : subjectCards;
+
+                  if (displayCards.length === 0) {
+                    return (
+                      <div className="glass" style={{ padding: '40px', borderRadius: '16px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        لا توجد كروت تعليمية تعرض حسب هذا التحديد.
+                      </div>
+                    );
+                  }
+
+                  if (flashcardViewMode === 'grid') {
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 700 }}>
+                            عرض جميع الكروت ({displayCards.length} كارت):
+                          </span>
+                          <button
+                            onClick={() => {
+                              const allRevealed = displayCards.every(c => revealedAnswers[c.id]);
+                              const nextState: Record<string, boolean> = {};
+                              displayCards.forEach(c => { nextState[c.id] = !allRevealed; });
+                              setRevealedAnswers(nextState);
+                            }}
+                            style={{ background: 'transparent', border: 'none', color: 'var(--primary-color)', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          >
+                            <Eye size={14} />
+                            <span>{displayCards.every(c => revealedAnswers[c.id]) ? 'إخفاء جميع الإجابات' : 'عرض جميع الإجابات'}</span>
+                          </button>
+                        </div>
+
+                        <div className="flashcard-grid-container">
+                          {displayCards.map((card) => {
+                            const isRevealed = !!revealedAnswers[card.id];
+                            const boxVal = card.box || 1;
+                            const boxLabel = boxVal === 1 ? 'مبتدئ' : boxVal === 2 ? 'متوسط' : boxVal >= 5 ? 'متقن' : 'متقدم';
+                            const boxBg = boxVal === 1 ? 'rgba(255, 152, 0, 0.15)' : boxVal === 2 ? 'rgba(33, 150, 243, 0.15)' : 'rgba(125, 161, 70, 0.2)';
+                            const boxColor = boxVal === 1 ? '#ff9800' : boxVal === 2 ? '#2196f3' : 'var(--primary-color)';
+
+                            return (
+                              <div key={card.id} className="flashcard-card-item">
+                                <div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                    <span style={{ fontSize: '0.72rem', background: 'var(--hover-bg)', color: 'var(--text-muted)', padding: '3px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid var(--border-color)' }}>
+                                      {card.deck_title || 'كارت مراجعة'}
+                                    </span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <span style={{ fontSize: '0.7rem', background: boxBg, color: boxColor, padding: '2px 8px', borderRadius: '10px', fontWeight: 800 }}>
+                                        صندوق {boxVal} ({boxLabel})
+                                      </span>
+                                      <button
+                                        onClick={() => setEditingCard(card)}
+                                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px' }}
+                                        title="تعديل الكارت"
+                                      >
+                                        <Edit2 size={14} />
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteCard(card.id)}
+                                        style={{ background: 'transparent', border: 'none', color: '#ff6b6b', cursor: 'pointer', padding: '2px' }}
+                                        title="حذف الكارت"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div style={{ marginBottom: '12px' }}>
+                                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--primary-color)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>السؤال:</span>
+                                    <p style={{ fontSize: '1rem', fontWeight: 700, lineHeight: 1.6, margin: '4px 0 0', color: 'var(--text-main)' }}>
+                                      {card.question}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <button
+                                    onClick={() => setRevealedAnswers(prev => ({ ...prev, [card.id]: !prev[card.id] }))}
+                                    style={{
+                                      background: isRevealed ? 'rgba(125, 161, 70, 0.15)' : 'var(--hover-bg)',
+                                      border: `1px solid ${isRevealed ? 'rgba(125, 161, 70, 0.4)' : 'var(--border-color)'}`,
+                                      color: isRevealed ? 'var(--primary-color)' : 'var(--text-main)',
+                                      padding: '8px 14px',
+                                      borderRadius: '10px',
+                                      cursor: 'pointer',
+                                      fontSize: '0.82rem',
+                                      fontWeight: 700,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      gap: '6px',
+                                      width: '100%',
+                                      transition: 'all 0.2s ease'
+                                    }}
+                                  >
+                                    {isRevealed ? (
+                                      <>
+                                        <EyeOff size={14} />
+                                        <span>إخفاء الإجابة</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Eye size={14} />
+                                        <span>عرض الإجابة</span>
+                                      </>
+                                    )}
+                                  </button>
+
+                                  {isRevealed && (
+                                    <div className="flashcard-answer-box">
+                                      <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--success-color)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>الإجابة النموذجية:</span>
+                                      <p style={{ fontSize: '0.95rem', fontWeight: 700, lineHeight: 1.6, margin: '4px 0 12px', color: 'var(--text-main)' }}>
+                                        {card.answer}
+                                      </p>
+                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: '8px' }}>
+                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>تقييم الاستدعاء:</span>
+                                        <div style={{ display: 'flex', gap: '4px' }}>
+                                          {[1, 2, 3, 4, 5].map(rating => (
+                                            <button
+                                              key={rating}
+                                              onClick={() => submitSubjectCardReview(card.id, rating)}
+                                              style={{
+                                                background: 'var(--hover-bg)',
+                                                border: '1px solid var(--border-color)',
+                                                color: 'var(--text-main)',
+                                                borderRadius: '6px',
+                                                padding: '2px 8px',
+                                                fontSize: '0.72rem',
+                                                fontWeight: 800,
+                                                cursor: 'pointer'
+                                              }}
+                                              title={`درجة ${rating}`}
+                                            >
+                                              {rating}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (activeStackIndex >= displayCards.length) {
+                    return (
+                      <div className="glass" style={{ padding: '40px', borderRadius: '16px', textAlign: 'center', color: 'var(--text-main)', display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center', background: 'var(--card-bg)', border: '1px solid var(--border-color)' }}>
+                        <Award size={48} style={{ color: 'var(--primary-color)' }} />
+                        <h3 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 900 }}>أحسنت! أتممت مراجعة كل الكروت</h3>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', margin: 0 }}>تمت مراجعة {doneCards.length} كارت في هذه الجلسة بنجاح.</p>
+                        <button
+                          onClick={() => { setActiveStackIndex(0); setDoneCards([]); setIsCardFlipped(false); }}
+                          className="btn-primary"
+                          style={{ padding: '10px 24px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}
+                        >
+                          <RotateCcw size={16} />
+                          <span>خلط وإعادة المراجعة</span>
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  const activeCard = displayCards[activeStackIndex] || displayCards[0];
+
+                  return (
+                    <div style={{ maxWidth: '620px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      {/* Top Playing Card Controls Bar */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--card-bg)', padding: '12px 18px', borderRadius: '14px', border: '1px solid var(--border-color)' }}>
+                        <button
+                          disabled={activeStackIndex === 0 || isDealingAway}
+                          onClick={() => {
+                            setIsCardFlipped(false);
+                            setActiveStackIndex(prev => Math.max(0, prev - 1));
+                          }}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: activeStackIndex === 0 ? 'var(--text-muted)' : 'var(--text-main)',
+                            opacity: activeStackIndex === 0 ? 0.4 : 1,
+                            cursor: activeStackIndex === 0 ? 'not-allowed' : 'pointer',
+                            fontSize: '0.85rem',
+                            fontWeight: 700,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <ChevronRight size={18} />
+                          <span>السابق</span>
+                        </button>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--primary-color)' }}>
+                            الكارت {activeStackIndex + 1} من {displayCards.length}
+                          </span>
+                        </div>
+
+                        <button
+                          disabled={activeStackIndex >= displayCards.length - 1 || isDealingAway}
+                          onClick={() => advancePlayingCard(activeStackIndex + 1)}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: activeStackIndex >= displayCards.length - 1 ? 'var(--text-muted)' : 'var(--text-main)',
+                            opacity: activeStackIndex >= displayCards.length - 1 ? 0.4 : 1,
+                            cursor: activeStackIndex >= displayCards.length - 1 ? 'not-allowed' : 'pointer',
+                            fontSize: '0.85rem',
+                            fontWeight: 700,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <span>التالي</span>
+                          <ChevronLeft size={18} />
+                        </button>
+                      </div>
+
+                      {/* Stack Progress Bar */}
+                      <div style={{ width: '100%', height: '6px', background: 'var(--hover-bg)', borderRadius: '3px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+                        <div style={{ width: `${((activeStackIndex + 1) / displayCards.length) * 100}%`, height: '100%', background: 'var(--primary-color)', transition: 'width 0.3s ease' }} />
+                      </div>
+
+                      {/* Stacked Playing Cards (كوتشينة الكروت) Container */}
+                      <div className="playing-card-stack-wrap">
+                        {/* Layered Deck Backing 2 */}
+                        {activeStackIndex + 2 < displayCards.length && (
+                          <div
+                            className="playing-card-deck-layer"
+                            style={{
+                              transform: 'translateY(16px) scale(0.92) rotate(3deg)',
+                              opacity: 0.4,
+                              zIndex: 1
+                            }}
+                          />
+                        )}
+
+                        {/* Layered Deck Backing 1 */}
+                        {activeStackIndex + 1 < displayCards.length && (
+                          <div
+                            className="playing-card-deck-layer"
+                            style={{
+                              transform: 'translateY(8px) scale(0.96) rotate(-2deg)',
+                              opacity: 0.75,
+                              zIndex: 2
+                            }}
+                          />
+                        )}
+
+                        {/* Active Top Playing Card */}
+                        <div
+                          style={{ position: 'relative', width: '100%', height: '280px', zIndex: 3 }}
+                          className={isDealingAway ? 'playing-card-slide-off' : ''}
+                        >
+                          <div
+                            className="flashcard-perspective"
+                            style={{ width: '100%', height: '100%' }}
+                            onClick={() => {
+                              if (isDealingAway) return;
+                              if (!isCardFlipped) {
+                                setIsCardFlipped(true);
+                              } else {
+                                advancePlayingCard();
+                              }
+                            }}
+                          >
+                            <div className={`flashcard-container ${isCardFlipped ? 'flipped' : ''}`} style={{ width: '100%', height: '100%' }}>
+                              <div className="flashcard-front" style={{ position: 'relative' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '12px', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--primary-color)', fontWeight: 800 }}>
+                                    {activeCard?.deck_title || 'كارت مراجعة'}
+                                  </span>
+                                  <div style={{ display: 'flex', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
+                                    <button
+                                      onClick={() => setEditingCard(activeCard)}
+                                      style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+                                      title="تعديل الكارت"
+                                    >
+                                      <Edit2 size={15} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteCard(activeCard?.id)}
+                                      style={{ background: 'transparent', border: 'none', color: '#ff6b6b', cursor: 'pointer', padding: '4px' }}
+                                      title="حذف الكارت"
+                                    >
+                                      <Trash2 size={15} />
+                                    </button>
+                                  </div>
+                                </div>
+                                <p style={{ fontSize: '1.2rem', fontWeight: 800, lineHeight: 1.6, margin: 0, overflowY: 'auto', maxHeight: '140px' }}>
+                                  {activeCard?.question}
+                                </p>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '16px', border: '1px solid var(--border-color)', padding: '4px 14px', borderRadius: '20px', background: 'var(--hover-bg)' }}>
+                                  اضغط للقلب ورؤية الإجابة
+                                </span>
+                              </div>
+
+                              <div className="flashcard-back" style={{ position: 'relative' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '12px', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--success-color)', fontWeight: 800 }}>الإجابة النموذجية</span>
+                                  <div style={{ display: 'flex', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
+                                    <button
+                                      onClick={() => setEditingCard(activeCard)}
+                                      style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+                                      title="تعديل الكارت"
+                                    >
+                                      <Edit2 size={15} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteCard(activeCard?.id)}
+                                      style={{ background: 'transparent', border: 'none', color: '#ff6b6b', cursor: 'pointer', padding: '4px' }}
+                                      title="حذف الكارت"
+                                    >
+                                      <Trash2 size={15} />
+                                    </button>
+                                  </div>
+                                </div>
+                                <p style={{ fontSize: '1.15rem', fontWeight: 800, lineHeight: 1.6, margin: 0, overflowY: 'auto', maxHeight: '140px' }}>
+                                  {activeCard?.answer}
+                                </p>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '16px', border: '1px solid var(--border-color)', padding: '4px 14px', borderRadius: '20px', background: 'var(--hover-bg)' }}>
+                                  اضغط للتمرير للكارت التالي
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Leitner Rating Controls */}
+                      {isCardFlipped && (
+                        <div className="animate-scale-in" style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'var(--card-bg)', padding: '16px', borderRadius: '16px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
+                          <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', fontWeight: 700 }}>كيف كان استدعاؤك للمعلومة؟ (يتم السحب تلقائياً عند التقييم)</p>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
+                            {[
+                              { val: 1, label: 'صعب جداً' },
+                              { val: 2, label: 'خاطئ' },
+                              { val: 3, label: 'مقبول' },
+                              { val: 4, label: 'سهل' },
+                              { val: 5, label: 'ممتاز' }
+                            ].map(r => (
+                              <button
+                                key={r.val}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  submitSubjectCardReview(activeCard.id, r.val);
+                                }}
+                                style={{
+                                  background: 'var(--hover-bg)',
+                                  border: '1px solid var(--border-color)',
+                                  borderRadius: '10px',
+                                  padding: '8px 4px',
+                                  color: 'var(--text-main)',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s ease'
+                                }}
+                              >
+                                <div style={{ fontSize: '1rem', marginBottom: '2px', color: 'var(--primary-color)' }}>{r.val}</div>
+                                <div>{r.label}</div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : (
+              /* Subject Grid View */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {loadingDecks ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: '50px' }}>
+                    <Loader2 className="animate-spin" size={32} style={{ color: 'var(--primary-color)' }} />
+                  </div>
+                ) : flashcardDecks.length === 0 ? (
+                  <div className="glass" style={{ padding: '60px 20px', borderRadius: '16px', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border-color)' }}>
+                    <Brain size={48} style={{ color: 'var(--primary-color)', opacity: 0.5, marginBottom: '16px' }} />
+                    <p style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>لا توجد كروت تعليمية بعد</p>
+                    <p style={{ margin: '8px 0 0', fontSize: '0.85rem' }}>أنشئ أول مجموعة كروت بالذكاء الاصطناعي أو اكتبها بنفسك الآن!</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+                    {(() => {
+                      const subjectGroups: Record<string, { subject_name: string; decks: any[]; total_count: number; due_count: number }> = {};
+                      flashcardDecks.forEach(deck => {
+                        const sName = deck.subject_name || 'عام';
+                        if (!subjectGroups[sName]) {
+                          subjectGroups[sName] = { subject_name: sName, decks: [], total_count: 0, due_count: 0 };
+                        }
+                        subjectGroups[sName].decks.push(deck);
+                        subjectGroups[sName].total_count += (deck.total_count || 0);
+                        subjectGroups[sName].due_count += (deck.due_count || 0);
+                      });
+
+                      return Object.values(subjectGroups).map(group => (
+                        <div key={group.subject_name} className="glass" style={{ padding: '20px', borderRadius: '16px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '16px', background: 'var(--card-bg)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, color: 'var(--primary-color)' }}>{group.subject_name}</h3>
+                            <span style={{ fontSize: '0.75rem', background: 'rgba(125, 161, 70, 0.15)', color: 'var(--primary-color)', padding: '2px 8px', borderRadius: '6px', fontWeight: 800 }}>
+                              {group.total_count} كارت
+                            </span>
+                          </div>
+
+                          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>
+                            محتوى {group.decks.length} مجموعة كروت مجمعة
+                          </p>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '12px' }}>
+                            <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                              المستحق للمراجعة: <strong style={{ color: group.due_count > 0 ? '#ff7e7e' : 'var(--success-color)' }}>{group.due_count}</strong>
+                            </span>
+                            
+                            <button
+                              onClick={() => fetchSubjectCards(group.subject_name)}
+                              className="btn-primary"
+                              style={{ padding: '8px 16px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700, border: 'none', cursor: 'pointer' }}
+                            >
+                              مراجعة الكروت المتراكمة
+                            </button>
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Flashcards Creation Modal (AI or Manual) */}
+        {showFlashcardCreateModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+            <div className="glass" style={{ maxWidth: '520px', width: '100%', borderRadius: '20px', padding: '24px', background: 'var(--card-bg)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '20px', maxHeight: '90vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: 'var(--primary-color)' }}>إنشاء كروت تعليمية جديدة</h3>
+                <button onClick={() => setShowFlashcardCreateModal(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+              </div>
+
+              {/* Mode Selector */}
+              <div style={{ display: 'flex', background: 'rgba(255,255,255,0.04)', padding: '4px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                <button
+                  onClick={() => setFlashcardCreateMode('ai')}
+                  style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', background: flashcardCreateMode === 'ai' ? 'var(--primary-color)' : 'transparent', color: flashcardCreateMode === 'ai' ? '#000' : 'var(--text-muted)' }}
+                >
+                  بالذكاء الاصطناعي ✨
+                </button>
+                <button
+                  onClick={() => setFlashcardCreateMode('manual')}
+                  style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', background: flashcardCreateMode === 'manual' ? 'var(--primary-color)' : 'transparent', color: flashcardCreateMode === 'manual' ? '#000' : 'var(--text-muted)' }}
+                >
+                  كتابة يدوي ✍️
+                </button>
+              </div>
+
+              {/* Subject Selection */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>المادة الدراسية</label>
+                <select
+                  value={flashcardSubject}
+                  onChange={(e) => setFlashcardSubject(e.target.value)}
+                  style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', color: 'var(--text-main)', border: '1px solid var(--border-color)', outline: 'none' }}
+                >
+                  {getActiveSubjectsForGrade(user?.grade_level || '3_high').map(s => (
+                    <option key={s.subject_name} value={s.subject_name}>{s.subject_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {flashcardCreateMode === 'ai' ? (
+                /* AI Generation Fields */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>موضوع الكروت</label>
+                    <input
+                      type="text"
+                      placeholder="مثال: قوانين نيوتن، الكيمياء الحرارية، الباب الأول"
+                      value={flashcardTopic}
+                      onChange={(e) => setFlashcardTopic(e.target.value)}
+                      style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', color: 'var(--text-main)', border: '1px solid var(--border-color)', outline: 'none' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>عدد الكروت</label>
+                    <select
+                      value={flashcardCount}
+                      onChange={(e) => setFlashcardCount(Number(e.target.value))}
+                      style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', color: 'var(--text-main)', border: '1px solid var(--border-color)', outline: 'none' }}
+                    >
+                      <option value={5}>5 كروت</option>
+                      <option value={10}>10 كروت</option>
+                      <option value={15}>15 كارت</option>
+                    </select>
+                  </div>
+                  <button
+                    onClick={() => {
+                      generateFlashcardDeck().then(() => setShowFlashcardCreateModal(false));
+                    }}
+                    disabled={generatingDecks || !flashcardTopic.trim()}
+                    className="btn-primary"
+                    style={{ padding: '12px', borderRadius: '10px', fontWeight: 800, border: 'none', cursor: 'pointer', marginTop: '8px' }}
+                  >
+                    {generatingDecks ? 'جاري التوليد...' : 'توليد الكروت الآن ✨'}
+                  </button>
+                </div>
+              ) : (
+                /* Manual Creation Fields */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>عنوان المجموعة</label>
+                    <input
+                      type="text"
+                      placeholder="مثال: ملخص مراجعة الفيزياء الحديثة"
+                      value={manualDeckTitle}
+                      onChange={(e) => setManualDeckTitle(e.target.value)}
+                      style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', color: 'var(--text-main)', border: '1px solid var(--border-color)', outline: 'none' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-main)' }}>قائمة الأسئلة والإجابات</label>
+                    {manualCardsList.map((item, idx) => (
+                      <div key={idx} className="glass" style={{ padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--primary-color)' }}>الكارت {idx + 1}</span>
+                          {manualCardsList.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setManualCardsList(prev => prev.filter((_, i) => i !== idx))}
+                              style={{ background: 'transparent', border: 'none', color: '#ff6b6b', cursor: 'pointer' }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="السؤال..."
+                          value={item.question}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setManualCardsList(prev => prev.map((c, i) => i === idx ? { ...c, question: val } : c));
+                          }}
+                          style={{ width: '100%', padding: '8px', borderRadius: '6px', background: 'var(--input-bg)', color: 'var(--text-main)', border: '1px solid var(--border-color)', fontSize: '0.85rem' }}
+                        />
+                        <input
+                          type="text"
+                          placeholder="الإجابة..."
+                          value={item.answer}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setManualCardsList(prev => prev.map((c, i) => i === idx ? { ...c, answer: val } : c));
+                          }}
+                          style={{ width: '100%', padding: '8px', borderRadius: '6px', background: 'var(--input-bg)', color: 'var(--text-main)', border: '1px solid var(--border-color)', fontSize: '0.85rem' }}
+                        />
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setManualCardsList(prev => [...prev, { question: '', answer: '' }])}
+                      style={{ background: 'rgba(255,255,255,0.04)', border: '1px dashed var(--border-color)', color: 'var(--primary-color)', padding: '10px', borderRadius: '10px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                    >
+                      <PlusCircle size={16} />
+                      <span>إضافة كارت آخر</span>
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={handleManualCreateDeck}
+                    disabled={generatingDecks || !manualDeckTitle.trim()}
+                    className="btn-primary"
+                    style={{ padding: '12px', borderRadius: '10px', fontWeight: 800, border: 'none', cursor: 'pointer', marginTop: '8px' }}
+                  >
+                    {generatingDecks ? 'جاري الحفظ...' : 'حفظ وإضافة الكروت ✍️'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Edit Card Modal */}
+        {editingCard && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+            <div className="glass" style={{ maxWidth: '480px', width: '100%', borderRadius: '20px', padding: '24px', background: 'var(--card-bg)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: 'var(--primary-color)' }}>تعديل الكارت</h3>
+                <button onClick={() => setEditingCard(null)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>السؤال</label>
+                <textarea
+                  rows={3}
+                  value={editingCard.question}
+                  onChange={(e) => setEditingCard({ ...editingCard, question: e.target.value })}
+                  style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', color: 'var(--text-main)', border: '1px solid var(--border-color)', outline: 'none', resize: 'vertical' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>الإجابة</label>
+                <textarea
+                  rows={3}
+                  value={editingCard.answer}
+                  onChange={(e) => setEditingCard({ ...editingCard, answer: e.target.value })}
+                  style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg)', color: 'var(--text-main)', border: '1px solid var(--border-color)', outline: 'none', resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+                <button onClick={() => setEditingCard(null)} style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}>إلغاء</button>
+                <button onClick={() => handleSaveCardEdit(editingCard.id, editingCard.question, editingCard.answer)} className="btn-primary" style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', fontWeight: 700, cursor: 'pointer' }}>حفظ التعديلات</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Leaderboard Tab */}
+        {activeTab === 'leaderboard' && (
+          <div style={{ flex: 1, padding: isMobile ? '16px' : '32px', display: 'flex', flexDirection: 'column', gap: '24px', direction: 'rtl', fontFamily: 'var(--font-arabic)', overflowY: 'auto' }}>
+            <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--primary-color)', margin: 0 }}>لوحة المتصدرين</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', margin: '4px 0 0' }}>ترتيب الطلاب حسب نقاط الترتيب المجمعة من التفوق في الامتحانات والتفاعل مع المعلم الذكي</p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', background: 'rgba(255, 255, 255, 0.04)', padding: '4px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                <button
+                  onClick={() => setLeaderboardFilter('my')}
+                  style={{
+                    background: leaderboardFilter === 'my' ? 'var(--primary-color)' : 'transparent',
+                    color: leaderboardFilter === 'my' ? '#000' : 'var(--text-muted)',
+                    border: 'none',
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    fontWeight: 700,
+                    fontSize: '0.8rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  صفي الدراسي
+                </button>
+                <button
+                  onClick={() => setLeaderboardFilter('all')}
+                  style={{
+                    background: leaderboardFilter === 'all' ? 'var(--primary-color)' : 'transparent',
+                    color: leaderboardFilter === 'all' ? '#000' : 'var(--text-muted)',
+                    border: 'none',
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    fontWeight: 700,
+                    fontSize: '0.8rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  الترتيب العام
+                </button>
+              </div>
+            </div>
+
+            {loadingLeaderboard ? (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '50px' }}>
+                <Loader2 className="animate-spin" size={32} style={{ color: 'var(--primary-color)' }} />
+              </div>
+            ) : leaderboardData.length === 0 ? (
+              <div className="glass" style={{ padding: '40px', borderRadius: '16px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                لا يوجد طلاب مسجلون في لوحة المتصدرين بعد.
+              </div>
+            ) : (
+              <div className="glass" style={{ borderRadius: '16px', overflow: 'hidden', border: '1px solid var(--border-color)', background: 'var(--card-bg)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 140px 110px', padding: '16px', background: 'rgba(255, 255, 255, 0.02)', borderBottom: '1px solid var(--border-color)', fontWeight: 800, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  <div>الترتيب</div>
+                  <div>الاسم</div>
+                  <div style={{ textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                    <Trophy size={14} style={{ color: '#ffd700' }} />
+                    <span>نقاط الترتيب</span>
+                  </div>
+                  <div style={{ textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                    <Flame size={14} style={{ color: '#ff7e7e' }} />
+                    <span>المثابرة</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {leaderboardData.map((row, idx) => {
+                    const isGold = idx === 0;
+                    const isSilver = idx === 1;
+                    const isBronze = idx === 2;
+                    const rankClass = isGold ? 'rank-gold' : (isSilver ? 'rank-silver' : (isBronze ? 'rank-bronze' : 'rank-default'));
+                    const isCurrentUser = row.user_id === user?.id;
+
+                    return (
+                      <div
+                        key={row.user_id}
+                        className="leaderboard-row"
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '60px 1fr 140px 110px',
+                          padding: '16px',
+                          alignItems: 'center',
+                          borderBottom: idx < leaderboardData.length - 1 ? '1px solid rgba(255, 255, 255, 0.03)' : 'none',
+                          background: isCurrentUser ? 'rgba(125, 161, 70, 0.06)' : 'transparent',
+                          fontWeight: isCurrentUser ? 800 : 500
+                        }}
+                      >
+                        <div>
+                          <div className={`leaderboard-rank ${rankClass}`}>
+                            {row.rank_number}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: isCurrentUser ? 'var(--primary-color)' : 'var(--text-main)' }}>
+                          <span>{row.name}</span>
+                          {isCurrentUser && <span style={{ fontSize: '0.7rem', background: 'rgba(125, 161, 70, 0.2)', color: 'var(--primary-color)', padding: '2px 6px', borderRadius: '4px' }}>أنت</span>}
+                        </div>
+                        <div style={{ textAlign: 'center', color: '#ffd700', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                          <Trophy size={14} />
+                          <span>{row.points || 0}</span>
+                        </div>
+                        <div style={{ textAlign: 'center', color: '#ff7e7e', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                          <Flame size={14} />
+                          <span>{row.study_streak || 1} يوم</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
       </main>
 
       {/* Mobile material picker sheet (renders above everything when open) */}
@@ -5881,7 +7672,7 @@ export default function App() {
 
       {/* Mobile bottom tab bar — thumb-reachable primary navigation */}
       {isMobile && (
-        <nav className="bottom-nav" aria-label="التنقل السفلي">
+        <nav className="bottom-nav" aria-label="التنقل السفلي" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)' }}>
           <button
             type="button"
             className={`bottom-nav-item ${activeTab === 'chat' ? 'active' : ''}`}
@@ -5898,18 +7689,6 @@ export default function App() {
           </button>
           <button
             type="button"
-            className={`bottom-nav-item ${showSearch ? 'active' : ''}`}
-            onClick={() => {
-              setActiveTab('chat');
-              setShowSearch(true);
-              setSidebarOpen(true);
-            }}
-          >
-            <Search size={20} />
-            <span>بحث</span>
-          </button>
-          <button
-            type="button"
             className={`bottom-nav-item ${activeTab === 'exams' ? 'active' : ''}`}
             onClick={() => {
               setActiveTab('exams');
@@ -5918,6 +7697,36 @@ export default function App() {
           >
             <FileText size={20} />
             <span>الامتحانات</span>
+          </button>
+          <button
+            type="button"
+            className={`bottom-nav-item ${activeTab === 'flashcards' ? 'active' : ''}`}
+            onClick={() => {
+              if (user) {
+                setActiveTab('flashcards');
+              } else {
+                setShowAuthModal(true);
+              }
+              setSidebarOpen(false);
+            }}
+          >
+            <Brain size={20} />
+            <span>المدرب</span>
+          </button>
+          <button
+            type="button"
+            className={`bottom-nav-item ${activeTab === 'leaderboard' ? 'active' : ''}`}
+            onClick={() => {
+              if (user) {
+                setActiveTab('leaderboard');
+              } else {
+                setShowAuthModal(true);
+              }
+              setSidebarOpen(false);
+            }}
+          >
+            <Trophy size={20} />
+            <span>المتصدرون</span>
           </button>
           <button
             type="button"
@@ -6064,87 +7873,14 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 2: Gemini Key Setup Overlay */}
-      {showGeminiModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px' }}>
-          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', margin: isMobile ? '20px auto' : '40px auto', flexShrink: 0 }}>
-            
-            <div style={{ padding: '22px 24px 0', textAlign: 'center' }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '46px', height: '46px', borderRadius: '14px', background: 'var(--primary-light)', border: '1px solid rgba(125,161,70,0.2)', overflow: 'hidden' }}>
-                <img src="/logo.png" alt="EGS AI Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-              </div>
-              <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-main)', fontFamily: 'var(--font-arabic)' }}>إعداد مفتاح Gemini API</h2>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px', marginBottom: '16px', fontFamily: 'var(--font-arabic)' }}>مطلب لتفريغ التسجيلات الصوتية بدقة شديدة.</p>
-            </div>
-
-            <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: '14px', color: 'var(--text-main)' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', fontFamily: 'var(--font-arabic)' }}>مفتاح API Key الخاص بك:</label>
-                <input
-                  type="password"
-                  placeholder="AIzaSy..."
-                  value={geminiKeyInput}
-                  onChange={(e) => setGeminiKeyInput(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    fontSize: '0.9rem',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-color)',
-                    background: 'var(--input-bg)',
-                    color: 'var(--text-main)',
-                    outline: 'none',
-                  }}
-                />
-              </div>
-
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: '1.4', fontFamily: 'var(--font-arabic)' }}>
-                * يتم حفظ هذا المفتاح محلياً في متصفحك فقط ولا يتم إرساله إلى خوادمنا. يمكنك الحصول على مفتاح مجاني من Google AI Studio.
-              </div>
-
-              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                <button
-                  type="button"
-                  onClick={() => handleSaveGeminiKey(geminiKeyInput)}
-                  style={{
-                    flex: 1,
-                    padding: '10px',
-                    background: 'var(--primary-color)',
-                    color: 'var(--text-on-primary)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    fontFamily: 'var(--font-arabic)',
-                  }}
-                >
-                  حفظ واستمرار
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowGeminiModal(false);
-                    tempAudioBlobRef.current = null;
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: '10px',
-                    background: 'var(--alpha-white-4)',
-                    color: 'var(--text-main)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '8px',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    fontFamily: 'var(--font-arabic)',
-                  }}
-                >
-                  إلغاء
-                </button>
-              </div>
-            </div>
-
-          </div>
-        </div>
+      {/* MODAL: Image editor (crop + markup) */}
+      {editingImage && (
+        <ImageEditorModal
+          src={editingImage.dataUrl}
+          mimeType={editingImage.mimeType}
+          onConfirm={handleEditedImage}
+          onCancel={() => setEditingImage(null)}
+        />
       )}
 
       {/* MODAL 1: Authentication Overlay */}
@@ -6567,6 +8303,90 @@ export default function App() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* MODAL 5: Kashier Payment Success Celebratory Modal */}
+      {paymentSuccessData && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(10px)', zIndex: 1100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', direction: 'rtl' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '480px', borderRadius: 'var(--radius-lg)', padding: '32px', boxShadow: 'var(--shadow-xl)', border: '2px solid var(--primary-color)', color: 'var(--text-main)', textAlign: 'center', position: 'relative' }}>
+            
+            {/* Header Icon Badge */}
+            <div style={{ width: '68px', height: '68px', borderRadius: 'var(--radius-full)', background: 'var(--primary-light)', color: 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px', border: '2px solid var(--primary-color)' }}>
+              <CheckCircle size={36} />
+            </div>
+
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'var(--primary-light)', color: 'var(--primary-color)', padding: '4px 12px', borderRadius: 'var(--radius-full)', fontSize: '0.8rem', fontWeight: 800, marginBottom: '12px' }}>
+              <Sparkles size={14} />
+              <span>تأكيد الاشتراك عبر كاشير</span>
+            </div>
+
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--primary-color)', margin: '0 0 8px' }}>
+              تم تفعيل اشتراكك بنجاح!
+            </h2>
+            
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: '1.6', margin: '0 0 20px' }}>
+              تهانينا! تم ترقية حسابك إلى باقة Pro وشحن رصيدك بنجاح. أصبحت كافة ميزات المساعد الذكي الفائق متاحة لك الآن.
+            </p>
+
+            {/* Plan summary box */}
+            <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', margin: '0 0 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.88rem' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>الباقة المفعلة:</span>
+                <span style={{ fontWeight: 800, color: 'var(--primary-color)' }}>{paymentSuccessData.planTitle}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.88rem' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>النقاط المضافة للرصيد:</span>
+                <span style={{ fontWeight: 800, color: 'var(--text-main)' }}>+{paymentSuccessData.bonusCoins} نقطة</span>
+              </div>
+            </div>
+
+            {/* Features summary */}
+            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle2 size={14} color="var(--primary-color)" /> وصول كامل لنموذج Pro وميزة التفكير</li>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle2 size={14} color="var(--primary-color)" /> تجديد يومي للرصيد حتى 50 نقطة</li>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle2 size={14} color="var(--primary-color)" /> توليد واختبار امتحانات غير محدودة</li>
+            </ul>
+
+            <button
+              type="button"
+              onClick={() => {
+                setPaymentSuccessData(null);
+                setActiveTab('chat');
+              }}
+              style={{
+                width: '100%',
+                padding: '13px',
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--primary-color)',
+                color: 'var(--text-on-primary)',
+                fontWeight: 900,
+                fontSize: '0.95rem',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                transition: 'var(--transition)'
+              }}
+            >
+              <span>ابدأ استخدام المساعد الذكي الآن</span>
+              <Sparkles size={16} />
+            </button>
+
+          </div>
+        </div>
+      )}
+
+      {/* Kashier Payment Error Toast */}
+      {paymentErrorToast && (
+        <div style={{ position: 'fixed', bottom: '24px', left: '24px', zIndex: 1200, maxWidth: '400px', background: 'var(--card-bg)', border: '1px solid var(--danger-color)', borderRadius: 'var(--radius-md)', padding: '14px 18px', boxShadow: 'var(--shadow-xl)', display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-main)', direction: 'rtl' }}>
+          <AlertCircle size={20} color="var(--danger-color)" style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: '0.86rem', fontWeight: 600, flex: 1 }}>{paymentErrorToast}</span>
+          <button onClick={() => setPaymentErrorToast(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex' }}>
+            <X size={16} />
+          </button>
         </div>
       )}
 

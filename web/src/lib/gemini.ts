@@ -9,6 +9,12 @@ export interface QueryIntelligence {
   englishKeywords: string[];  // for English FTS (tsvector 'english')
   hydePassage: string;        // hypothetical passage for vector embedding
   searchAnnouncement: string; // Arabic UI text: "سأبحث الآن عن..."
+  metadata?: {
+    gradeLevel?: string;
+    subject?: string;
+    unit?: string;
+    chapter?: string;
+  };
 }
 
 export interface ContextGapAssessment {
@@ -20,7 +26,7 @@ export interface ContextGapAssessment {
 
 // ─── Core EdenAI Caller ───────────────────────────────────────────────────────
 
-async function callGeminiFlash(prompt: string, maxTokens: number = 600): Promise<string> {
+export async function callGeminiFlash(prompt: string, maxTokens: number = 600): Promise<string> {
   if (!EDENAI_API_KEY) throw new Error('EDENAI_API_KEY is not set');
 
   const response = await fetch(`${EDENAI_BASE}/text/chat`, {
@@ -149,10 +155,10 @@ export async function analyzeQueryIntelligence(
   subject: string,
   grade: string
 ): Promise<QueryIntelligence> {
-  const prompt = `أنت محلل ذكاء اصطناعي متخصص في تحليل أسئلة الطلاب في المناهج المصرية.
+  const prompt = `أنت محلل ذكاء اصطناعي متخصص في تحليل أسئلة الطلاب في المناهج المصرية واستخراج البيانات الوصفية (Metadata).
 
-المادة: "${subject}"
-الصف الدراسي: "${grade}"
+المادة المقررة حالياً: "${subject}"
+الصف الدراسي المقرر حالياً: "${grade}"
 سؤال الطالب: "${query}"
 
 قم بتحليل السؤال وأعد JSON فقط (بدون markdown أو شرح):
@@ -162,8 +168,22 @@ export async function analyzeQueryIntelligence(
   "arabicKeywords": ["كلمة1", "كلمة2", "كلمة3"],
   "englishKeywords": ["word1", "word2"],
   "hydePassage": "فقرة افتراضية من 2-3 جمل تمثل الإجابة المثالية التي قد توجد في الكتاب المدرسي لهذا السؤال، مكتوبة كأنها من المنهج مباشرة",
-  "searchAnnouncement": "سأبحث الآن عن: [الموضوع المحدد]"
+  "searchAnnouncement": "سأبحث الآن عن: [الموضوع المحدد]",
+  "metadata": {
+    "gradeLevel": "الصف الدراسي إذا ذكره الطالب صراحة (مثال: '3_high' أو '1_middle') أو null إذا لم يذكر صراحة صفاً مختلفاً عن المقرر",
+    "subject": "اسم المادة إذا ذكرها الطالب صراحة (مثل: 'الفيزياء'، 'الكيمياء'، 'التاريخ') أو null إذا لم يذكر مادة مختلفة عن المقررة",
+    "unit": "اسم الوحدة أو الباب إذا ذكره الطالب (مثل: 'الوحدة الأولى'، 'الباب الثاني') أو null",
+    "chapter": "اسم الفصل أو الدرس إذا ذكره الطالب (مثل: 'الفصل الأول'، 'درس العجلة') أو null"
+  }
 }
+
+دليل قيم gradeLevel (قم بمطابقتها وتحديدها فقط من هذه اللائحة):
+- "1_middle" (الصف الأول الإعدادي / أولى إعدادي)
+- "2_middle" (الصف الثاني الإعدادي / تانية إعدادي)
+- "3_middle" (الصف الثالث الإعدادي / تالتة إعدادي)
+- "1_high" (الصف الأول الثانوي / أولى ثانوي)
+- "2_high" (الصف الثاني الثانوي / تانية ثانوي)
+- "3_high" (الصف الثالث الثانوي / تالتة ثانوي)
 
 دليل queryType:
 - "overview": يسأل عن محتوى المنهج كله أو ملخص عام أو قائمة الموضوعات
@@ -177,7 +197,7 @@ export async function analyzeQueryIntelligence(
 للـ searchAnnouncement: جملة عربية قصيرة للعرض للطالب تخبره بما ستبحث عنه`;
 
   try {
-    const raw = await callGeminiFlash(prompt, 600);
+    const raw = await callGeminiFlash(prompt, 700);
 
     // Extract JSON from response (handle possible surrounding text)
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -196,7 +216,13 @@ export async function analyzeQueryIntelligence(
         : query, // fallback: use original query
       searchAnnouncement: typeof parsed.searchAnnouncement === 'string'
         ? parsed.searchAnnouncement
-        : `سأبحث الآن في منهج ${subject}...`
+        : `سأبحث الآن في منهج ${subject}...`,
+      metadata: parsed.metadata ? {
+        gradeLevel: typeof parsed.metadata.gradeLevel === 'string' && parsed.metadata.gradeLevel.trim() ? parsed.metadata.gradeLevel.trim() : undefined,
+        subject: typeof parsed.metadata.subject === 'string' && parsed.metadata.subject.trim() ? parsed.metadata.subject.trim() : undefined,
+        unit: typeof parsed.metadata.unit === 'string' && parsed.metadata.unit.trim() ? parsed.metadata.unit.trim() : undefined,
+        chapter: typeof parsed.metadata.chapter === 'string' && parsed.metadata.chapter.trim() ? parsed.metadata.chapter.trim() : undefined,
+      } : undefined
     };
   } catch (err) {
     console.error('analyzeQueryIntelligence failed, using fallback:', err);
@@ -287,5 +313,37 @@ ${fullText.slice(0, 15000)}
   } catch (err) {
     console.error('generateCurriculumSummary failed:', err);
     return '';
+  }
+}
+
+/**
+ * Classifies whether a chat turn represents genuine, meaningful student engagement.
+ * Used for silent background points scoring (+3 points, max once per session).
+ * Returns strict JSON { genuine_engagement: boolean }. Fail-open on errors.
+ */
+export async function classifyEngagement(
+  userMessage: string,
+  aiResponseText: string
+): Promise<boolean> {
+  const prompt = `أنت محكّم ذكاء اصطناعي لتقييم تفاعل واستيعاب الطالب.
+اقرأ رسالة الطالب وإجابة المعلم وحدد ما إذا كانت رسالة الطالب تظهر تفاعلاً حقيقياً أو دراسة جادة (مثل سؤال عن نقطة علمية، استفسار عن خطوة، طلب توضيح، أو حل مسألة) وليس مجرد سلام أو كلمة واحدة غير مفيدة مثل "شكرا" أو "مرحبا".
+
+رسالة الطالب: "${userMessage.slice(0, 500)}"
+رد المعلم: "${aiResponseText.slice(0, 500)}"
+
+أرجِع JSON فقط (بدون ماركداون):
+{
+  "genuine_engagement": true|false
+}`;
+
+  try {
+    const raw = await callGeminiFlash(prompt, 150);
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return false;
+    const parsed = JSON.parse(jsonMatch[0]);
+    return !!parsed.genuine_engagement;
+  } catch (err) {
+    console.error('classifyEngagement failed (failing open):', err);
+    return false;
   }
 }

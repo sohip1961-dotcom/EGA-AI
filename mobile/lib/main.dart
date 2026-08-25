@@ -9,13 +9,10 @@ import 'package:flutter/gestures.dart' show TapGestureRecognizer;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:crypto/crypto.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'dart:ui' show ImageFilter;
-import 'package:speech_to_text/speech_to_text.dart' as stt;
-import 'package:audioplayers/audioplayers.dart' as ap;
+import 'dart:ui' as ui;
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:xml/xml.dart';
@@ -32,6 +29,48 @@ const Color secondaryBeige  = Color(0xFFEAD7B7);
 // Compared against admin-managed app_versions.version_code for force-update.
 const int kAppVersionCode = 1;
 const String kAppVersionName = '1.0.0';
+
+/// Safely resolves the API website link for web and mobile platforms.
+/// Replaces `localhost` with production domain `https://www.egsaiedu.com` on physical mobile devices,
+/// enforces HTTPS scheme and canonical `www` domain to avoid 308 Permanent Redirects from Vercel.
+String resolveWebsiteLink(String? link) {
+  if (link == null || link.trim().isEmpty) {
+    return kIsWeb ? 'http://localhost:3000' : 'https://www.egsaiedu.com';
+  }
+  var clean = link.trim().replaceAll(RegExp(r'/$'), '');
+  if (!kIsWeb) {
+    if (clean == 'http://localhost:3000' || clean == 'http://127.0.0.1:3000' || clean == 'localhost:3000' || clean == 'localhost') {
+      return 'https://www.egsaiedu.com';
+    }
+  }
+  if (clean.startsWith('http://') && !clean.contains('localhost') && !clean.contains('127.0.0.1') && !clean.contains('10.0.2.2') && !clean.contains('192.168.')) {
+    clean = clean.replaceFirst('http://', 'https://');
+  } else if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+    clean = 'https://$clean';
+  }
+  if (clean.contains('egsaiedu.com') && !clean.contains('www.egsaiedu.com')) {
+    clean = clean.replaceFirst('egsaiedu.com', 'www.egsaiedu.com');
+  }
+  return clean;
+}
+
+/// Safely decodes JSON responses and handles HTTP redirect/non-JSON error pages gracefully.
+Map<String, dynamic> parseJsonResponse(http.Response res) {
+  final bodyStr = utf8.decode(res.bodyBytes).trim();
+  if (res.statusCode == 301 || res.statusCode == 302 || res.statusCode == 307 || res.statusCode == 308 || bodyStr.startsWith('Redirecting')) {
+    throw Exception('تمت إعادة توجيه الطلب إلى عنوان غير صالح. يرجى التحقق من الرابط المستهدف (HTTPS).');
+  }
+  try {
+    final decoded = jsonDecode(bodyStr);
+    if (decoded is Map<String, dynamic>) return decoded;
+    throw Exception('استجابة الخادم غير صالحة.');
+  } catch (e) {
+    if (e.toString().contains('FormatException')) {
+      throw Exception('تعذر قراءة استجابة الخادم ($bodyStr)');
+    }
+    rethrow;
+  }
+}
 
 Color get bgDeep          => EgsTheme.current.bgDeep;
 Color get bgSurface       => EgsTheme.current.bgSurface;
@@ -339,12 +378,6 @@ class ApiClient {
   }
 }
 
-String hashPassword(String password) {
-  final bytes  = utf8.encode(password);
-  final digest = sha256.convert(bytes);
-  return digest.toString();
-}
-
 String generateUUID() {
   final random     = Random();
   final hexDigits  = '0123456789abcdef';
@@ -362,118 +395,6 @@ String generateUUID() {
   });
   return String.fromCharCodes(charCodes);
 }
-
-const String deepSeekApiKey = String.fromEnvironment('DEEPSEEK_API_KEY', defaultValue: '');
-const String deepSeekApiUrl = 'https://api.deepseek.com/v1/chat/completions';
-
-Future<List<String>> extractSearchKeywords(String query) async {
-  try {
-    final response = await http.post(
-      Uri.parse(deepSeekApiUrl),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $deepSeekApiKey',
-      },
-      body: jsonEncode({
-        'model': 'deepseek-chat',
-        'messages': [
-          {
-            'role': 'system',
-            'content':
-                'You are a translation and keyword extraction assistant. Extract search terms/keywords (nouns, scientific terms) from the query in BOTH Arabic and English. Return only a space-separated list of keywords. Do not include introductory text, explanations, punctuation or formatting. Just output words like: "kinetic energy force طاقة الحركة القوة".',
-          },
-          {
-            'role': 'user',
-            'content': 'Extract keywords for search from this user query: "$query"',
-          }
-        ],
-        'temperature': 0.1,
-        'max_tokens': 100,
-      }),
-    );
-    if (response.statusCode != 200) {
-      return query.split(RegExp(r'\s+')).where((w) => w.length > 2).toList();
-    }
-    final data = jsonDecode(utf8.decode(response.bodyBytes));
-    final text = data['choices'][0]['message']['content'].toString().trim();
-    return text.split(RegExp(r'[\s,\/]+')).where((w) => w.length > 1).toList();
-  } catch (_) {
-    return query.split(RegExp(r'\s+')).where((w) => w.length > 2).toList();
-  }
-}
-
-List<Map<String, dynamic>> rankChunks(List<dynamic> chunks, List<String> keywords) {
-  if (keywords.isEmpty) return chunks.take(5).map((c) => c as Map<String, dynamic>).toList();
-  final scored = chunks.map((chunk) {
-    int score = 0;
-    final content = (chunk['content'] ?? '').toString();
-    final heading = (chunk['heading'] ?? '').toString();
-    final textToSearch = '$heading $content'.toLowerCase();
-    for (var keyword in keywords) {
-      final kw = keyword.trim().toLowerCase();
-      if (kw.isEmpty) continue;
-      int count = 0, index = 0;
-      while (true) {
-        index = textToSearch.indexOf(kw, index);
-        if (index == -1) break;
-        count++;
-        index += kw.length;
-      }
-      if (count > 0) {
-        score += count;
-        if (heading.toLowerCase().contains(kw)) score += 5;
-      }
-    }
-    return {'chunk': chunk, 'score': score};
-  }).toList();
-  var filtered = scored.where((s) => (s['score'] as int) > 0).toList();
-  if (filtered.isEmpty) return chunks.take(5).map((c) => c as Map<String, dynamic>).toList();
-  filtered.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
-  return filtered.take(5).map((s) => s['chunk'] as Map<String, dynamic>).toList();
-}
-
-Future<String> searchCurriculum(
-  String gradeLevel,
-  String subjectName,
-  List<String> queryKeywords,
-  List<String> activeCurriculumIds,
-) async {
-  final cleanGrade   = gradeLevel.trim();
-  final cleanSubject = subjectName.trim();
-  try {
-    final supabase    = Supabase.instance.client;
-    final curriculums = await supabase
-        .from('curriculums')
-        .select('id')
-        .eq('grade_level', cleanGrade)
-        .eq('subject_name', cleanSubject);
-    if (curriculums.isEmpty) return _noContextMsg;
-    final foundIds      = List<String>.from(curriculums.map((c) => c['id'].toString()));
-    final curriculumIds = foundIds
-        .where((id) => activeCurriculumIds.isEmpty || activeCurriculumIds.contains(id))
-        .toList();
-    if (curriculumIds.isEmpty) return _noContextMsg;
-    final chunks = await supabase
-        .from('curriculum_chunks')
-        .select('*')
-        .inFilter('curriculum_id', curriculumIds);
-    if (chunks.isEmpty) return _noContextMsg;
-    final ranked = rankChunks(chunks, queryKeywords);
-    if (ranked.isEmpty) return _noContextMsg;
-    return ranked.asMap().entries.map((entry) {
-      final index = entry.key + 1;
-      final c     = entry.value;
-      return '--- الجزء $index: [عنوان الدرس: ${c['heading']}] ---\n${c['content']}';
-    }).join('\n\n');
-  } catch (_) {
-    return _noContextMsg;
-  }
-}
-
-const String _noContextMsg =
-    'لا يوجد ملف منهج دراسي مرفوع حالياً لهذه المادة والسنة الدراسية. يجب عليك تنبيه الطالب بأن هذه المعلومة خارج المنهج المقرر في بداية إجابتك.';
-
-
 
 String stripAudioPrefix(String msg) {
   var text = msg;
@@ -501,6 +422,7 @@ Stream<Map<String, dynamic>> generateChatResponseStream({
   required String model,
   required bool thinking,
   required List<Map<String, dynamic>> history,
+  String mode = 'detailed',
   String? authToken,
   String? deviceId,
 }) async* {
@@ -522,6 +444,7 @@ Stream<Map<String, dynamic>> generateChatResponseStream({
     'session_id': sessionId.isEmpty ? null : sessionId,
     'model': model,
     'thinking': thinking,
+    'mode': mode,
     if (authToken == null || authToken.isEmpty) 'history': recentHistory,
   };
 
@@ -536,9 +459,17 @@ Stream<Map<String, dynamic>> generateChatResponseStream({
 
   final client = http.Client();
   try {
-    final response = await client.send(request);
+    final response = await client.send(request).timeout(const Duration(seconds: 45));
     if (response.statusCode != 200) {
-      yield {'type': 'error', 'content': 'Server error: ${response.statusCode}'};
+      final bodyStr = await response.stream.bytesToString();
+      String errText = 'Server error: ${response.statusCode}';
+      try {
+        final errJson = jsonDecode(bodyStr);
+        errText = errJson['error'] ?? errJson['message'] ?? errText;
+      } catch (_) {
+        if (bodyStr.isNotEmpty) errText = bodyStr;
+      }
+      yield {'type': 'error', 'content': errText};
       client.close();
       return;
     }
@@ -622,7 +553,7 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
   bool                         _sessionsLoading    = false;
   String                       _selectedGrade      = '3_high';
   String                       _selectedSubject    = 'الفيزياء';
-  String                       _webPaymentLink     = 'http://localhost:3000';
+  String                       _webPaymentLink     = resolveWebsiteLink(null);
   List<String>                 _activeGradeLevels  = [];
   List<String>                 _activeCurriculumIds = [];
   List<Map<String, dynamic>>   _allCurriculums     = [];
@@ -633,7 +564,9 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
   // Points / Coins & Model States
   String                       _selectedModel      = 'flash';
   bool                         _thinkingEnabled    = false;
+  String                       _chatMode           = 'detailed';
   double                       _coins              = 5.0;
+  double                       _points             = 0.0;
 
   // Notifications
   List<Map<String, dynamic>> _notifications = [];
@@ -663,6 +596,10 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
     setState(() {
       _selectedGrade   = prefs.getString('selected_grade')   ?? '3_high';
       _selectedSubject = prefs.getString('selected_subject') ?? 'الفيزياء';
+      final savedMode  = prefs.getString('chat_mode');
+      if (savedMode == 'socratic' || savedMode == 'detailed' || savedMode == 'summary') {
+        _chatMode = savedMode!;
+      }
       _isInit          = true;
     });
     _loadLocalProfile();
@@ -929,7 +866,7 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
     try {
       final supabase = Supabase.instance.client;
       final resp     = await supabase.from('system_settings').select('value').eq('key', 'website_link').maybeSingle();
-      if (resp != null) setState(() => _webPaymentLink = resp['value'] ?? _webPaymentLink);
+      if (resp != null) setState(() => _webPaymentLink = resolveWebsiteLink(resp['value']));
 
       final gradesResp = await supabase.from('system_settings').select('value').eq('key', 'active_grade_levels').maybeSingle();
       List<String> activeGrades = [];
@@ -1214,6 +1151,7 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
         sessionId: currentSessionId,
         model: _selectedModel,
         thinking: _thinkingEnabled,
+        mode: _chatMode,
         history: recentHistory,
         authToken: _apiClient.token,
         deviceId: _apiClient.deviceId,
@@ -1309,15 +1247,24 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
       debugPrint('Error in _sendMessage: $e');
       timer?.cancel();
       stopwatch.stop();
+
+      final errText = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+      String displayMsg;
+      if (e is SocketException || e is TimeoutException || errText.contains('SocketException') || errText.contains('TimeoutException') || errText.contains('Failed host lookup') || errText.contains('No route to host')) {
+        displayMsg = '⚠️ **حدث خطأ في الاتصال بالشبكة!**\n\nيرجى التأكد من اتصالك بالإنترنت والمحاولة مجدداً.';
+      } else {
+        displayMsg = '⚠️ **حدث خطأ!**\n\n${errText.isNotEmpty ? errText : "حدث خطأ غير متوقع، يرجى المحاولة لاحقاً."}';
+      }
+
       setState(() {
         if (_messages.isNotEmpty && _messages.last['sender'] == 'ai') {
-          _messages.last['message']    = '⚠️ **حدث خطأ في الاتصال بالشبكة!**\n\nيرجى التأكد من اتصالك بالإنترنت والمحاولة مجدداً.';
+          _messages.last['message']    = displayMsg;
           _messages.last['isThinking'] = false;
           _messages.last['hasError']   = true;
         } else {
           _messages.add({
             'sender': 'ai',
-            'message': '⚠️ **حدث خطأ في الاتصال بالشبكة!**\n\nيرجى التأكد من اتصالك بالإنترنت والمحاولة مجدداً.',
+            'message': displayMsg,
             'hasError': true
           });
         }
@@ -1422,16 +1369,198 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
     }
   }
 
-  void _showBetaNoticeDialog() {
-    showDialog(
+  void _showSubscriptionsBottomSheet() {
+    showModalBottomSheet(
       context: context,
-      builder: (context) => _PremiumAlertDialog(
-        title: 'نسخة تجريبية (Beta)',
-        content: 'EGS AI ما زالت في مرحلة تجريبية. خاصية الدفع والاشتراكات غير متاحة حالياً وستتوفر قريباً مع إطلاق النسخة النهائية، قبل شهر أغسطس 2026. كل الميزات — بما فيها نموذج Pro وميزة التفكير — مفتوحة مجاناً حالياً لكل الطلاب المسجلين.',
-        confirmLabel: 'حسناً',
-        onConfirm: () {
-          Navigator.pop(context);
-        },
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.7),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: bgCard,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(width: 40, height: 4, decoration: BoxDecoration(color: borderSubtle, borderRadius: BorderRadius.circular(2))),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const Icon(Icons.star_rounded, color: primaryOlive, size: 24),
+                const SizedBox(width: 8),
+                Text('باقات الاشتراك الرسمية', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textPrimary, fontFamily: 'Cairo')),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text('اختر باقة الاشتراك المناسبة واستمتع بكافة ميزات نموذج Pro وميزة التفكير', style: TextStyle(fontSize: 12, color: textMuted, fontFamily: 'Cairo')),
+            const SizedBox(height: 20),
+
+            // Plan 1: 50 EGP
+            _buildMobilePlanCard(
+              title: 'اشتراك شهر (Pro)',
+              price: '50 ج.م / شهرياً',
+              badge: 'الباقة الأكثر شعبية',
+              features: 'وصول لنموذج Pro • ميزة التفكير • تجديد رصيد النقاط',
+              onTap: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('الاشتراك عبر متجر Google Play (Google Play Billing). جاري التجهيز...')),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+
+            // Plan 2: 100 EGP
+            _buildMobilePlanCard(
+              title: 'اشتراك شهرين',
+              price: '100 ج.م / شهرين',
+              badge: null,
+              features: 'جميع ميزات باقة Pro لمدة 60 يوماً متواصلة',
+              onTap: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('الاشتراك عبر متجر Google Play (Google Play Billing). جاري التجهيز...')),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+
+            // Plan 3: 250 EGP
+            _buildMobilePlanCard(
+              title: 'اشتراك 3 أشهر',
+              price: '250 ج.م / 3 أشهر',
+              badge: 'أفضل قيمة',
+              features: 'جميع ميزات باقة Pro لمدة 90 يوماً + دعم أولوية',
+              onTap: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('الاشتراك عبر متجر Google Play (Google Play Billing). جاري التجهيز...')),
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Policy & Refund Note
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: bgElevated,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: borderSubtle),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline_rounded, color: primaryOlive, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'تتم المعاملات المباشرة عبر Google Play Billing. تتاح طلبات الاسترجاع خلال 3 أيام (72 ساعة) بشرط عدم استخدام أي من نقاط الباقة.',
+                      style: TextStyle(fontSize: 11, color: textSecondary, fontFamily: 'Cairo', height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobilePlanCard({required String title, required String price, String? badge, required String features, required VoidCallback onTap}) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: bgElevated,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: badge != null ? primaryOlive : borderSubtle, width: badge != null ? 1.5 : 1),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: textPrimary, fontFamily: 'Cairo')),
+                    if (badge != null) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(color: primaryOlive, borderRadius: BorderRadius.circular(10)),
+                        child: Text(badge, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white, fontFamily: 'Cairo')),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(price, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: primaryOlive, fontFamily: 'Cairo')),
+                const SizedBox(height: 4),
+                Text(features, style: TextStyle(fontSize: 11, color: textMuted, fontFamily: 'Cairo')),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            onPressed: onTap,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryOlive,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            child: const Text('اشتراك', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showContactSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.7),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: bgCard,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(width: 40, height: 4, decoration: BoxDecoration(color: borderSubtle, borderRadius: BorderRadius.circular(2))),
+            ),
+            const SizedBox(height: 16),
+            Text('تواصل مع فريق الدعم', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textPrimary, fontFamily: 'Cairo')),
+            const SizedBox(height: 6),
+            Text('نحن في خدمتك دائماً لمساعدتك في الاستفسارات والاشتراكات', style: TextStyle(fontSize: 12, color: textMuted, fontFamily: 'Cairo')),
+            const SizedBox(height: 20),
+            ListTile(
+              leading: const Icon(Icons.phone_rounded, color: primaryOlive),
+              title: Text('الهاتف والواتساب', style: TextStyle(fontWeight: FontWeight.bold, color: textPrimary, fontFamily: 'Cairo', fontSize: 14)),
+              subtitle: const Text('01037220587', style: TextStyle(color: primaryOlive, fontWeight: FontWeight.bold)),
+              onTap: () {},
+            ),
+            Divider(color: borderSubtle),
+            ListTile(
+              leading: const Icon(Icons.email_rounded, color: primaryOlive),
+              title: Text('البريد الإلكتروني الرسمـي', style: TextStyle(fontWeight: FontWeight.bold, color: textPrimary, fontFamily: 'Cairo', fontSize: 14)),
+              subtitle: Text('sohaib572010@gmail.com', style: TextStyle(color: textSecondary, fontSize: 12)),
+              onTap: () {},
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
       ),
     );
   }
@@ -1440,7 +1569,7 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
     if (_userProfile == null) {
       _showAuthDialog();
     } else {
-      _showBetaNoticeDialog();
+      _showSubscriptionsBottomSheet();
     }
   }
 
@@ -1455,6 +1584,7 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
         userProfile: _userProfile!,
         activeGradeLevels: _activeGradeLevels,
         gradeNames: _gradeNames,
+        websiteLink: _webPaymentLink,
         onProfileUpdated: (updated) async {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('auth_user', jsonEncode(updated));
@@ -1563,7 +1693,7 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => ExamsScreen(initialExam: exam),
+                                builder: (context) => ExamsScreen(initialExam: exam, websiteLink: _webPaymentLink),
                               ),
                             );
                           },
@@ -1594,6 +1724,7 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
               hintText:      inputHint,
               selectedModel:   _selectedModel,
               thinkingEnabled: _thinkingEnabled,
+              chatMode:        _chatMode,
               // Beta: Pro model + Thinking are unlocked for all registered users (no payment tiers yet).
               userPlan:        _userProfile == null ? 'guest' : 'registered',
               websiteLink:     _webPaymentLink,
@@ -1611,6 +1742,11 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
                   setState(() => _thinkingEnabled = enabled);
                 }
               },
+              onModeChanged: (mode) async {
+                setState(() => _chatMode = mode);
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setString('chat_mode', mode);
+              },
             ),
           ],
         ),
@@ -1623,7 +1759,7 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
       preferredSize: const Size.fromHeight(60),
       child: ClipRect(
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
           child: Container(
             decoration: BoxDecoration(
               color: bgCard.withValues(alpha: 0.85),
@@ -1848,13 +1984,13 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'الرصيد: ${_coins.toStringAsFixed(2)} نقطة',
-                                style: TextStyle(fontSize: 11, color: textSecondary, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                                'الرصيد: ${_coins.toStringAsFixed(1)} عملة | ${_points.toInt()} نقاط الترتيب',
+                                style: TextStyle(fontSize: 10.5, color: textSecondary, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
                               ),
                             ] else ...[
                               Text(
-                                'الرصيد التجريبي: ${_coins.toStringAsFixed(2)} نقطة',
-                                style: TextStyle(fontSize: 11, color: textSecondary, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                                'الرصيد التجريبي: ${_coins.toStringAsFixed(1)} عملة',
+                                style: TextStyle(fontSize: 10.5, color: textSecondary, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
                               ),
                             ],
                           ],
@@ -1955,10 +2091,37 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
                       Navigator.pop(context);
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const ExamsScreen()),
+                        MaterialPageRoute(builder: (context) => ExamsScreen(websiteLink: _webPaymentLink)),
                       );
                     },
                   ),
+
+                  if (!isGuest) ...[
+                    _DrawerTile(
+                      icon: Icons.psychology_rounded,
+                      title: 'المدرب الذكي (الكروت)',
+                      subtitle: 'مراجعة المفاهيم والتعلم الفعال',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => FlashcardsScreen(websiteLink: _webPaymentLink)),
+                        );
+                      },
+                    ),
+                    _DrawerTile(
+                      icon: Icons.emoji_events_rounded,
+                      title: 'لوحة المتصدرين',
+                      subtitle: 'ترتيب وتصنيف الطلاب المتفوقين',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => LeaderboardScreen(websiteLink: _webPaymentLink)),
+                        );
+                      },
+                    ),
+                  ],
 
                   _DrawerTile(
                     icon: Icons.privacy_tip_rounded,
@@ -1981,11 +2144,18 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
                       onTap: () { Navigator.pop(context); _showProfileSheet(); },
                     ),
                     _DrawerTile(
-                      icon:      Icons.auto_awesome_rounded,
+                      icon:      Icons.star_rounded,
                       iconColor: primaryOlive,
-                      title:     'النسخة التجريبية (Beta)',
-                      subtitle:  'كل الميزات مفتوحة مجاناً حالياً',
+                      title:     'باقات الاشتراك',
+                      subtitle:  'باقة برو 50 ج.م / 100 ج.م / 250 ج.م',
                       onTap:     () { Navigator.pop(context); _openUpgradeFlow(); },
+                    ),
+                    _DrawerTile(
+                      icon:      Icons.support_agent_rounded,
+                      iconColor: primaryOlive,
+                      title:     'تواصل معنا',
+                      subtitle:  'الهاتف والواتساب والبريد الرسمي',
+                      onTap:     () { Navigator.pop(context); _showContactSheet(); },
                     ),
                   ],
 
@@ -2058,6 +2228,10 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> with TickerProviderStat
                             setState(() {
                               _activeSessionId = session['id'];
                               _selectedSubject = session['subject_name'] ?? _selectedSubject;
+                              final sessionMode = session['mode']?.toString();
+                              if (sessionMode == 'socratic' || sessionMode == 'detailed' || sessionMode == 'summary') {
+                                _chatMode = sessionMode!;
+                              }
                             });
                             _fetchChatHistory();
                             Navigator.pop(context);
@@ -2618,248 +2792,6 @@ class _SuggestionCardState extends State<_SuggestionCard> {
 // ═══════════════════════════════════════════════════════════════════════════════
 // CHAT BUBBLE
 // ═══════════════════════════════════════════════════════════════════════════════
-class AudioMessagePlayer extends StatefulWidget {
-  final String mimeType;
-  final String base64Data;
-  final String transcription;
-  final bool isUser;
-
-  const AudioMessagePlayer({
-    super.key,
-    required this.mimeType,
-    required this.base64Data,
-    required this.transcription,
-    required this.isUser,
-  });
-
-  @override
-  State<AudioMessagePlayer> createState() => _AudioMessagePlayerState();
-}
-
-class _AudioMessagePlayerState extends State<AudioMessagePlayer> {
-  late ap.AudioPlayer _audioPlayer;
-  bool _isPlaying = false;
-  Duration _duration = Duration.zero;
-  Duration _position = Duration.zero;
-  bool _showText = false;
-  String? _tempFilePath;
-  StreamSubscription? _playerStateSubscription;
-  StreamSubscription? _durationSubscription;
-  StreamSubscription? _positionSubscription;
-
-  @override
-  void initState() {
-    super.initState();
-    _audioPlayer = ap.AudioPlayer();
-    _initAudio();
-  }
-
-  Future<void> _initAudio() async {
-    try {
-      final bytes = base64Decode(widget.base64Data);
-      final tempDir = await Directory.systemTemp.createTemp();
-      final ext = widget.mimeType.contains('webm') ? 'webm' : 'm4a';
-      final tempFile = File('${tempDir.path}/temp_play.$ext');
-      await tempFile.writeAsBytes(bytes);
-      _tempFilePath = tempFile.path;
-
-      _playerStateSubscription = _audioPlayer.onPlayerStateChanged.listen((state) {
-        if (mounted) {
-          setState(() {
-            _isPlaying = state == ap.PlayerState.playing;
-          });
-        }
-      });
-
-      _durationSubscription = _audioPlayer.onDurationChanged.listen((d) {
-        if (mounted) {
-          setState(() {
-            _duration = d;
-          });
-        }
-      });
-
-      _positionSubscription = _audioPlayer.onPositionChanged.listen((p) {
-        if (mounted) {
-          setState(() {
-            _position = p;
-          });
-        }
-      });
-    } catch (e) {
-      debugPrint("Error initializing player: $e");
-    }
-  }
-
-  @override
-  void dispose() {
-    _playerStateSubscription?.cancel();
-    _durationSubscription?.cancel();
-    _positionSubscription?.cancel();
-    _audioPlayer.dispose();
-    if (_tempFilePath != null) {
-      try {
-        File(_tempFilePath!).delete();
-      } catch (_) {}
-    }
-    super.dispose();
-  }
-
-  void _togglePlay() async {
-    if (_tempFilePath == null) return;
-    if (_isPlaying) {
-      await _audioPlayer.pause();
-    } else {
-      await _audioPlayer.play(ap.DeviceFileSource(_tempFilePath!));
-    }
-  }
-
-  String _formatDuration(Duration d) {
-    final minutes = d.inMinutes;
-    final seconds = d.inSeconds % 60;
-    return '$minutes:${seconds.toString().padLeft(2, '0')}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final textColor = widget.isUser ? Colors.white : textPrimary;
-    final subTextColor = widget.isUser ? Colors.white70 : textSecondary;
-    final playButtonBg = widget.isUser ? Colors.white : primaryOlive;
-    final playButtonIconColor = widget.isUser ? primaryOlive : Colors.white;
-
-    return Container(
-      width: 280,
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              GestureDetector(
-                onTap: _togglePlay,
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: playButtonBg,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                    color: playButtonIconColor,
-                    size: 20,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SliderTheme(
-                      data: SliderThemeData(
-                        trackHeight: 2,
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
-                        activeTrackColor: widget.isUser ? Colors.white : primaryOlive,
-                        inactiveTrackColor: widget.isUser ? Colors.white24 : borderSubtle,
-                        thumbColor: widget.isUser ? Colors.white : primaryOlive,
-                      ),
-                      child: Slider(
-                        min: 0.0,
-                        max: _duration.inMilliseconds.toDouble() > 0.0
-                            ? _duration.inMilliseconds.toDouble()
-                            : 100.0,
-                        value: _position.inMilliseconds.toDouble().clamp(
-                              0.0,
-                              _duration.inMilliseconds.toDouble() > 0.0
-                                  ? _duration.inMilliseconds.toDouble()
-                                  : 100.0,
-                            ),
-                        onChanged: (val) async {
-                          await _audioPlayer.seek(Duration(milliseconds: val.toInt()));
-                        },
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            _formatDuration(_position),
-                            style: TextStyle(color: subTextColor, fontSize: 10, fontFamily: 'Cairo'),
-                          ),
-                          Text(
-                            _formatDuration(_duration),
-                            style: TextStyle(color: subTextColor, fontSize: 10, fontFamily: 'Cairo'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          if (widget.transcription.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Divider(color: widget.isUser ? Colors.white24 : borderSubtle, height: 1),
-            const SizedBox(height: 6),
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _showText = !_showText;
-                });
-              },
-              child: Row(
-                children: [
-                  Icon(
-                    _showText ? Icons.menu_book_rounded : Icons.book_rounded,
-                    size: 14,
-                    color: textColor,
-                  ),
-                  const SizedBox(width: 5),
-                  Text(
-                    _showText ? 'إخفاء النص المقروء' : 'عرض النص المقروء',
-                    style: TextStyle(
-                      color: textColor,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'Cairo',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (_showText) ...[
-              const SizedBox(height: 6),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: widget.isUser ? Colors.black12 : bgElevated,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: widget.isUser ? Colors.white12 : borderSubtle),
-                ),
-                child: Text(
-                  widget.transcription,
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 12.5,
-                    height: 1.45,
-                    fontFamily: 'Cairo',
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ],
-      ),
-    );
-  }
-}
 
 class ChatBubbleWidget extends StatefulWidget {
   final Map<String, dynamic> msg;
@@ -2868,6 +2800,7 @@ class ChatBubbleWidget extends StatefulWidget {
   final Function(String)? onAnswerSubmit;
   final Function(Map<String, dynamic>)? onGoToExams;
   final VoidCallback? onRetry;
+  final String websiteLink;
 
   const ChatBubbleWidget({
     super.key,
@@ -2877,6 +2810,7 @@ class ChatBubbleWidget extends StatefulWidget {
     this.onAnswerSubmit,
     this.onGoToExams,
     this.onRetry,
+    this.websiteLink = '',
   });
 
   @override
@@ -2917,37 +2851,46 @@ class _ChatBubbleWidgetState extends State<ChatBubbleWidget> with SingleTickerPr
   Widget _buildUserBubble() {
     final message = widget.msg['message'] ?? '';
     if (message.startsWith('[AUDIO_MESSAGE:')) {
-      final regExp = RegExp(r'^\[AUDIO_MESSAGE:([^;]+);([^\]]+)\]([\s\S]*)$');
+      final regExp = RegExp(r'^\[AUDIO_MESSAGE:[^;]+;[^\]]+\]([\s\S]*)$');
       final match = regExp.firstMatch(message);
-      if (match != null) {
-        final mimeType = match.group(1)!;
-        final base64Data = match.group(2)!;
-        final transcription = match.group(3)!;
-        return Align(
-          alignment: Alignment.centerRight,
-          child: Container(
-            margin: const EdgeInsets.only(top: 6, bottom: 6, left: 52, right: 4),
-            decoration: BoxDecoration(
-              gradient: olivGradient,
-              borderRadius: const BorderRadius.only(
-                topLeft:     Radius.circular(20),
-                topRight:    Radius.circular(20),
-                bottomLeft:  Radius.circular(20),
-                bottomRight: Radius.circular(5),
-              ),
-              boxShadow: [
-                BoxShadow(color: primaryOlive.withValues(alpha: 0.25), blurRadius: 10, offset: const Offset(0, 3)),
-              ],
+      final remainingText = match?.group(1) ?? '';
+      return Align(
+        alignment: Alignment.centerRight,
+        child: Container(
+          margin: const EdgeInsets.only(top: 6, bottom: 6, left: 52, right: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            gradient: olivGradient,
+            borderRadius: const BorderRadius.only(
+              topLeft:     Radius.circular(20),
+              topRight:    Radius.circular(20),
+              bottomLeft:  Radius.circular(20),
+              bottomRight: Radius.circular(5),
             ),
-            child: AudioMessagePlayer(
-              mimeType: mimeType,
-              base64Data: base64Data,
-              transcription: transcription,
-              isUser: true,
-            ),
+            boxShadow: [
+              BoxShadow(color: primaryOlive.withValues(alpha: 0.25), blurRadius: 10, offset: const Offset(0, 3)),
+            ],
           ),
-        );
-      }
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.mic_none_rounded, color: Colors.white70, size: 15),
+                  SizedBox(width: 6),
+                  Text('رسالة صوتية (لم تعد مدعومة)', style: TextStyle(color: Colors.white70, fontSize: 12.5, fontStyle: FontStyle.italic, fontFamily: 'Cairo')),
+                ],
+              ),
+              if (remainingText.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(remainingText, style: const TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+              ],
+            ],
+          ),
+        ),
+      );
     } else if (message.startsWith('[IMAGE_MESSAGE:')) {
       final regExp = RegExp(r'^\[IMAGE_MESSAGE:([^;]+);([^;]+);([^\]]*)\]([\s\S]*)$');
       final match = regExp.firstMatch(message);
@@ -3129,6 +3072,7 @@ class _ChatBubbleWidgetState extends State<ChatBubbleWidget> with SingleTickerPr
                           text: message,
                           onAnswerSubmit: widget.onAnswerSubmit,
                           onGoToExams: widget.onGoToExams,
+                          websiteLink: widget.websiteLink,
                         )
                       else if (isThinking)
                         const _ThinkingDots(),
@@ -3662,361 +3606,422 @@ class _ThoughtProcessWidgetState extends State<ThoughtProcessWidget> with Single
   }
 }
 
-// ─── AUDIO TRANSCRIBER SYSTEM (Android Only) ──────────────────────────────────
-class AudioTranscriber {
-  static const MethodChannel _recorderChannel = MethodChannel('com.egs.ai/recorder');
-
-  static Future<bool> startRecording() async {
-    try {
-      final bool? success = await _recorderChannel.invokeMethod<bool>('startRecording');
-      return success ?? false;
-    } catch (e) {
-      debugPrint("Error starting recording: $e");
-      return false;
-    }
-  }
-
-  static Future<String?> stopRecording() async {
-    try {
-      final String? path = await _recorderChannel.invokeMethod<String>('stopRecording');
-      return path;
-    } catch (e) {
-      debugPrint("Error stopping recording: $e");
-      return null;
-    }
-  }
-
-  static Future<void> performTranscriptionFlow(
-    BuildContext context,
-    String filePath,
-    TextEditingController controller,
-    VoidCallback onComplete,
-  ) async {
-    // Retrieve Gemini API Key
-    String? apiKey = await _getGeminiApiKey(context);
-    if (!context.mounted) return;
-    if (apiKey == null || apiKey.isEmpty) {
-      return;
-    }
-
-    // Show Loading Overlay and Perform Transcription
-    _showLoadingOverlay(context, "جاري استخراج النص من التسجيل الصوتي...");
-
-    try {
-      final transcription = await _transcribeWithGemini(filePath, apiKey);
-      
-      if (!context.mounted) return;
-      Navigator.pop(context); // Close loading dialog
-
-      if (transcription.isNotEmpty) {
-        final currentText = controller.text;
-        final selection = controller.selection;
-        
-        if (selection.isValid) {
-          final newText = currentText.replaceRange(selection.start, selection.end, transcription);
-          controller.text = newText;
-          controller.selection = TextSelection.collapsed(offset: selection.start + transcription.length);
-        } else {
-          controller.text = currentText.isEmpty ? transcription : '$currentText\n$transcription';
-          controller.selection = TextSelection.collapsed(offset: controller.text.length);
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم استخراج النص بنجاح وإضافته لصندوق الكتابة!', style: TextStyle(fontFamily: 'Cairo')),
-            backgroundColor: primaryOlive,
-          ),
-        );
-        onComplete();
-      } else {
-        throw Exception("النص الناتج فارغ.");
-      }
-    } catch (e) {
-      if (!context.mounted) return;
-      Navigator.pop(context); // Close loading dialog
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('فشل استخراج النص من الصوت: $e', style: const TextStyle(fontFamily: 'Cairo')),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-    }
-  }
-
-  static Future<String?> _getGeminiApiKey(BuildContext context) async {
-    final prefs = await SharedPreferences.getInstance();
-    
-    String? localKey = prefs.getString('gemini_api_key');
-    if (localKey != null && localKey.isNotEmpty) {
-      return localKey;
-    }
-
-    try {
-      final supabase = Supabase.instance.client;
-      final response = await supabase
-          .from('system_settings')
-          .select('value')
-          .eq('key', 'gemini_api_key')
-          .maybeSingle();
-      if (response != null && response['value'] != null) {
-        final key = response['value'].toString().trim();
-        if (key.isNotEmpty) {
-          await prefs.setString('gemini_api_key', key);
-          return key;
-        }
-      }
-    } catch (e) {
-      debugPrint("Error fetching Gemini key from Supabase: $e");
-    }
-
-    if (!context.mounted) return null;
-
-    final configuredKey = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const _GeminiKeySetupDialog(),
-    );
-
-    return configuredKey;
-  }
-
-  static Future<String> _transcribeWithGemini(String filePath, String apiKey) async {
-    final File file = File(filePath);
-    if (!await file.exists()) {
-      throw Exception('الملف المحدد غير موجود على الجهاز.');
-    }
-
-    final length = await file.length();
-    if (length > 20 * 1024 * 1024) {
-      throw Exception('حجم الملف كبير جداً (الأقصى 20 ميجابايت).');
-    }
-
-    final bytes = await file.readAsBytes();
-    final base64Data = base64Encode(bytes);
-
-    String mimeType = 'audio/mp3';
-    final extension = filePath.split('.').last.toLowerCase();
-    if (extension == 'wav') {
-      mimeType = 'audio/wav';
-    } else if (extension == 'm4a') {
-      mimeType = 'audio/m4a';
-    } else if (extension == 'ogg') {
-      mimeType = 'audio/ogg';
-    } else if (extension == 'aac') {
-      mimeType = 'audio/aac';
-    } else if (extension == 'flac') {
-      mimeType = 'audio/flac';
-    } else if (extension == 'webm') {
-      mimeType = 'audio/webm';
-    }
-
-    final url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey';
-
-    final response = await http.post(
-      Uri.parse(url),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'contents': [
-          {
-            'parts': [
-              {
-                'text': 'قم بتفريغ هذا الملف الصوتي باللغة الأصلية المنطوقة فيه بدقة شديدة وبدون أي ترجمة أو تلخيص أو توضيح أو أي نص إضافي. اكتب النص المنطوق فقط كما هو.'
-              },
-              {
-                'inlineData': {
-                  'mimeType': mimeType,
-                  'data': base64Data,
-                }
-              }
-            ]
-          }
-        ]
-      }),
-    ).timeout(const Duration(seconds: 45));
-
-    if (response.statusCode != 200) {
-      final body = response.body;
-      if (body.contains("API_KEY_INVALID") || body.contains("key is invalid")) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.remove('gemini_api_key');
-        throw Exception('مفتاح Gemini API غير صالح. تم مسح المفتاح المخزن، يرجى المحاولة مجدداً لإدخال مفتاح جديد.');
-      }
-      throw Exception('فشل الاتصال بخدمة Gemini: ${response.statusCode} ${response.reasonPhrase}');
-    }
-
-    final data = jsonDecode(utf8.decode(response.bodyBytes));
-    final text = data['candidates']?[0]?['content']?['parts']?[0]?['text']?.toString() ?? '';
-    
-    return text.trim();
-  }
-
-  static void _showLoadingOverlay(BuildContext context, String message) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return PopScope(
-          canPop: false,
-          child: Center(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 40),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              decoration: BoxDecoration(
-                color: bgCard,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: borderSubtle),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 15, spreadRadius: 2)],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(color: primaryOlive, strokeWidth: 2.5),
-                  ),
-                  const SizedBox(width: 20),
-                  Expanded(
-                    child: Text(
-                      message,
-                      style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        decoration: TextDecoration.none,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
+// ═══════════════════════════════════════════════════════════════════════════════
+// IMAGE EDITOR (crop + freehand markup before upload)
+// ═══════════════════════════════════════════════════════════════════════════════
+class ImageEditResult {
+  final Uint8List bytes;
+  final String mimeType;
+  const ImageEditResult(this.bytes, this.mimeType);
 }
 
-// ─── GEMINI API KEY SETUP DIALOG ───────────────────────────────────────────────
-class _GeminiKeySetupDialog extends StatefulWidget {
-  const _GeminiKeySetupDialog();
+class _MarkupStroke {
+  final Color color;
+  final List<Offset> points; // in image pixel coordinates
+  const _MarkupStroke(this.color, this.points);
+}
+
+class ImageEditorScreen extends StatefulWidget {
+  final Uint8List imageBytes;
+  final String originalMimeType;
+
+  const ImageEditorScreen({super.key, required this.imageBytes, required this.originalMimeType});
 
   @override
-  State<_GeminiKeySetupDialog> createState() => _GeminiKeySetupDialogState();
+  State<ImageEditorScreen> createState() => _ImageEditorScreenState();
 }
 
-class _GeminiKeySetupDialogState extends State<_GeminiKeySetupDialog> {
-  late TextEditingController _keyController;
-  bool _obscureText = true;
-  String? _error;
+class _ImageEditorScreenState extends State<ImageEditorScreen> {
+  static const List<Color> _brushColors = [
+    primaryOlive,
+    accentOlive,
+    secondaryBeige,
+    Colors.redAccent,
+    Colors.amber,
+    Colors.white,
+    Colors.black,
+  ];
+
+  ui.Image? _image;
+  bool _cropTool = false;
+  Color _brushColor = primaryOlive;
+  final List<_MarkupStroke> _strokes = [];
+  Rect? _cropRect; // in image pixel coordinates
+  Offset? _cropStart;
+  bool _exporting = false;
 
   @override
   void initState() {
     super.initState();
-    _keyController = TextEditingController();
+    _decodeImage();
+  }
+
+  Future<void> _decodeImage() async {
+    final codec = await ui.instantiateImageCodec(widget.imageBytes);
+    final frame = await codec.getNextFrame();
+    if (mounted) setState(() => _image = frame.image);
   }
 
   @override
   void dispose() {
-    _keyController.dispose();
+    _image?.dispose();
     super.dispose();
+  }
+
+  Offset? _toImageCoords(Offset local, Size paintSize) {
+    final img = _image;
+    if (img == null) return null;
+    final scale = min(paintSize.width / img.width, paintSize.height / img.height);
+    final drawW = img.width * scale;
+    final drawH = img.height * scale;
+    final dx = (paintSize.width - drawW) / 2;
+    final dy = (paintSize.height - drawH) / 2;
+    final x = ((local.dx - dx) / scale).clamp(0.0, img.width.toDouble());
+    final y = ((local.dy - dy) / scale).clamp(0.0, img.height.toDouble());
+    return Offset(x, y);
+  }
+
+  void _onPanStart(Offset local, Size paintSize) {
+    final pt = _toImageCoords(local, paintSize);
+    if (pt == null) return;
+    setState(() {
+      if (_cropTool) {
+        _cropStart = pt;
+        _cropRect = Rect.fromPoints(pt, pt);
+      } else {
+        _strokes.add(_MarkupStroke(_brushColor, [pt]));
+      }
+    });
+  }
+
+  void _onPanUpdate(Offset local, Size paintSize) {
+    final pt = _toImageCoords(local, paintSize);
+    if (pt == null) return;
+    setState(() {
+      if (_cropTool && _cropStart != null) {
+        _cropRect = Rect.fromPoints(_cropStart!, pt);
+      } else if (!_cropTool && _strokes.isNotEmpty) {
+        _strokes.last.points.add(pt);
+      }
+    });
+  }
+
+  void _onPanEnd() {
+    setState(() {
+      _cropStart = null;
+      if (_cropRect != null && (_cropRect!.width < 10 || _cropRect!.height < 10)) {
+        _cropRect = null;
+      }
+    });
+  }
+
+  void _undo() {
+    setState(() {
+      if (_cropTool && _cropRect != null) {
+        _cropRect = null;
+      } else if (_strokes.isNotEmpty) {
+        _strokes.removeLast();
+      }
+    });
+  }
+
+  Future<void> _export() async {
+    final img = _image;
+    if (img == null || _exporting) return;
+    setState(() => _exporting = true);
+    try {
+      final region = _cropRect ?? Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble());
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      canvas.drawImageRect(
+        img,
+        region,
+        Rect.fromLTWH(0, 0, region.width, region.height),
+        Paint(),
+      );
+      final strokePaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..strokeWidth = max(3.0, img.width / 250);
+      for (final stroke in _strokes) {
+        if (stroke.points.length < 2) continue;
+        strokePaint.color = stroke.color;
+        final path = Path()..moveTo(stroke.points.first.dx - region.left, stroke.points.first.dy - region.top);
+        for (final p in stroke.points.skip(1)) {
+          path.lineTo(p.dx - region.left, p.dy - region.top);
+        }
+        canvas.drawPath(path, strokePaint);
+      }
+      final picture = recorder.endRecording();
+      final output = await picture.toImage(region.width.round(), region.height.round());
+      final byteData = await output.toByteData(format: ui.ImageByteFormat.png);
+      output.dispose();
+      if (byteData == null) throw Exception('failed to encode image');
+      if (!mounted) return;
+      Navigator.pop(context, ImageEditResult(byteData.buffer.asUint8List(), 'image/png'));
+    } catch (e) {
+      if (mounted) {
+        setState(() => _exporting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('فشل حفظ التعديلات على الصورة.', style: TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _toolChip({required IconData icon, required String label, required bool active, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: active ? primaryOlive : bgElevated,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: active ? Colors.transparent : borderSubtle),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: active ? Colors.black : textSecondary),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: active ? Colors.black : textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: AlertDialog(
-        backgroundColor: bgCard,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-          side: BorderSide(color: borderSubtle),
-        ),
-        title: const Row(
-          children: [
-            Icon(Icons.vpn_key_rounded, color: primaryOlive, size: 22),
-            SizedBox(width: 8),
-            Text(
-              'إعداد مفتاح Gemini API',
-              style: TextStyle(fontFamily: 'Cairo', fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'لاستخدام ميزة استخراج النص من الملفات الصوتية، يرجى إدخال مفتاح Gemini API الخاص بك. يتم حفظ هذا المفتاح محلياً بشكل آمن لاستخدامه في عمليات التفريغ القادمة.',
-              style: TextStyle(fontFamily: 'Cairo', fontSize: 12, color: textSecondary, height: 1.5),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _keyController,
-              obscureText: _obscureText,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-              decoration: InputDecoration(
-                hintText: 'أدخل مفتاح الـ API هنا...',
-                hintStyle: TextStyle(color: textMuted, fontFamily: 'Cairo', fontSize: 12.5),
-                errorText: _error,
-                errorStyle: const TextStyle(fontFamily: 'Cairo', fontSize: 11),
-                filled: true,
-                fillColor: bgInput,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: borderSubtle)),
-                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: primaryOlive)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                suffixIcon: IconButton(
-                  icon: Icon(_obscureText ? Icons.visibility_off : Icons.visibility, color: textSecondary, size: 18),
-                  onPressed: () => setState(() => _obscureText = !_obscureText),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextButton.icon(
-              onPressed: () async {
-                final url = Uri.parse('https://aistudio.google.com/');
-                if (await canLaunchUrl(url)) {
-                  await launchUrl(url, mode: LaunchMode.externalApplication);
-                }
-              },
-              icon: const Icon(Icons.open_in_new_rounded, size: 14, color: primaryOlive),
-              label: const Text(
-                'الحصول على مفتاح Gemini API مجاني',
-                style: TextStyle(fontFamily: 'Cairo', fontSize: 11.5, color: primaryOlive, fontWeight: FontWeight.bold, decoration: TextDecoration.underline),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
+      child: Scaffold(
+        backgroundColor: bgDeep,
+        appBar: AppBar(
+          backgroundColor: bgSurface,
+          elevation: 0,
+          title: Text(
+            'تعديل الصورة قبل الإرسال',
+            style: TextStyle(fontFamily: 'Cairo', fontSize: 15, fontWeight: FontWeight.bold, color: textPrimary),
+          ),
+          leading: IconButton(
+            icon: Icon(Icons.close_rounded, color: textSecondary),
             onPressed: () => Navigator.pop(context),
-            child: Text('إلغاء', style: TextStyle(fontFamily: 'Cairo', color: textSecondary, fontWeight: FontWeight.bold)),
+            tooltip: 'إلغاء',
           ),
-          ElevatedButton(
-            onPressed: () async {
-              final key = _keyController.text.trim();
-              if (key.isEmpty) {
-                setState(() => _error = 'الرجاء إدخال المفتاح أولاً');
-                return;
-              }
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setString('gemini_api_key', key);
-              if (context.mounted) {
-                Navigator.pop(context, key);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryOlive,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            child: const Text('حفظ واستمرار', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, color: Colors.black)),
-          ),
-        ],
+        ),
+        body: SafeArea(
+          child: _image == null
+              ? const Center(child: CircularProgressIndicator(color: primaryOlive))
+              : Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _toolChip(
+                              icon: Icons.brush_rounded,
+                              label: 'رسم',
+                              active: !_cropTool,
+                              onTap: () => setState(() => _cropTool = false),
+                            ),
+                            const SizedBox(width: 8),
+                            _toolChip(
+                              icon: Icons.crop_rounded,
+                              label: 'قص',
+                              active: _cropTool,
+                              onTap: () => setState(() => _cropTool = true),
+                            ),
+                            const SizedBox(width: 8),
+                            _toolChip(
+                              icon: Icons.undo_rounded,
+                              label: 'تراجع',
+                              active: false,
+                              onTap: _undo,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (!_cropTool)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Wrap(
+                          spacing: 8,
+                          children: _brushColors.map((c) {
+                            final selected = _brushColor == c;
+                            return GestureDetector(
+                              onTap: () => setState(() => _brushColor = c),
+                              child: Container(
+                                width: 24,
+                                height: 24,
+                                decoration: BoxDecoration(
+                                  color: c,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: selected ? textPrimary : borderSubtle,
+                                    width: selected ? 2.5 : 1,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final paintSize = Size(constraints.maxWidth, constraints.maxHeight);
+                            return GestureDetector(
+                              onPanStart: (d) => _onPanStart(d.localPosition, paintSize),
+                              onPanUpdate: (d) => _onPanUpdate(d.localPosition, paintSize),
+                              onPanEnd: (_) => _onPanEnd(),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: CustomPaint(
+                                  size: paintSize,
+                                  painter: _ImageEditorPainter(
+                                    image: _image!,
+                                    strokes: _strokes,
+                                    cropRect: _cropRect,
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _GradientButton(
+                              label: 'تأكيد',
+                              icon: Icons.check_rounded,
+                              loading: _exporting,
+                              onTap: _exporting ? null : _export,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: _exporting
+                                  ? null
+                                  : () => Navigator.pop(
+                                        context,
+                                        ImageEditResult(widget.imageBytes, widget.originalMimeType),
+                                      ),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 13),
+                                decoration: BoxDecoration(
+                                  color: bgElevated,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: borderSubtle),
+                                ),
+                                child: Text(
+                                  'استخدام بدون تعديل',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontFamily: 'Cairo',
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: textPrimary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+        ),
       ),
     );
   }
+}
+
+class _ImageEditorPainter extends CustomPainter {
+  final ui.Image image;
+  final List<_MarkupStroke> strokes;
+  final Rect? cropRect;
+
+  _ImageEditorPainter({required this.image, required this.strokes, required this.cropRect});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = min(size.width / image.width, size.height / image.height);
+    final drawW = image.width * scale;
+    final drawH = image.height * scale;
+    final dx = (size.width - drawW) / 2;
+    final dy = (size.height - drawH) / 2;
+    final dst = Rect.fromLTWH(dx, dy, drawW, drawH);
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+      dst,
+      Paint(),
+    );
+
+    final strokePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..strokeWidth = max(2.5, image.width * scale / 250);
+    for (final stroke in strokes) {
+      if (stroke.points.length < 2) continue;
+      strokePaint.color = stroke.color;
+      final path = Path()
+        ..moveTo(dx + stroke.points.first.dx * scale, dy + stroke.points.first.dy * scale);
+      for (final p in stroke.points.skip(1)) {
+        path.lineTo(dx + p.dx * scale, dy + p.dy * scale);
+      }
+      canvas.drawPath(path, strokePaint);
+    }
+
+    if (cropRect != null) {
+      final r = Rect.fromLTWH(
+        dx + cropRect!.left * scale,
+        dy + cropRect!.top * scale,
+        cropRect!.width * scale,
+        cropRect!.height * scale,
+      );
+      final overlay = Paint()..color = Colors.black.withValues(alpha: 0.55);
+      canvas.saveLayer(dst, Paint());
+      canvas.drawRect(dst, overlay);
+      canvas.drawRect(r, Paint()..blendMode = BlendMode.clear);
+      canvas.restore();
+      canvas.drawRect(
+        r,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = primaryOlive,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ImageEditorPainter oldDelegate) => true;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -4032,8 +4037,10 @@ class _PremiumInputBar extends StatefulWidget {
   final String                hintText;
   final String                selectedModel;
   final bool                  thinkingEnabled;
+  final String                chatMode;
   final ValueChanged<String>  onModelChanged;
   final ValueChanged<bool>    onThinkingChanged;
+  final ValueChanged<String>  onModeChanged;
   final String                userPlan;
   final String                websiteLink;
 
@@ -4047,8 +4054,10 @@ class _PremiumInputBar extends StatefulWidget {
     required this.hintText,
     required this.selectedModel,
     required this.thinkingEnabled,
+    required this.chatMode,
     required this.onModelChanged,
     required this.onThinkingChanged,
+    required this.onModeChanged,
     required this.userPlan,
     required this.websiteLink,
   });
@@ -4057,20 +4066,11 @@ class _PremiumInputBar extends StatefulWidget {
   State<_PremiumInputBar> createState() => _PremiumInputBarState();
 }
 
-class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerProviderStateMixin {
-  bool _isRecording = false;
-  int _recordingDuration = 0;
-  Timer? _recordingTimer;
-  AnimationController? _pulseController;
-  stt.SpeechToText? _speech;
-  bool _speechAvailable = false;
-  String? _pendingAudioBase64;
-  String? _pendingAudioMimeType;
+class _PremiumInputBarState extends State<_PremiumInputBar> {
   String? _pendingImageBase64;
   String? _pendingImageMimeType;
   String? _pendingImageDescription;
   bool _isDescribingImage = false;
-  String _textBeforeRecording = '';
 
   Future<void> _pickImage() async {
     if (widget.isLoading || _isDescribingImage) return;
@@ -4099,8 +4099,25 @@ class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerPro
         return;
       }
 
-      final base64String = base64Encode(bytes);
-      final mimeType = _getMimeType(file.extension ?? 'jpg');
+      // Open the crop/markup editor before uploading
+      if (!mounted) return;
+      final ImageEditResult? edited = await Navigator.push<ImageEditResult>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ImageEditorScreen(
+            imageBytes: bytes!,
+            originalMimeType: _getMimeType(file.extension ?? 'jpg'),
+          ),
+        ),
+      );
+      if (edited == null) return;
+      if (edited.bytes.lengthInBytes > 5 * 1024 * 1024) {
+        _showError('حجم الصورة بعد التعديل كبير جداً. الحد الأقصى هو 5 ميجابايت.');
+        return;
+      }
+
+      final base64String = base64Encode(edited.bytes);
+      final mimeType = edited.mimeType;
 
       setState(() {
         _isDescribingImage = true;
@@ -4112,10 +4129,14 @@ class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerPro
       final cleanLink = widget.websiteLink.trim().replaceAll(RegExp(r'/$'), '');
       final url = Uri.parse('$cleanLink/api/chat/upload-image');
 
+      final prefs = await SharedPreferences.getInstance();
+      final authToken = prefs.getString('auth_token');
+
       final response = await http.post(
         url,
         headers: {
           'Content-Type': 'application/json',
+          if (authToken != null && authToken.isNotEmpty) 'Authorization': 'Bearer $authToken',
         },
         body: jsonEncode({
           'base64': base64String,
@@ -4169,159 +4190,11 @@ class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerPro
     );
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-      lowerBound: 0.4,
-      upperBound: 1.0,
-    );
-    _initSpeech();
-  }
-
-  void _initSpeech() async {
-    _speech = stt.SpeechToText();
-    try {
-      _speechAvailable = await _speech!.initialize(
-        onError: (val) => debugPrint('Speech init error: $val'),
-        onStatus: (val) => debugPrint('Speech status: $val'),
-      );
-    } catch (e) {
-      debugPrint('Speech init exception: $e');
-    }
-  }
-
-  @override
-  void dispose() {
-    _recordingTimer?.cancel();
-    _pulseController?.dispose();
-    _speech?.stop();
-    super.dispose();
-  }
-
-  void _toggleRecording() async {
-    if (_isRecording) {
-      // Stop recording
-      _recordingTimer?.cancel();
-      _pulseController?.stop();
-      setState(() {
-        _isRecording = false;
-      });
-
-      if (_speech != null) {
-        await _speech!.stop();
-      }
-
-      final path = await AudioTranscriber.stopRecording();
-      if (path != null && mounted) {
-        try {
-          final file = File(path);
-          if (await file.exists()) {
-            final bytes = await file.readAsBytes();
-            final base64String = base64Encode(bytes);
-            setState(() {
-              _pendingAudioBase64 = base64String;
-              _pendingAudioMimeType = 'audio/mp4';
-            });
-
-            // Restore the text field to pre-recording state to avoid duplicating live speech-to-text results
-            widget.controller.text = _textBeforeRecording;
-
-            // Trigger the Gemini client-side transcription flow on the recorded audio file
-            if (mounted) {
-              await AudioTranscriber.performTranscriptionFlow(
-                context,
-                path,
-                widget.controller,
-                () {},
-              );
-            }
-          }
-        } catch (e) {
-          debugPrint("Error reading/transcribing recorded file: $e");
-        }
-      }
-    } else {
-      // Start recording (Android only)
-      if (kIsWeb || !Platform.isAndroid) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('عذراً، ميزة التسجيل الصوتي مدعومة على أجهزة أندرويد فقط.', style: TextStyle(fontFamily: 'Cairo')),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-        return;
-      }
-
-      // Request record permission
-      final status = await Permission.microphone.request();
-      if (!status.isGranted) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('يجب إعطاء صلاحية الميكروفون لتشغيل ميزة التسجيل الصوتي.', style: TextStyle(fontFamily: 'Cairo')),
-              backgroundColor: Colors.orangeAccent,
-            ),
-          );
-        }
-        return;
-      }
-
-      final success = await AudioTranscriber.startRecording();
-      if (success) {
-        setState(() {
-          _isRecording = true;
-          _recordingDuration = 0;
-          _pendingAudioBase64 = null;
-          _pendingAudioMimeType = null;
-          _textBeforeRecording = widget.controller.text; // Store text before recording starts
-        });
-
-        if (_speechAvailable && _speech != null) {
-          _speech!.listen(
-            onResult: (val) {
-              if (mounted) {
-                setState(() {
-                  widget.controller.text = val.recognizedWords;
-                });
-              }
-            },
-            listenOptions: stt.SpeechListenOptions(localeId: 'ar_EG'),
-          );
-        }
-
-        _pulseController?.repeat(reverse: true);
-        _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-          setState(() {
-            _recordingDuration++;
-          });
-        });
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('فشل بدء التسجيل الصوتي.', style: TextStyle(fontFamily: 'Cairo')),
-              backgroundColor: Colors.redAccent,
-            ),
-          );
-        }
-      }
-    }
-  }
-
   void _handleSend() {
     final text = widget.controller.text.trim();
-    if (text.isEmpty && _pendingAudioBase64 == null && _pendingImageBase64 == null) return;
-    
-    if (_pendingAudioBase64 != null) {
-      widget.controller.text = '[AUDIO_MESSAGE:$_pendingAudioMimeType;$_pendingAudioBase64]$text';
-      setState(() {
-        _pendingAudioBase64 = null;
-        _pendingAudioMimeType = null;
-      });
-    } else if (_pendingImageBase64 != null) {
+    if (text.isEmpty && _pendingImageBase64 == null) return;
+
+    if (_pendingImageBase64 != null) {
       final desc = _pendingImageDescription ?? '';
       widget.controller.text = '[IMAGE_MESSAGE:$_pendingImageMimeType;$_pendingImageBase64;${Uri.encodeComponent(desc)}]$text';
       setState(() {
@@ -4331,12 +4204,6 @@ class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerPro
       });
     }
     widget.onSend();
-  }
-
-  String _formatDuration(int seconds) {
-    final int minutes = seconds ~/ 60;
-    final int remainingSeconds = seconds % 60;
-    return '$minutes:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -4458,58 +4325,17 @@ class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerPro
                     ),
                   ),
                 ),
-              if (_pendingAudioBase64 != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8.0),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: primaryOlive.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: primaryOlive.withValues(alpha: 0.3)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.mic_rounded, color: primaryOlive, size: 16),
-                            SizedBox(width: 8),
-                            Text(
-                              'تم إرفاق تسجيل صوتي',
-                              style: TextStyle(
-                                color: primaryOlive,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Cairo',
-                              ),
-                            ),
-                          ],
-                        ),
-                        GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _pendingAudioBase64 = null;
-                              _pendingAudioMimeType = null;
-                            });
-                          },
-                          child: Icon(Icons.close_rounded, color: textSecondary, size: 16),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
               TextField(
                 controller: widget.controller,
                 focusNode: widget.focusNode,
-                enabled: widget.enabled && !_isRecording,
+                enabled: widget.enabled,
                 maxLines: 5,
                 minLines: 1,
                 textInputAction: TextInputAction.newline,
                 style: TextStyle(fontSize: 14, color: textPrimary, fontFamily: 'Cairo', height: 1.4),
                 decoration: InputDecoration(
-                  hintText: _isRecording ? 'جاري التسجيل الصوتي... اضغط على الميكروفون للإيقاف' : widget.hintText,
-                  hintStyle: TextStyle(color: _isRecording ? Colors.redAccent : textMuted, fontSize: 13, fontFamily: 'Cairo'),
+                  hintText: widget.hintText,
+                  hintStyle: TextStyle(color: textMuted, fontSize: 13, fontFamily: 'Cairo'),
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
@@ -4519,19 +4345,27 @@ class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerPro
                 ),
               ),
               const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  PopupMenuButton<String>(
-                    color: bgCard,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      side: BorderSide(color: borderSubtle),
-                    ),
-                    offset: const Offset(0, -110),
-                    onSelected: (value) {
-                      widget.onModelChanged(value);
-                    },
+              LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            PopupMenuButton<String>(
+                              color: bgCard,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                side: BorderSide(color: borderSubtle),
+                              ),
+                              offset: const Offset(0, -110),
+                              onSelected: (value) {
+                                widget.onModelChanged(value);
+                              },
                     itemBuilder: (context) => [
                       PopupMenuItem(
                         value: 'flash',
@@ -4589,6 +4423,90 @@ class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerPro
                       ),
                     ),
                   ),
+                            const SizedBox(width: 8),
+                            // Interaction mode selector (socratic / detailed / summary)
+                            PopupMenuButton<String>(
+                              color: bgCard,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                side: BorderSide(color: borderSubtle),
+                              ),
+                              offset: const Offset(0, -150),
+                              onSelected: widget.onModeChanged,
+                              itemBuilder: (context) => [
+                                PopupMenuItem(
+                                  value: 'socratic',
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.help_outline_rounded, color: primaryOlive, size: 16),
+                                      const SizedBox(width: 8),
+                                      Text('سقراطي', style: TextStyle(fontFamily: 'Cairo', fontSize: 13, color: textPrimary)),
+                                    ],
+                                  ),
+                                ),
+                                PopupMenuItem(
+                                  value: 'detailed',
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.school_rounded, color: primaryOlive, size: 16),
+                                      const SizedBox(width: 8),
+                                      Text('شرح مفصل', style: TextStyle(fontFamily: 'Cairo', fontSize: 13, color: textPrimary)),
+                                    ],
+                                  ),
+                                ),
+                                PopupMenuItem(
+                                  value: 'summary',
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.checklist_rounded, color: primaryOlive, size: 16),
+                                      const SizedBox(width: 8),
+                                      Text('ملخص', style: TextStyle(fontFamily: 'Cairo', fontSize: 13, color: textPrimary)),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: widget.chatMode != 'detailed' ? primaryOlive : bgElevated,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: widget.chatMode != 'detailed' ? Colors.transparent : borderSubtle),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      widget.chatMode == 'socratic'
+                                          ? Icons.help_outline_rounded
+                                          : widget.chatMode == 'summary'
+                                              ? Icons.checklist_rounded
+                                              : Icons.school_rounded,
+                                      color: widget.chatMode != 'detailed' ? Colors.black : textSecondary,
+                                      size: 13,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      widget.chatMode == 'socratic'
+                                          ? 'سقراطي'
+                                          : widget.chatMode == 'summary'
+                                              ? 'ملخص'
+                                              : 'شرح',
+                                      style: TextStyle(
+                                        fontFamily: 'Cairo',
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: widget.chatMode != 'detailed' ? Colors.black : textSecondary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Icon(Icons.keyboard_arrow_down_rounded, color: widget.chatMode != 'detailed' ? Colors.black : textSecondary, size: 13),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(width: 8),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -4625,65 +4543,6 @@ class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerPro
                             ],
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      // Audio Record Mic Button
-                      GestureDetector(
-                        onTap: _toggleRecording,
-                        child: _isRecording
-                            ? AnimatedBuilder(
-                                animation: _pulseController!,
-                                builder: (context, child) {
-                                  return Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                    decoration: BoxDecoration(
-                                      color: Colors.redAccent.withValues(alpha: 0.15 * _pulseController!.value),
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(color: Colors.redAccent.withValues(alpha: _pulseController!.value)),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.stop_rounded, color: Colors.redAccent, size: 14),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          _formatDuration(_recordingDuration),
-                                          style: TextStyle(
-                                            fontFamily: 'Cairo',
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.redAccent,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              )
-                            : Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                decoration: BoxDecoration(
-                                  color: bgElevated,
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: borderSubtle),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.mic_none_rounded, color: textSecondary, size: 14),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      'تسجيل',
-                                      style: TextStyle(
-                                        fontFamily: 'Cairo',
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                        color: textSecondary,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
                       ),
                       const SizedBox(width: 8),
                       // Thinking Toggle Button
@@ -4730,10 +4589,13 @@ class _PremiumInputBarState extends State<_PremiumInputBar> with SingleTickerPro
                         ),
                       ),
                       const SizedBox(width: 8),
-                      _AnimatedSendButton(hasText: widget.hasText || _pendingAudioBase64 != null || _pendingImageBase64 != null, isLoading: widget.isLoading, onSend: _handleSend),
+                      _AnimatedSendButton(hasText: widget.hasText || _pendingImageBase64 != null, isLoading: widget.isLoading, onSend: _handleSend),
                     ],
                   ),
-                ],
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
@@ -4862,22 +4724,26 @@ class MarkdownFormatterWidget extends StatelessWidget {
   final String text;
   final Function(String)? onAnswerSubmit;
   final Function(Map<String, dynamic>)? onGoToExams;
+  final String websiteLink;
 
   const MarkdownFormatterWidget({
     super.key,
     required this.text,
     this.onAnswerSubmit,
     this.onGoToExams,
+    this.websiteLink = '',
   });
 
   @override
   Widget build(BuildContext context) {
     final quizRegex = RegExp(r'\[QUIZ_QUESTION\]([\s\S]*?)\[/QUIZ_QUESTION\]');
     final examRegex = RegExp(r'\[CREATE_EXAM\]([\s\S]*?)\[/CREATE_EXAM\]');
+    final flashcardsRegex = RegExp(r'\[CREATE_FLASHCARDS\]([\s\S]*?)\[/CREATE_FLASHCARDS\]');
 
     String cleanText = text;
     Map<String, dynamic>? quizData;
     Map<String, dynamic>? examData;
+    Map<String, dynamic>? flashcardsData;
 
     final quizMatch = quizRegex.firstMatch(text);
     if (quizMatch != null) {
@@ -4896,6 +4762,16 @@ class MarkdownFormatterWidget extends StatelessWidget {
         examData = jsonDecode(examMatch.group(1)!.trim());
       } catch (e) {
         debugPrint("Exam JSON parse error: $e");
+      }
+    }
+
+    final flashcardsMatch = flashcardsRegex.firstMatch(text);
+    if (flashcardsMatch != null) {
+      cleanText = cleanText.replaceFirst(flashcardsMatch.group(0)!, '');
+      try {
+        flashcardsData = jsonDecode(flashcardsMatch.group(1)!.trim());
+      } catch (e) {
+        debugPrint("Flashcards JSON parse error: $e");
       }
     }
 
@@ -5052,6 +4928,13 @@ class MarkdownFormatterWidget extends StatelessWidget {
           ExamInviteWidget(
             exam: examData,
             onGoToExams: onGoToExams,
+          ),
+        ],
+        if (flashcardsData != null) ...[
+          const SizedBox(height: 10),
+          FlashcardsInviteWidget(
+            flashcards: flashcardsData,
+            websiteLink: websiteLink,
           ),
         ],
       ],
@@ -5373,7 +5256,7 @@ class _AuthSheetWidgetState extends State<AuthSheetWidget> with SingleTickerProv
 
     try {
       final isLogin  = _tabController.index == 0;
-      final cleanLink = widget.websiteLink.trim().replaceAll(RegExp(r'/$'), '');
+      final cleanLink = resolveWebsiteLink(widget.websiteLink);
 
       if (isLogin) {
         final res = await http.post(
@@ -5384,7 +5267,7 @@ class _AuthSheetWidgetState extends State<AuthSheetWidget> with SingleTickerProv
             'password': password,
           }),
         );
-        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        final data = parseJsonResponse(res);
         if (res.statusCode != 200) {
           throw Exception(data['error'] ?? 'البريد الإلكتروني أو كلمة المرور غير صحيحة');
         }
@@ -5405,7 +5288,7 @@ class _AuthSheetWidgetState extends State<AuthSheetWidget> with SingleTickerProv
               'terms_accepted': true,
             }),
           );
-          final data = jsonDecode(utf8.decode(res.bodyBytes));
+          final data = parseJsonResponse(res);
           if (res.statusCode != 200) {
             throw Exception(data['error'] ?? 'فشل عملية التسجيل');
           }
@@ -5423,7 +5306,7 @@ class _AuthSheetWidgetState extends State<AuthSheetWidget> with SingleTickerProv
               'has_registered_before': hasRegisteredBefore,
             }),
           );
-          final data = jsonDecode(utf8.decode(res.bodyBytes));
+          final data = parseJsonResponse(res);
           if (res.statusCode != 200) {
             throw Exception(data['error'] ?? 'رمز التحقق غير صحيح');
           }
@@ -5441,12 +5324,14 @@ class _AuthSheetWidgetState extends State<AuthSheetWidget> with SingleTickerProv
   Future<void> _signInWithGoogle({String? selectedGrade}) async {
     setState(() { _error = ''; _isLoading = true; });
     try {
-      final cleanLink = widget.websiteLink.trim().replaceAll(RegExp(r'/$'), '');
+      final cleanLink = resolveWebsiteLink(widget.websiteLink);
       String? idToken;
 
       // Try actual Google Sign-In first
       try {
         final GoogleSignIn googleSignIn = GoogleSignIn(
+          serverClientId: '868945795931-v00sqknb9qsgcq7hid3t2rkps2vu1348.apps.googleusercontent.com',
+          clientId: '868945795931-6hp5uq0eb234pbd3nck1jvvbv4p76kht.apps.googleusercontent.com',
           scopes: ['email', 'profile'],
         );
         final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
@@ -5473,7 +5358,7 @@ class _AuthSheetWidgetState extends State<AuthSheetWidget> with SingleTickerProv
         }),
       );
 
-      final data = jsonDecode(utf8.decode(res.bodyBytes));
+      final data = parseJsonResponse(res);
       if (res.statusCode != 200) {
         throw Exception(data['error'] ?? 'فشل تسجيل الدخول بواسطة Google');
       }
@@ -5538,7 +5423,7 @@ class _AuthSheetWidgetState extends State<AuthSheetWidget> with SingleTickerProv
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           decoration: BoxDecoration(
             color:        bgCard.withValues(alpha: 0.95),
@@ -5919,7 +5804,7 @@ class _LegslScaffold extends StatelessWidget {
             padding: const EdgeInsets.all(20),
             children: [
               Text(
-                'آخر تحديث: يوليو 2026 — يسري هذا الإصدار على النسخة التجريبية (Beta).',
+                'تاريخ السريان وآخر تحديث: يوليو 2026 — الإصدار الرسمي المكتمل لمنصة وتطبيق EGS AI.',
                 style: TextStyle(fontSize: 12, color: textMuted, fontFamily: 'Cairo'),
               ),
               const SizedBox(height: 20),
@@ -5958,39 +5843,39 @@ class PrivacyPolicyScreen extends StatelessWidget {
       sections: [
         _LegslSection(
           '1. البيانات التي نجمعها',
-          'بيانات الحساب: رقم الهاتف، الاسم، الصف الدراسي، وكلمة المرور (تُخزَّن مشفّرة ولا نحتفظ بها كنص مقروء). محتوى الاستخدام: أسئلتك وسجل محادثاتك وامتحاناتك، لتقديم الخدمة وتحسين تجربتك. بيانات تقنية أساسية مثل معرّف الجهاز لتفعيل تجربة الزائر. لا نجمع أي بيانات دفع حالياً لأن خاصية الدفع غير مفعّلة خلال البيتا.',
+          'بيانات الحساب: رقم الهاتف، الاسم، الصف الدراسي، وكلمة المرور (تُخزَّن مشفّرة Hashed). محتوى الاستخدام: الأسئلة، السجل، والامتحانات. الشراء عبر التطبيق يتم معالجة دفعه عبر نظام Google Play Billing وتخضع لسياسات خصوصية متجر Google Play.',
         ),
         _LegslSection(
           '2. كيفية احتساب نقاط الاستخدام',
-          'يُحتسب رصيد النقاط تلقائياً بعد كل رسالة بناءً على طول السؤال وطول إجابة الذكاء الاصطناعي. كلما طالت الإجابة أو استُخدم نموذج أكثر تقدماً (Pro)، زاد عدد النقاط المخصومة. يتجدد الرصيد المجاني يومياً.',
+          'يُحتسب رصيد النقاط تلقائياً بعد كل رسالة بناءً على طول السؤال وطول إجابة الذكاء الاصطناعي النموذج المستخدم (Pro / Standard).',
         ),
         _LegslSection(
           '3. كيف نستخدم بياناتك',
-          'لتقديم خدمة الشرح والمساعدة الدراسية وتخصيصها حسب صفك الدراسي، لحفظ سجل محادثاتك وامتحاناتك، لإرسال إشعارات تخص الخدمة، ولمراجعة أي بلاغ تقدمه بخصوص رد غير مناسب من الذكاء الاصطناعي.',
+          'لتقديم خدمة الشرح والمساعدة الدراسية وتخصيصها حسب صفك الدراسي، لحفظ سجل محادثاتك وامتحاناتك، لإرسال إشعارات الخدمة، ولمراجعة أي بلاغات بخصوص ردود الذكاء الاصطناعي.',
         ),
         _LegslSection(
           '4. مشاركة البيانات مع أطراف ثالثة',
-          'لا نبيع بياناتك لأي طرف ثالث. لتقديم خدمة الذكاء الاصطناعي، تتم معالجة نص سؤالك فقط عبر مزوّدي خدمة ذكاء اصطناعي متعاقدين. تُخزَّن بياناتك الأساسية لدى مزوّد قاعدة بيانات سحابي آمن نستخدمه كبنية تحتية فقط.',
+          'لا نبيع بياناتك الشخصية لأي طرف ثالث. تتم معالجة الأسئلة عبر نماذج ذكاء اصطناعي بدون بياناتك الشخصية. تُعالج معاملات الشراء في التطبيق عبر نظام Google Play Billing فقط.',
         ),
         _LegslSection(
           '5. أمان البيانات',
-          'يتم تشفير كلمات المرور رياضياً ولا نحتفظ بها كنص مقروء. الاتصال بالمنصة يتم عبر بروتوكولات آمنة. نحن ملتزمون بحماية بياناتك الشخصية وكلمات المرور وعدم الإفصاح عنها.',
+          'تُشفَّر كلمات المرور رياضياً والاتصال بالمنصة مشفّر ببروتوكولات HTTPS. نحن ملتزمون بأعلى معايير الحماية والأمان الرقمي.',
         ),
         _LegslSection(
           '6. إخلاء مسؤولية بخصوص إجابات الذكاء الاصطناعي',
-          'المحتوى الذي يقدمه المساعد الذكي يُنتَج تلقائياً بواسطة نماذج ذكاء اصطناعي تابعة لجهات خارجية غير تابعة لنا، وقد يحتوي أحياناً على معلومات غير دقيقة. لسنا مسؤولين عن أي قرار يُتخذ بالاعتماد الكلي على إجابة غير مُتحقق منها. يمكنك الإبلاغ عن أي رد غير مناسب عبر زر الإبلاغ.',
+          'المحتوى يُنتَج بواسطة نماذج ذكاء اصطناعي وقد يحتوي أحياناً على أخطاء. المنصة غير مسؤولة عن أي قرار يُتخذ دون التحقق من المنهج أو المعلم.',
         ),
         _LegslSection(
           '7. حقوقك',
-          'يمكنك تعديل اسمك وكلمة مرورك في أي وقت من الملف الشخصي، ويمكنك التواصل معنا لطلب حذف حسابك وبياناتك نهائياً، والتوقف عن استخدام الخدمة في أي وقت.',
+          'يمكنك تعديل اسمك وكلمة مرورك وصفك الدراسي في أي وقت من الملف الشخصي، أو التواصل معنا لطلب حذف حسابك وبياناتك نهائياً.',
         ),
         _LegslSection(
           '8. خصوصية القُصَّر',
-          'صُممت هذه المنصة لخدمة طلاب المرحلتين الإعدادية والثانوية. نحرص على ألا نجمع من المستخدمين القُصَّر أي بيانات تتجاوز ما هو ضروري لتقديم الخدمة، ولا نستخدمها لأي غرض تسويقي خارجي.',
+          'صُممت هذه المنصة لخدمة طلاب المرحلتين الإعدادية والثانوية في مصر. نحرص على ألا نجمع سوى البيانات الضرورية للخدمة التعليمية فقط.',
         ),
         _LegslSection(
-          '9. التعديلات على هذه السياسة',
-          'قد نحدّث هذه السياسة من وقت لآخر، خصوصاً مع الانتقال للنسخة النهائية وتفعيل الاشتراكات المدفوعة. سيُنشر أي تحديث داخل التطبيق.',
+          '9. تواصل الخصوصية والدعم',
+          'لأي استفسارات تخص الخصوصية أو طلبات الحذف، تواصل معنا عبر الهاتف/واتساب: 01037220587 أو البريد الإلكتروني: sohaib572010@gmail.com.',
         ),
       ],
     );
@@ -6007,39 +5892,39 @@ class TermsOfUseScreen extends StatelessWidget {
       sections: [
         _LegslSection(
           '1. طبيعة الخدمة',
-          'EGS AI منصة تعليمية مساعدة تعتمد على الذكاء الاصطناعي لمساعدة طلاب المرحلتين الإعدادية والثانوية على فهم المنهج وحل الأسئلة. المنصة حالياً في مرحلة تجريبية (Beta) وقد تتغير ميزاتها قبل الإطلاق النهائي.',
+          'EGS AI هي منصةتعليمية مساعدة تعتمد على الذكاء الاصطناعي لمساعدة طلاب المرحلتين الإعدادية والثانوية في مصر على فهم المنهج وحل الأسئلة والتدرب للامتحانات.',
         ),
         _LegslSection(
           '2. الحساب والتسجيل',
-          'يجب تقديم بيانات صحيحة عند إنشاء الحساب. أنت مسؤول عن سرية كلمة مرورك وعن أي نشاط يتم من خلال حسابك. يُمنع إنشاء أكثر من حساب للتحايل على حدود الاستخدام المجاني.',
+          'يجب تقديم بيانات صحيحة عند إنشاء الحساب. أنت مسؤول عن سرية كلمة مرورك وعن أي نشاط يتم من خلال حسابك. يُمنع إنشاء أكثر من حساب للتحايل على نظام النقاط.',
         ),
         _LegslSection(
           '3. الاستخدام المقبول',
-          'يُستخدم المساعد الذكي لأغراض تعليمية مساعدة وليس بديلاً عن المذاكرة الجادة. يُمنع أي استخدام غير قانوني أو مسيء، أو محاولة استغلال ثغرات تقنية أو الوصول غير المصرح به لبيانات مستخدمين آخرين.',
+          'يُستخدم المساعد الذكي لأغراض تعليمية مساعدة وليس بديلاً عن المذاكرة الجادة. يُمنع أي استخدام غير قانوني أو محاولة استغلال ثغرات تقنية.',
         ),
         _LegslSection(
-          '4. نظام النقاط والباقات',
-          'يُنظَّم الاستخدام حالياً عبر نظام نقاط تلقائي. خلال فترة البيتا، خاصية الاشتراكات المدفوعة غير مفعّلة، وسيُعلن عن تفاصيل الباقات عند إطلاقها رسمياً (قبل أغسطس 2026) مع تحديث هذه الشروط.',
+          '4. باقات الاشتراك والأسعار',
+          'تتوفر باقات الاشتراك التالية: 1) اشتراك شهري (Pro) بقيمة 50 ج.م. 2) اشتراك شهرين بقيمة 100 ج.م. 3) اشتراك 3 أشهر بقيمة 250 ج.م.',
         ),
         _LegslSection(
-          '5. إخلاء المسؤولية بخصوص إجابات الذكاء الاصطناعي',
-          'الإجابات المُولَّدة تعتمد على نماذج ذكاء اصطناعي من جهات خارجية غير تابعة لنا، وقد تحتوي على أخطاء. لا تتحمل المنصة أي مسؤولية عن قرارات تُتخذ بناءً على إجابة غير مُتحقق منها. يمكنك الإبلاغ عن أي رد غير دقيق عبر زر الإبلاغ.',
+          '5. سياسة الإلغاء والاسترجاع (Refund Policy)',
+          'يمكن طلب استرداد الاشتراك خلال 3 أيام (72 ساعة) فقط من الشراء، بشرط ألا يكون المستخدم قد استهلك أي جزء من نقاط الباقة المشترة. في حال استخدام أي نقطة تكون الباقة غير قابلة للاسترجاع.',
         ),
         _LegslSection(
-          '6. الملكية الفكرية',
-          'جميع حقوق تصميم المنصة وشعارها وأكوادها البرمجية محفوظة. المحتوى الدراسي المرجعي يخضع لملكية جهاته الأصلية ويُستخدم لأغراض تعليمية مساعدة فقط.',
+          '6. الشراء والشحن عبر Google Play (Mobile Billing)',
+          'تخضع المعاملات المالية المنجزة عبر تطبيق الهواتف المحمولة لنظام Google Play Billing ولشروط وأحكام متجر Google Play الرسمية.',
         ),
         _LegslSection(
-          '7. التعليق أو إنهاء الحساب',
-          'نحتفظ بالحق في تعليق أو إنهاء أي حساب يخالف هذه الشروط، خاصة في حالات إساءة الاستخدام أو محاولات الاختراق أو التلاعب بنظام النقاط.',
+          '7. إخلاء المسؤولية',
+          'الإجابات المُولَّدة تعتمد على الذكاء الاصطناعي وتُستخدم للمساعدة الدراسية. لا تتحمل المنصة مسؤولية أي قرارات تُتخذ بناءً على إجابة غير مُتحقق منها.',
         ),
         _LegslSection(
-          '8. التعديلات على الخدمة والشروط',
-          'بما أن المنصة في مرحلة تجريبية، قد تُضاف أو تُعدَّل أو تُزال ميزات دون إشعار مسبق. سنخطرك بأي تغييرات جوهرية عبر إشعار داخل التطبيق.',
+          '8. الملكية الفكرية',
+          'جميع حقوق تصميم المنصة وشعارها وأكوادها محفوظة لـ EGS AI. المحتوى الدراسي يخضع لملكية جهاته الأصلية ويُستخدم لأغراض تعليمية.',
         ),
         _LegslSection(
-          '9. القانون الحاكم',
-          'تخضع هذه الشروط وتُفسَّر وفقاً للقوانين المعمول بها في جمهورية مصر العربية.',
+          '9. التواصل والقانون الحاكم',
+          'تخضع هذه الشروط للقوانين المصرية. للدعم الفني والاسترجاع: هاتف/واتساب: 01037220587 | البريد: sohaib572010@gmail.com.',
         ),
       ],
     );
@@ -6064,9 +5949,9 @@ class _OtpStep extends StatelessWidget {
           child: const Icon(Icons.lock_open_rounded, color: Colors.white, size: 32),
         ),
         const SizedBox(height: 16),
-        Text('تحقق من رقم هاتفك', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: textPrimary, fontFamily: 'Cairo')),
+        Text('تحقق من بريدك الإلكتروني', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: textPrimary, fontFamily: 'Cairo')),
         const SizedBox(height: 6),
-        Text('استخدم الرمز التجريبي "111111" لإكمال التسجيل',
+        Text('أدخل رمز التحقق المرسل إلى بريدك الإلكتروني لإكمال التسجيل',
             textAlign: TextAlign.center, style: TextStyle(color: textSecondary, fontSize: 12, fontFamily: 'Cairo')),
         const SizedBox(height: 20),
         TextField(
@@ -6094,6 +5979,7 @@ class ProfileBottomSheet extends StatefulWidget {
   final Function(Map<String, dynamic>) onProfileUpdated;
   final List<String> activeGradeLevels;
   final Map<String, String> gradeNames;
+  final String websiteLink;
 
   const ProfileBottomSheet({
     super.key,
@@ -6101,6 +5987,7 @@ class ProfileBottomSheet extends StatefulWidget {
     required this.onProfileUpdated,
     required this.activeGradeLevels,
     required this.gradeNames,
+    required this.websiteLink,
   });
 
   @override
@@ -6170,17 +6057,44 @@ class _ProfileBottomSheetState extends State<ProfileBottomSheet> {
       setState(() => _isLoading = false);
       return;
     }
-    _newPassword = cleanPass;
-    setState(() { _isOtpSent = true; _isLoading = false; });
-    _setMsg('تم إرسال رمز التحقق. استخدم "111111"', true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      final cleanLink = widget.websiteLink.trim().replaceAll(RegExp(r'/$'), '');
+      final res = await http.post(
+        Uri.parse('$cleanLink/api/auth/update-profile'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: jsonEncode({'action': 'send-otp'}),
+      );
+      final data = jsonDecode(utf8.decode(res.bodyBytes));
+      if (res.statusCode != 200) throw Exception(data['error'] ?? 'فشل إرسال رمز التحقق');
+      _newPassword = cleanPass;
+      setState(() => _isOtpSent = true);
+      _setMsg('تم إرسال رمز التحقق إلى بريدك الإلكتروني', true);
+    } catch (e) {
+      _setMsg(e.toString().replaceFirst('Exception: ', ''), false);
+    } finally {
+      setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _verifyOtp() async {
     setState(() { _isLoading = true; _message = ''; });
     try {
-      if (_otpCtrl.text.trim() != '111111') throw Exception('رمز التحقق غير صحيح');
-      final supabase = Supabase.instance.client;
-      await supabase.from('profiles').update({'password_hash': hashPassword(_newPassword)}).eq('id', widget.userProfile['id']);
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      final cleanLink = widget.websiteLink.trim().replaceAll(RegExp(r'/$'), '');
+      final res = await http.post(
+        Uri.parse('$cleanLink/api/auth/update-profile'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: jsonEncode({
+          'action': 'verify-otp',
+          'otp': _otpCtrl.text.trim(),
+          'new_password': _newPassword,
+        }),
+      );
+      final data = jsonDecode(utf8.decode(res.bodyBytes));
+      if (res.statusCode != 200) throw Exception(data['error'] ?? 'رمز التحقق غير صحيح');
       setState(() { _isOtpSent = false; _newPassword = ''; });
       _passCtrl.clear();
       _otpCtrl.clear();
@@ -6201,7 +6115,7 @@ class _ProfileBottomSheetState extends State<ProfileBottomSheet> {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           decoration: BoxDecoration(
             color:        bgCard,
@@ -7283,11 +7197,136 @@ class ExamInviteWidget extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// FLASHCARDS INVITE WIDGET (CHAT INLINE CARD)
+// ═══════════════════════════════════════════════════════════════════════════════
+class FlashcardsInviteWidget extends StatefulWidget {
+  final Map<String, dynamic> flashcards;
+  final String websiteLink;
+
+  const FlashcardsInviteWidget({super.key, required this.flashcards, required this.websiteLink});
+
+  @override
+  State<FlashcardsInviteWidget> createState() => _FlashcardsInviteWidgetState();
+}
+
+class _FlashcardsInviteWidgetState extends State<FlashcardsInviteWidget> {
+  bool _saved = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _autoSave();
+  }
+
+  Future<void> _autoSave() async {
+    if (_saved) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      final deviceId = prefs.getString('device_id');
+      final grade = prefs.getString('selected_grade') ?? '3_high';
+      final apiBase = resolveWebsiteLink(widget.websiteLink);
+
+      final cards = widget.flashcards['cards'];
+      if (cards is List && cards.isNotEmpty) {
+        await http.post(
+          Uri.parse('$apiBase/api/flashcards'),
+          headers: {
+            'Content-Type': 'application/json',
+            if (token != null) 'Authorization': 'Bearer $token',
+            if (deviceId != null) 'x-device-id': deviceId,
+          },
+          body: jsonEncode({
+            'subject_name': widget.flashcards['subject_name'] ?? 'عام',
+            'grade_level': grade,
+            'title': widget.flashcards['title'] ?? 'مجموعة كروت جديدة',
+            'cards': cards,
+          }),
+        );
+        setState(() => _saved = true);
+      }
+    } catch (e) {
+      debugPrint('Auto save flashcards error: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final title = widget.flashcards['title'] ?? 'مجموعة كروت جديدة';
+    final subject = widget.flashcards['subject_name'] ?? '';
+    final count = (widget.flashcards['cards'] as List?)?.length ?? 0;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: bgElevated,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: primaryOlive, width: 1.5),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: primaryOlive,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.psychology_rounded, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, fontFamily: 'Cairo'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        '$subject • $count كارت تعليمي',
+                        style: TextStyle(fontSize: 11.5, color: textSecondary, fontFamily: 'Cairo'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => FlashcardsScreen(websiteLink: widget.websiteLink)),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryOlive,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            child: const Text('مراجعة 🧠', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // EXAMS DASHBOARD SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
 class ExamsScreen extends StatefulWidget {
   final Map<String, dynamic>? initialExam;
-  const ExamsScreen({super.key, this.initialExam});
+  final String websiteLink;
+  const ExamsScreen({super.key, this.initialExam, required this.websiteLink});
 
   @override
   State<ExamsScreen> createState() => _ExamsScreenState();
@@ -7299,11 +7338,19 @@ class _ExamsScreenState extends State<ExamsScreen> {
   List<Map<String, dynamic>> _exams = [];
   List<Map<String, dynamic>> _submissions = [];
 
-  String? _userId;
+  String? _authToken;
   String? _deviceId;
   String _gradeLevel = '3_high';
   String _subjectName = 'الفيزياء';
   double _coins = 0.0;
+
+  String get _apiBase => resolveWebsiteLink(widget.websiteLink);
+
+  Map<String, String> get _apiHeaders => {
+        'Content-Type': 'application/json',
+        if (_authToken != null && _authToken!.isNotEmpty) 'Authorization': 'Bearer $_authToken',
+        if (_deviceId != null && _deviceId!.isNotEmpty) 'x-device-id': _deviceId!,
+      };
 
   @override
   void initState() {
@@ -7313,21 +7360,21 @@ class _ExamsScreenState extends State<ExamsScreen> {
 
   Future<void> _loadSettingsAndData() async {
     final prefs = await SharedPreferences.getInstance();
-    _userId = prefs.getString('auth_token');
+    _authToken = prefs.getString('auth_token');
     _deviceId = prefs.getString('device_id');
     _gradeLevel = prefs.getString('selected_grade') ?? '3_high';
     _subjectName = prefs.getString('selected_subject') ?? 'الفيزياء';
 
-    if (_userId != null) {
+    final userJson = prefs.getString('auth_user');
+    if (userJson != null) {
       try {
-        final supabase = Supabase.instance.client;
-        final profileRes = await supabase.from('profiles').select().eq('id', _userId!).maybeSingle();
-        if (profileRes != null) {
-          _coins = double.tryParse(profileRes['coins']?.toString() ?? '0.0') ?? 0.0;
-        }
-      } catch (e) {
-        debugPrint('Error fetching user coins on mobile: $e');
-      }
+        final user = jsonDecode(userJson);
+        _coins = double.tryParse(user['coins']?.toString() ?? '0.0') ?? 0.0;
+      } catch (_) {}
+    }
+
+    if (_authToken != null) {
+      await _refreshCoins();
       await _fetchData();
     } else {
       setState(() {
@@ -7335,7 +7382,7 @@ class _ExamsScreenState extends State<ExamsScreen> {
       });
     }
 
-    if (widget.initialExam != null && _userId != null) {
+    if (widget.initialExam != null && _authToken != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _startExam(widget.initialExam!);
       });
@@ -7343,29 +7390,28 @@ class _ExamsScreenState extends State<ExamsScreen> {
   }
 
   Future<void> _fetchData() async {
-    if (_userId == null) return;
+    if (_authToken == null) return;
     setState(() => _loading = true);
     try {
-      final supabase = Supabase.instance.client;
+      final examsRes = await http.get(
+        Uri.parse('$_apiBase/api/exams?subject_name=${Uri.encodeComponent(_subjectName)}'),
+        headers: _apiHeaders,
+      );
+      final subsRes = await http.get(
+        Uri.parse('$_apiBase/api/exams/submissions'),
+        headers: _apiHeaders,
+      );
 
-      // 1. Fetch exams
-      final examsRes = await supabase
-          .from('exams')
-          .select()
-          .eq('grade_level', _gradeLevel)
-          .eq('subject_name', _subjectName)
-          .order('created_at', ascending: false);
-
-      // 2. Fetch submissions
-      final subsRes = await supabase
-          .from('exam_submissions')
-          .select()
-          .eq('user_id', _userId!)
-          .order('submitted_at', ascending: false);
+      final examsData = jsonDecode(utf8.decode(examsRes.bodyBytes));
+      final subsData = jsonDecode(utf8.decode(subsRes.bodyBytes));
 
       setState(() {
-        _exams = List<Map<String, dynamic>>.from(examsRes);
-        _submissions = List<Map<String, dynamic>>.from(subsRes);
+        _exams = examsRes.statusCode == 200 && examsData is List
+            ? List<Map<String, dynamic>>.from(examsData)
+            : [];
+        _submissions = subsRes.statusCode == 200 && subsData is List
+            ? List<Map<String, dynamic>>.from(subsData)
+            : [];
       });
     } catch (e) {
       debugPrint('Error fetching exams data: $e');
@@ -7583,181 +7629,91 @@ class _ExamsScreenState extends State<ExamsScreen> {
     }
     setState(() => _generating = true);
     try {
-      final supabase = Supabase.instance.client;
-
-      // Fetch curriculum chunk context
-      String contextText = "";
-      final currRes = await supabase
-          .from('curriculums')
-          .select('id')
-          .eq('grade_level', _gradeLevel)
-          .eq('subject_name', _subjectName)
-          .maybeSingle();
-
-      if (currRes != null && currRes['id'] != null) {
-        final chunksRes = await supabase
-            .from('curriculum_chunks')
-            .select('content')
-            .eq('curriculum_id', currRes['id'])
-            .limit(6);
-        if (chunksRes != null) {
-          contextText = (chunksRes as List).map((c) => c['content']).join('\n\n');
-        }
-      }
-
-      String questionInstructions = "";
-      if (mode == 'custom_types') {
-        final total = (mcqCount ?? 0) + (tfCount ?? 0) + (essayCount ?? 0);
-        questionInstructions = "أنشئ امتحاناً مكوناً من $total أسئلة كالتالي:\n";
-        if ((mcqCount ?? 0) > 0) {
-          questionInstructions += "- عدد $mcqCount سؤال/أسئلة اختيار من متعدد (multiple_choice) ولديه 4 خيارات (options).\n";
-        }
-        if ((tfCount ?? 0) > 0) {
-          questionInstructions += "- عدد $tfCount سؤال/أسئلة صح وخطأ (true_false) والـ correct_answer يجب أن تكون إما \"true\" أو \"false\" نصياً.\n";
-        }
-        if ((essayCount ?? 0) > 0) {
-          questionInstructions += "- عدد $essayCount سؤال/أسئلة مقالية قصيرة (essay) تقيس الفهم، والـ correct_answer هو الخطوط العريضة للإجابة الصحيحة.\n";
-        }
-      } else if (mode == 'total_only') {
-        final total = totalCount ?? 5;
-        questionInstructions = "أنشئ امتحاناً مكوناً من بالضبط $total أسئلة. نوّع في الأسئلة بين الاختيار من متعدد (multiple_choice)، الصح والخطأ (true_false)، والأسئلة المقالية (essay) حسب ما تراه مناسباً للموضوع.\n";
-      } else {
-        questionInstructions = "أنشئ امتحاناً شاملاً ومميزاً في الموضوع. تنوع بشكل تلقائي وممتاز بين أسئلة الاختيار من متعدد (multiple_choice)، أسئلة صح وخطأ (true_false)، وأسئلة مقالية (essay) بما يغطي الموضوع (من 4 إلى 6 أسئلة إجمالاً).\n";
-      }
-
-      final systemPrompt = '''أنت معلم خبير ذكي ومبتكر للمناهج المصرية للمرحلتين الإعدادية والثانوية.
-مهمتك هي إنشاء امتحان قياسي ومميز لتلاميذ الصف الدراسي المحدد والمادة المحددة.
-
-تفاصيل الامتحان المطلوبة:
-- المادة: $_subjectName
-- الصف: $_gradeLevel
-- موضوع/نطاق الامتحان: ${topic ?? 'منهج المادة العام'}
-
-سياق المنهج الدراسي المتاح لمساعدتك:
-"""
-${contextText.isNotEmpty ? contextText : 'لا يتوفر سياق مباشر للمنهج، أنشئ أسئلة عامة نموذجية تناسب المنهج المصري لهذا الصف الدراسي.'}
-"""
-
-قواعد وهيكل الأسئلة:
-$questionInstructions
-
-يجب أن تقوم بإرجاع النص المخرّج بتنسيق JSON نظيف تماماً وخالٍ من أي تعليقات أو علامات كود ماركداون (لا تضع ```json ولا تضع أي نصوص قبل أو بعد الجيسون). يجب أن يطابق تماماً الهيكل التالي:
-{
-  "title": "${topic ?? 'امتحان تقييمي ذكي'}",
-  "subject_name": "$_subjectName",
-  "grade_level": "$_gradeLevel",
-  "questions": [
-    {
-      "id": "q1",
-      "type": "multiple_choice",
-      "question": "نص السؤال هنا؟",
-      "options": ["خيار 1", "خيار 2", "خيار 3", "خيار 4"],
-      "correct_answer": "خيار 1",
-      "explanation": "التوضيح التفصيلي هنا"
-    },
-    {
-      "id": "q2",
-      "type": "true_false",
-      "question": "نص السؤال هنا؟",
-      "correct_answer": "true",
-      "explanation": "شرح الإجابة"
-    },
-    {
-      "id": "q3",
-      "type": "essay",
-      "question": "نص السؤال المقالي؟",
-      "correct_answer": "النقاط الأساسية للإجابة النموذجية المعتمدة في الامتحان",
-      "explanation": "توضيح إضافي"
-    }
-  ]
-}''';
-
-      final response = await http.post(
-        Uri.parse('https://api.deepseek.com/v1/chat/completions'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $deepSeekApiKey',
-        },
+      final res = await http.post(
+        Uri.parse('$_apiBase/api/exams/generate'),
+        headers: _apiHeaders,
         body: jsonEncode({
-          'model': 'deepseek-chat',
-          'messages': [
-            {'role': 'system', 'content': systemPrompt},
-            {'role': 'user', 'content': 'Generate an exam.'}
-          ],
-          'temperature': 0.8,
+          'subject_name': _subjectName,
+          'grade_level': _gradeLevel,
+          'topic': topic,
+          'mode': mode ?? 'auto',
+          'total_count': totalCount,
+          'mcq_count': mcqCount,
+          'tf_count': tfCount,
+          'essay_count': essayCount,
         }),
       );
-
-      if (response.statusCode != 200) {
-        throw Exception('فشل الاتصال بخادم الذكاء الاصطناعي');
+      final data = jsonDecode(utf8.decode(res.bodyBytes));
+      if (res.statusCode != 200) {
+        throw Exception(data['error'] ?? 'فشل توليد الامتحان');
       }
 
-      final body = jsonDecode(utf8.decode(response.bodyBytes));
-
-      // Calculate and deduct coins based on DeepSeek API usage
-      final usage = body['usage'];
-      final promptTokens = usage != null ? (usage['prompt_tokens'] ?? 0) : 0;
-      final completionTokens = usage != null ? (usage['completion_tokens'] ?? 0) : 0;
-      final double egpCost = (promptTokens / 1000000.0) * 30.0 + (completionTokens / 1000000.0) * 50.0;
-      final double coinsCost = egpCost * 10.0;
-
-      final profileRes = await supabase.from('profiles').select('coins').eq('id', _userId!).maybeSingle();
-      double newCoins = 0.0;
-      if (profileRes != null) {
-        final currentCoins = double.tryParse(profileRes['coins']?.toString() ?? '0.0') ?? 0.0;
-        newCoins = (currentCoins - coinsCost).clamp(0.0, double.infinity);
-        await supabase.from('profiles').update({'coins': newCoins}).eq('id', _userId!);
-        setState(() {
-          _coins = newCoins;
-        });
-      }
-
-      String content = body['choices'][0]['message']['content'].toString().trim();
-      
-      final startIndex = content.indexOf('{');
-      final endIndex = content.lastIndexOf('}');
-      if (startIndex != -1 && endIndex != -1 && endIndex > startIndex) {
-        content = content.substring(startIndex, endIndex + 1);
-      } else if (content.startsWith('```')) {
-        content = content.replaceFirst(RegExp(r'^```json'), '').replaceFirst(RegExp(r'```$'), '').trim();
-      }
-
-      final examData = jsonDecode(content);
-      
-      // Save exam to database
-      final newExam = {
-        'title': examData['title'] ?? 'امتحان ذكي في $_subjectName',
-        'subject_name': _subjectName,
-        'grade_level': _gradeLevel,
-        'questions': examData['questions'],
-        'user_id': _userId,
-        'device_id': _deviceId,
-      };
-
-      final saved = await supabase.from('exams').insert(newExam).select().single();
-      
+      await _refreshCoins();
       await _fetchData();
-      _startExam(saved);
+      _startExam(Map<String, dynamic>.from(data));
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل توليد الامتحان: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل توليد الامتحان: ${e.toString().replaceFirst('Exception: ', '')}')));
       }
     } finally {
       setState(() => _generating = false);
     }
   }
 
-  void _startExam(Map<String, dynamic> exam) {
+  Future<void> _refreshCoins() async {
+    try {
+      final res = await http.get(Uri.parse('$_apiBase/api/config'), headers: _apiHeaders);
+      if (res.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        final user = data['user'];
+        if (user != null) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('auth_user', jsonEncode(user));
+          setState(() => _coins = double.tryParse(user['coins']?.toString() ?? '0.0') ?? 0.0);
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _startExam(Map<String, dynamic> exam) async {
+    // Chat-emitted exams ([CREATE_EXAM]) have no id yet; persist first
+    if (exam['id'] == null) {
+      try {
+        final res = await http.post(
+          Uri.parse('$_apiBase/api/exams'),
+          headers: _apiHeaders,
+          body: jsonEncode({
+            'title': exam['title'],
+            'subject_name': exam['subject_name'] ?? _subjectName,
+            'grade_level': exam['grade_level'] ?? _gradeLevel,
+            'questions': exam['questions'],
+          }),
+        );
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        if (res.statusCode != 200) {
+          throw Exception(data['error'] ?? 'فشل حفظ الامتحان');
+        }
+        exam = Map<String, dynamic>.from(data);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل حفظ الامتحان: ${e.toString().replaceFirst('Exception: ', '')}')));
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => TakeExamScreen(
           exam: exam,
-          userId: _userId,
-          deviceId: _deviceId,
+          websiteLink: widget.websiteLink,
         ),
       ),
-    ).then((_) => _fetchData());
+    ).then((_) {
+      _refreshCoins();
+      _fetchData();
+    });
   }
 
   @override
@@ -7774,7 +7730,7 @@ $questionInstructions
         ),
         body: _loading
             ? const Center(child: CircularProgressIndicator(color: primaryOlive))
-            : _userId == null
+            : _authToken == null
                 ? Center(
                     child: Container(
                       margin: const EdgeInsets.all(24),
@@ -8122,14 +8078,12 @@ $questionInstructions
 }
 class TakeExamScreen extends StatefulWidget {
   final Map<String, dynamic> exam;
-  final String? userId;
-  final String? deviceId;
+  final String websiteLink;
 
   const TakeExamScreen({
     super.key,
     required this.exam,
-    this.userId,
-    this.deviceId,
+    required this.websiteLink,
   });
 
   @override
@@ -8139,10 +8093,70 @@ class TakeExamScreen extends StatefulWidget {
 class _TakeExamScreenState extends State<TakeExamScreen> {
   final Map<String, String> _answers = {};
   bool _grading = false;
+  Timer? _timer;
+  int _timeRemaining = 0;
 
-  void _submit() async {
+  @override
+  void initState() {
+    super.initState();
+    _initTimer();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _initTimer() async {
     final questions = widget.exam['questions'] as List<dynamic>? ?? [];
-    if (_answers.length < questions.length) {
+    final durationSeconds = questions.length * 120;
+    final prefs = await SharedPreferences.getInstance();
+    final examId = widget.exam['id']?.toString() ?? '';
+    
+    final savedExamId = prefs.getString('egs_active_exam_id');
+    final savedTimeStr = prefs.getString('egs_active_exam_time');
+    
+    if (savedExamId == examId && savedTimeStr != null) {
+      _timeRemaining = int.tryParse(savedTimeStr) ?? durationSeconds;
+    } else {
+      _timeRemaining = durationSeconds;
+      await prefs.setString('egs_active_exam_id', examId);
+      await prefs.setString('egs_active_exam_time', _timeRemaining.toString());
+    }
+    
+    if (mounted) setState(() {});
+    
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      if (_timeRemaining > 0) {
+        if (mounted) {
+          setState(() {
+            _timeRemaining--;
+          });
+        } else {
+          _timeRemaining--;
+        }
+        await prefs.setString('egs_active_exam_time', _timeRemaining.toString());
+        if (_timeRemaining <= 0) {
+          _timer?.cancel();
+          _autoSubmit();
+        }
+      }
+    });
+  }
+
+  void _autoSubmit() {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('انتهى الوقت المحدد للامتحان! يتم تسليم الإجابات الحالية تلقائياً.')),
+      );
+      _submit(isAutoSubmit: true);
+    }
+  }
+
+  void _submit({bool isAutoSubmit = false}) async {
+    final questions = widget.exam['questions'] as List<dynamic>? ?? [];
+    if (!isAutoSubmit && _answers.length < questions.length) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('يرجى الإجابة على جميع الأسئلة أولاً!')),
       );
@@ -8151,105 +8165,40 @@ class _TakeExamScreenState extends State<TakeExamScreen> {
 
     setState(() => _grading = true);
     try {
-      final supabase = Supabase.instance.client;
-      if (widget.userId == null) {
+      final prefs = await SharedPreferences.getInstance();
+      final authToken = prefs.getString('auth_token');
+      final deviceId = prefs.getString('device_id');
+      if (authToken == null) {
         throw Exception('يجب تسجيل الدخول لتصحيح الامتحان');
       }
 
-      final profileRes = await supabase.from('profiles').select('coins').eq('id', widget.userId!).maybeSingle();
-      if (profileRes != null) {
-        final currentCoins = double.tryParse(profileRes['coins']?.toString() ?? '0.0') ?? 0.0;
-        if (currentCoins <= 0) {
-          throw Exception('ليس لديك رصيد كافٍ من النقاط لتصحيح الامتحان. يرجى الترقية أو الشحن.');
-        }
-      }
-      final systemPrompt = '''أنت معلم خبير ومصحح امتحانات للمناهج المصرية.
-مهمتك هي تقييم إجابات الطالب على هذا الامتحان وإعطائه درجة نهائية من 100 وتقييم تفصيلي باللغة العربية.
-
-تفاصيل الامتحان:
-- العنوان: ${widget.exam['title']}
-- المادة: ${widget.exam['subject_name']}
-- الصف: ${widget.exam['grade_level']}
-
-أسئلة الامتحان والإجابات الصحيحة النموذجية:
-${jsonEncode(questions)}
-
-إجابات الطالب المرفوعة:
-${jsonEncode(_answers)}
-
-قواعد التصحيح والتقييم:
-1. الأسئلة الاختيارية وصح/خطأ: قيّمها بدقة وقارنها بالإجابات النموذجية.
-2. الأسئلة المقالية: قيّم إجابة الطالب بمرونة بناءً على فهمه للمفهوم العلمي أو التاريخي أو اللغوي، ولا تشترط مطابقة الكلمات تماماً بل الفهم الصحيح.
-3. احسب النتيجة الإجمالية كنسبة مئوية صحيحة (بين 0 و 100).
-4. اكتب تقييماً تفصيلياً (evaluation) باللغة العربية بأسلوب المعلم المشجع والذكي "EGS AI"، يوضح النقاط الصحيحة والأخطاء وتصحيحها وكيفية التحسن.
-
-أرجع المخرج بتنسيق JSON نظيف تماماً وخالٍ من أي ماركداون كودبلوك أو نصوص إضافية، مطابقاً للهيكل التالي:
-{
-  "score": 85,
-  "evaluation": "تفاصيل التقييم والتصحيح بالكامل هنا بأسلوب تربوي رائع..."
-}''';
-
-      final response = await http.post(
-        Uri.parse('https://api.deepseek.com/v1/chat/completions'),
+      final cleanLink = widget.websiteLink.trim().replaceAll(RegExp(r'/$'), '');
+      final res = await http.post(
+        Uri.parse('$cleanLink/api/exams/submit'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $deepSeekApiKey',
+          'Authorization': 'Bearer $authToken',
+          if (deviceId != null) 'x-device-id': deviceId,
         },
         body: jsonEncode({
-          'model': 'deepseek-chat',
-          'messages': [
-            {'role': 'system', 'content': systemPrompt},
-            {'role': 'user', 'content': 'Grade these answers.'}
-          ],
-          'temperature': 0.3,
+          'exam_id': widget.exam['id'],
+          'answers': _answers,
         }),
       );
 
-      if (response.statusCode != 200) {
-        throw Exception('فشل تصحيح الامتحان الذكي');
+      final data = jsonDecode(utf8.decode(res.bodyBytes));
+      if (res.statusCode != 200) {
+        throw Exception(data['error'] ?? 'فشل تصحيح الامتحان الذكي');
       }
 
-      final body = jsonDecode(utf8.decode(response.bodyBytes));
+      await prefs.remove('egs_active_exam_id');
+      await prefs.remove('egs_active_exam_time');
 
-      // Calculate and deduct coins based on DeepSeek API usage
-      final usage = body['usage'];
-      final promptTokens = usage != null ? (usage['prompt_tokens'] ?? 0) : 0;
-      final completionTokens = usage != null ? (usage['completion_tokens'] ?? 0) : 0;
-      final double egpCost = (promptTokens / 1000000.0) * 30.0 + (completionTokens / 1000000.0) * 50.0;
-      final double coinsCost = egpCost * 10.0;
-
-      final profileRes2 = await supabase.from('profiles').select('coins').eq('id', widget.userId!).maybeSingle();
-      if (profileRes2 != null) {
-        final currentCoins = double.tryParse(profileRes2['coins']?.toString() ?? '0.0') ?? 0.0;
-        final double newCoins = (currentCoins - coinsCost).clamp(0.0, double.infinity);
-        await supabase.from('profiles').update({'coins': newCoins}).eq('id', widget.userId!);
-      }
-
-      String content = body['choices'][0]['message']['content'].toString().trim();
-      
-      final startIndex = content.indexOf('{');
-      final endIndex = content.lastIndexOf('}');
-      if (startIndex != -1 && endIndex != -1 && endIndex > startIndex) {
-        content = content.substring(startIndex, endIndex + 1);
-      } else if (content.startsWith('```')) {
-        content = content.replaceFirst(RegExp(r'^```json'), '').replaceFirst(RegExp(r'```$'), '').trim();
-      }
-
-      final gradingResult = jsonDecode(content);
-      final score = double.tryParse(gradingResult['score']?.toString() ?? '0') ?? 0.0;
-      final evaluation = gradingResult['evaluation']?.toString() ?? '';
-
-      // Save submission to DB
-      final submission = {
-        'exam_id': widget.exam['id'],
-        'user_id': widget.userId,
-        'device_id': widget.deviceId,
-        'answers': _answers,
-        'score': score,
-        'evaluation': evaluation,
-      };
-
-      await Supabase.instance.client.from('exam_submissions').insert(submission);
+      final score = double.tryParse(data['score']?.toString() ?? '0') ?? 0.0;
+      final evaluation = data['evaluation']?.toString() ?? '';
+      final questionsReview = data['questions_review'] is List
+          ? List<Map<String, dynamic>>.from(data['questions_review'])
+          : <Map<String, dynamic>>[];
 
       if (mounted) {
         Navigator.pushReplacement(
@@ -8259,16 +8208,19 @@ ${jsonEncode(_answers)}
               examTitle: widget.exam['title'] ?? 'امتحان تقييمي ذكي',
               score: score.toInt(),
               evaluation: evaluation,
+              questionsReview: questionsReview,
             ),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('حدث خطأ أثناء التصحيح: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('حدث خطأ أثناء التصحيح: ${e.toString().replaceFirst('Exception: ', '')}')));
       }
     } finally {
-      setState(() => _grading = false);
+      if (mounted) {
+        setState(() => _grading = false);
+      }
     }
   }
 
@@ -8281,10 +8233,70 @@ ${jsonEncode(_answers)}
       child: Scaffold(
         backgroundColor: bgSurface,
         appBar: AppBar(
-          title: Text(widget.exam['title'] ?? 'تقديم الامتحان', style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 16)),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: () async {
+              final confirmExit = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  backgroundColor: bgCard,
+                  title: const Text('مغادرة الامتحان؟', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                  content: const Text('هل أنت متأكد من مغادرة الامتحان؟ لن يتم حفظ إجاباتك الحالية.', style: TextStyle(fontFamily: 'Cairo')),
+                  actions: [
+                    TextButton(
+                      child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo', color: primaryOlive)),
+                      onPressed: () => Navigator.pop(context, false),
+                    ),
+                    TextButton(
+                      child: const Text('مغادرة', style: TextStyle(fontFamily: 'Cairo', color: Colors.red)),
+                      onPressed: () => Navigator.pop(context, true),
+                    ),
+                  ],
+                ),
+              );
+              if (confirmExit == true) {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.remove('egs_active_exam_id');
+                await prefs.remove('egs_active_exam_time');
+                if (mounted) Navigator.pop(context);
+              }
+            },
+          ),
+          title: Text(widget.exam['title'] ?? 'تقديم الامتحان', style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 15)),
           backgroundColor: bgCard,
           elevation: 0,
           foregroundColor: primaryOlive,
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(left: 16.0),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _timeRemaining <= 60 ? Colors.red.withOpacity(0.1) : Colors.black.withOpacity(0.04),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _timeRemaining <= 60 ? Colors.red : borderSubtle),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.timer_outlined, size: 16, color: _timeRemaining <= 60 ? Colors.red : textPrimary),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${(_timeRemaining ~/ 60).toString().padLeft(2, '0')}:${(_timeRemaining % 60).toString().padLeft(2, '0')}',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12.5,
+                          color: _timeRemaining <= 60 ? Colors.red : textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
         body: _grading
             ? Center(
@@ -8476,12 +8488,14 @@ class GradedResultScreen extends StatelessWidget {
   final String examTitle;
   final int score;
   final String evaluation;
+  final List<Map<String, dynamic>> questionsReview;
 
   const GradedResultScreen({
     super.key,
     required this.examTitle,
     required this.score,
     required this.evaluation,
+    this.questionsReview = const [],
   });
 
   @override
@@ -8562,6 +8576,60 @@ class GradedResultScreen extends StatelessWidget {
               ),
               const SizedBox(height: 28),
 
+              // Per-question corrections (revealed only after grading)
+              if (questionsReview.isNotEmpty) ...[
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    'مراجعة الأسئلة والإجابات النموذجية:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5, color: primaryOlive, fontFamily: 'Cairo'),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ...questionsReview.asMap().entries.map((entry) {
+                  final q = entry.value;
+                  final studentAnswer = q['student_answer']?.toString();
+                  return Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: bgCard,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: borderSubtle),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'س ${entry.key + 1}: ${q['question'] ?? ''}',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: textPrimary, fontFamily: 'Cairo'),
+                        ),
+                        const SizedBox(height: 8),
+                        if (studentAnswer != null && studentAnswer.isNotEmpty)
+                          Text(
+                            'إجابتك: $studentAnswer',
+                            style: TextStyle(fontSize: 12, color: textSecondary, fontFamily: 'Cairo'),
+                          ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'الإجابة النموذجية: ${q['correct_answer'] ?? ''}',
+                          style: const TextStyle(fontSize: 12, color: primaryOlive, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                        ),
+                        if ((q['explanation'] ?? '').toString().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'الشرح: ${q['explanation']}',
+                            style: TextStyle(fontSize: 11.5, color: textSecondary, height: 1.5, fontFamily: 'Cairo'),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                }),
+                const SizedBox(height: 18),
+              ],
+
               // Close button
               SizedBox(
                 width: double.infinity,
@@ -8584,4 +8652,1466 @@ class GradedResultScreen extends StatelessWidget {
     );
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FLASHCARDS SCREEN (LEITNER SYSTEM)
+// ═══════════════════════════════════════════════════════════════════════════════
+class FlashcardsScreen extends StatefulWidget {
+  final String websiteLink;
+
+  const FlashcardsScreen({super.key, required this.websiteLink});
+
+  @override
+  State<FlashcardsScreen> createState() => _FlashcardsScreenState();
+}
+
+class _FlashcardsScreenState extends State<FlashcardsScreen> {
+  List<dynamic> _decks = [];
+  bool _loading = true;
+  bool _generating = false;
+  String? _authToken;
+  String? _deviceId;
+  String _gradeLevel = '3_high';
+
+  // Subject Stack Review State
+  String? _selectedSubjectName;
+  List<dynamic> _subjectDecks = [];
+  List<dynamic> _subjectCards = [];
+  int _activeStackIndex = 0;
+  bool _isCardFlipped = false;
+  bool _isDealingAway = false;
+  String _viewMode = 'grid'; // 'grid' | 'stack'
+  final Set<String> _revealedCardIds = {};
+  String? _selectedDeckFilter;
+
+  void _advancePlayingCard([int? targetIndex]) {
+    if (_isDealingAway) return;
+    setState(() => _isDealingAway = true);
+    Future.delayed(const Duration(milliseconds: 380), () {
+      if (mounted) {
+        setState(() {
+          _isCardFlipped = false;
+          if (targetIndex != null) {
+            _activeStackIndex = targetIndex;
+          } else {
+            _activeStackIndex++;
+          }
+          _isDealingAway = false;
+        });
+      }
+    });
+  }
+
+  String get _apiBase => resolveWebsiteLink(widget.websiteLink);
+
+  Map<String, String> get _apiHeaders => {
+        'Content-Type': 'application/json',
+        if (_authToken != null) 'Authorization': 'Bearer $_authToken',
+        if (_deviceId != null) 'x-device-id': _deviceId!,
+      };
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettingsAndData();
+  }
+
+  Future<void> _loadSettingsAndData() async {
+    final prefs = await SharedPreferences.getInstance();
+    _authToken = prefs.getString('auth_token');
+    _deviceId = prefs.getString('device_id');
+    _gradeLevel = prefs.getString('selected_grade') ?? '3_high';
+    
+    if (_authToken != null) {
+      _fetchDecks();
+    } else {
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _fetchDecks() async {
+    setState(() => _loading = true);
+    try {
+      final res = await http.get(
+        Uri.parse('$_apiBase/api/flashcards'),
+        headers: _apiHeaders,
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        if (data['success'] == true) {
+          setState(() {
+            _decks = data['decks'] ?? [];
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Fetch Decks error: $e');
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _fetchSubjectCards(String subjectName) async {
+    setState(() => _loading = true);
+    try {
+      final res = await http.get(
+        Uri.parse('$_apiBase/api/flashcards/subject?subject_name=${Uri.encodeComponent(subjectName)}'),
+        headers: _apiHeaders,
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        if (data['success'] == true) {
+          setState(() {
+            _selectedSubjectName = subjectName;
+            _subjectDecks = data['decks'] ?? [];
+            _subjectCards = data['cards'] ?? [];
+            _activeStackIndex = 0;
+            _isCardFlipped = false;
+            _isDealingAway = false;
+            _viewMode = 'grid';
+            _revealedCardIds.clear();
+            _selectedDeckFilter = null;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Fetch Subject Cards error: $e');
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _submitSubjectCardReview(String cardId, int rating) async {
+    try {
+      http.post(
+        Uri.parse('$_apiBase/api/flashcards/review'),
+        headers: _apiHeaders,
+        body: jsonEncode({
+          'card_id': cardId,
+          'rating': rating,
+        }),
+      );
+      _advancePlayingCard();
+    } catch (e) {
+      debugPrint('Review subject card error: $e');
+    }
+  }
+
+  Future<void> _editCardDialog(Map card) async {
+    final qCtrl = TextEditingController(text: card['question'] ?? '');
+    final aCtrl = TextEditingController(text: card['answer'] ?? '');
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: bgCard,
+        title: const Text('تعديل الكارت', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: qCtrl,
+              maxLines: 2,
+              style: TextStyle(color: textPrimary, fontFamily: 'Cairo', fontSize: 13),
+              decoration: const InputDecoration(labelText: 'السؤال', labelStyle: TextStyle(fontFamily: 'Cairo')),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: aCtrl,
+              maxLines: 2,
+              style: TextStyle(color: textPrimary, fontFamily: 'Cairo', fontSize: 13),
+              decoration: const InputDecoration(labelText: 'الإجابة', labelStyle: TextStyle(fontFamily: 'Cairo')),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo'))),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final res = await http.patch(
+                Uri.parse('$_apiBase/api/flashcards/card'),
+                headers: _apiHeaders,
+                body: jsonEncode({'id': card['id'], 'question': qCtrl.text, 'answer': aCtrl.text}),
+              );
+              if (res.statusCode == 200) {
+                if (_selectedSubjectName != null) _fetchSubjectCards(_selectedSubjectName!);
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: primaryOlive),
+            child: const Text('حفظ', style: TextStyle(fontFamily: 'Cairo', color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteCard(String cardId) async {
+    try {
+      final res = await http.delete(
+        Uri.parse('$_apiBase/api/flashcards/card?id=$cardId'),
+        headers: _apiHeaders,
+      );
+      if (res.statusCode == 200) {
+        if (_selectedSubjectName != null) _fetchSubjectCards(_selectedSubjectName!);
+      }
+    } catch (e) {
+      debugPrint('Delete card error: $e');
+    }
+  }
+
+  Future<void> _generateDeck(String subject, String topic) async {
+    setState(() => _generating = true);
+    try {
+      final res = await http.post(
+        Uri.parse('$_apiBase/api/flashcards/generate'),
+        headers: _apiHeaders,
+        body: jsonEncode({
+          'subject_name': subject,
+          'grade_level': _gradeLevel,
+          'topic': topic,
+          'count': 5,
+        }),
+      );
+      final data = jsonDecode(utf8.decode(res.bodyBytes));
+      if (res.statusCode == 200 && data['success'] == true) {
+        _fetchDecks();
+        if (_selectedSubjectName == subject) _fetchSubjectCards(subject);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(data['error'] ?? 'فشل توليد الكروت التعليمية', style: const TextStyle(fontFamily: 'Cairo'))),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Generate deck error: $e');
+    } finally {
+      setState(() => _generating = false);
+    }
+  }
+
+  void _showGenerateDialog() {
+    String mode = 'ai';
+    final topicCtrl = TextEditingController();
+    final titleCtrl = TextEditingController();
+    String selectedSubj = 'الفيزياء';
+    List<Map<String, String>> manualCards = [{'question': '', 'answer': ''}];
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDlgState) => AlertDialog(
+          backgroundColor: bgCard,
+          title: const Text('إنشاء كروت مراجعة جديدة', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 16)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Center(child: Text('بالذكاء الاصطناعي', style: TextStyle(fontFamily: 'Cairo', fontSize: 11, fontWeight: FontWeight.bold))),
+                        selected: mode == 'ai',
+                        onSelected: (val) => setDlgState(() => mode = 'ai'),
+                        selectedColor: primaryOlive,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Center(child: Text('كتابة يدوي', style: TextStyle(fontFamily: 'Cairo', fontSize: 11, fontWeight: FontWeight.bold))),
+                        selected: mode == 'manual',
+                        onSelected: (val) => setDlgState(() => mode = 'manual'),
+                        selectedColor: primaryOlive,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                if (mode == 'ai') ...[
+                  TextField(
+                    controller: topicCtrl,
+                    style: TextStyle(color: textPrimary, fontFamily: 'Cairo', fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'الموضوع (مثال: قوانين نيوتن، الباب الأول)...',
+                      hintStyle: TextStyle(color: textMuted, fontFamily: 'Cairo', fontSize: 12),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ] else ...[
+                  TextField(
+                    controller: titleCtrl,
+                    style: TextStyle(color: textPrimary, fontFamily: 'Cairo', fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'عنوان مجموعة الكروت...',
+                      hintStyle: TextStyle(color: textMuted, fontFamily: 'Cairo', fontSize: 12),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ...manualCards.asMap().entries.map((entry) {
+                    final idx = entry.key;
+                    final card = entry.value;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: bgElevated, borderRadius: BorderRadius.circular(8)),
+                      child: Column(
+                        children: [
+                          TextField(
+                            onChanged: (val) => card['question'] = val,
+                            style: TextStyle(color: textPrimary, fontFamily: 'Cairo', fontSize: 12),
+                            decoration: InputDecoration(hintText: 'السؤال ${idx + 1}...', isDense: true),
+                          ),
+                          const SizedBox(height: 6),
+                          TextField(
+                            onChanged: (val) => card['answer'] = val,
+                            style: TextStyle(color: textPrimary, fontFamily: 'Cairo', fontSize: 12),
+                            decoration: InputDecoration(hintText: 'الإجابة ${idx + 1}...', isDense: true),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  TextButton.icon(
+                    onPressed: () => setDlgState(() => manualCards.add({'question': '', 'answer': ''})),
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text('إضافة كارت آخر', style: TextStyle(fontFamily: 'Cairo', fontSize: 12)),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              child: Text('إلغاء', style: TextStyle(fontFamily: 'Cairo', color: textSecondary)),
+              onPressed: () => Navigator.pop(context),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: primaryOlive),
+              child: const Text('إنشاء', style: TextStyle(fontFamily: 'Cairo', color: Colors.white, fontWeight: FontWeight.bold)),
+              onPressed: () async {
+                Navigator.pop(context);
+                if (mode == 'ai') {
+                  final topic = topicCtrl.text.trim();
+                  if (topic.isNotEmpty) _generateDeck(selectedSubj, topic);
+                } else {
+                  final title = titleCtrl.text.trim();
+                  final valid = manualCards.where((c) => c['question']!.trim().isNotEmpty && c['answer']!.trim().isNotEmpty).toList();
+                  if (title.isNotEmpty && valid.isNotEmpty) {
+                    await http.post(
+                      Uri.parse('$_apiBase/api/flashcards'),
+                      headers: _apiHeaders,
+                      body: jsonEncode({
+                        'subject_name': selectedSubj,
+                        'grade_level': _gradeLevel,
+                        'title': title,
+                        'cards': valid,
+                      }),
+                    );
+                    _fetchDecks();
+                    if (_selectedSubjectName == selectedSubj) _fetchSubjectCards(selectedSubj);
+                  }
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        backgroundColor: bgSurface,
+        appBar: AppBar(
+          title: const Text('المدرب الذكي (Flashcards)', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 16)),
+          backgroundColor: bgCard,
+          elevation: 0,
+          foregroundColor: primaryOlive,
+          actions: [
+            if (_selectedSubjectName == null)
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline_rounded),
+                onPressed: _generating ? null : _showGenerateDialog,
+              ),
+          ],
+        ),
+        body: _loading || _generating
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const CircularProgressIndicator(color: primaryOlive),
+                    const SizedBox(height: 16),
+                    Text(
+                      _generating ? 'جاري إنشاء كروت المراجعة الذكية...' : 'جاري التحميل...',
+                      style: TextStyle(fontFamily: 'Cairo', color: textSecondary, fontSize: 13),
+                    ),
+                  ],
+                ),
+              )
+            : _authToken == null
+                ? const Center(child: Text('يجب تسجيل الدخول لاستخدام الكروت التعليمية', style: TextStyle(fontFamily: 'Cairo')))
+                : _selectedSubjectName != null
+                    ? _buildSubjectStackReviewView()
+                    : _buildSubjectGridView(),
+      ),
+    );
+  }
+
+  Widget _buildSubjectGridView() {
+    if (_decks.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.psychology_rounded, size: 64, color: textMuted),
+              const SizedBox(height: 16),
+              const Text(
+                'لا توجد مجموعات كروت تعليمية بعد',
+                style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'اضغط على زر الإضافة لتوليد أو كتابة كروت مراجعة ذكية مخصصة!',
+                style: TextStyle(fontFamily: 'Cairo', color: textSecondary, fontSize: 12.5),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: _showGenerateDialog,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryOlive,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Text('إنشاء كروت جديدة', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final Map<String, Map<String, dynamic>> subjectGroups = {};
+    for (var deck in _decks) {
+      final sName = deck['subject_name']?.toString() ?? 'عام';
+      if (!subjectGroups.containsKey(sName)) {
+        subjectGroups[sName] = {
+          'subject_name': sName,
+          'decks': [],
+          'total_count': 0,
+          'due_count': 0,
+        };
+      }
+      subjectGroups[sName]!['decks'].add(deck);
+      subjectGroups[sName]!['total_count'] += (deck['total_count'] as num? ?? 0).toInt();
+      subjectGroups[sName]!['due_count'] += (deck['due_count'] as num? ?? 0).toInt();
+    }
+
+    final groupList = subjectGroups.values.toList();
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: groupList.length,
+      itemBuilder: (context, idx) {
+        final group = groupList[idx];
+        final sName = group['subject_name'];
+        final totalCount = group['total_count'];
+        final dueCount = group['due_count'];
+        final decksCount = (group['decks'] as List).length;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 14),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: bgCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borderSubtle),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    sName,
+                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: primaryOlive, fontFamily: 'Cairo'),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: primaryOlive.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '$totalCount كارت',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: primaryOlive, fontFamily: 'Cairo'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'محتوى $decksCount مجموعة كروت مجمعة',
+                style: TextStyle(fontSize: 12, color: textSecondary, fontFamily: 'Cairo'),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'المستحق للمراجعة: $dueCount',
+                    style: TextStyle(fontSize: 12, color: textSecondary, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => _fetchSubjectCards(sName),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryOlive,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('مراجعة الكروت المتراكمة', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 12)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSubjectStackReviewView() {
+    if (_subjectCards.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.psychology_outlined, size: 48, color: textMuted),
+              const SizedBox(height: 12),
+              const Text('لا توجد كروت تعليمية في هذه المادة بعد.', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () => setState(() => _selectedSubjectName = null),
+                icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                label: const Text('العودة للمواد', style: TextStyle(fontFamily: 'Cairo', color: Colors.white, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(backgroundColor: primaryOlive),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final displayCards = _selectedDeckFilter == null
+        ? _subjectCards
+        : _subjectCards.where((c) => c['deck_id'] == _selectedDeckFilter || c['deck_title'] == _selectedDeckFilter).toList();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Top Header Bar inside Subject
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: bgCard,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: borderSubtle),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back_rounded, color: primaryOlive),
+                          onPressed: () => setState(() => _selectedSubjectName = null),
+                          tooltip: 'العودة للمواد',
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _selectedSubjectName ?? '',
+                              style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.w900, fontSize: 16, color: primaryOlive),
+                            ),
+                            Text(
+                              'إجمالي ${_subjectCards.length} كارت',
+                              style: TextStyle(fontFamily: 'Cairo', fontSize: 11, color: textSecondary),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline_rounded, color: primaryOlive),
+                      onPressed: _showGenerateDialog,
+                      tooltip: 'إضافة كارت جديد',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ChoiceChip(
+                        avatar: Icon(Icons.grid_view_rounded, size: 16, color: _viewMode == 'grid' ? Colors.white : textSecondary),
+                        label: const Center(child: Text('جميع الكروت', style: TextStyle(fontFamily: 'Cairo', fontSize: 12, fontWeight: FontWeight.bold))),
+                        selected: _viewMode == 'grid',
+                        onSelected: (val) => setState(() => _viewMode = 'grid'),
+                        selectedColor: primaryOlive,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ChoiceChip(
+                        avatar: Icon(Icons.style_rounded, size: 16, color: _viewMode == 'stack' ? Colors.white : textSecondary),
+                        label: const Center(child: Text('مراجعة متتابعة', style: TextStyle(fontFamily: 'Cairo', fontSize: 12, fontWeight: FontWeight.bold))),
+                        selected: _viewMode == 'stack',
+                        onSelected: (val) => setState(() => _viewMode = 'stack'),
+                        selectedColor: primaryOlive,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Deck Filters Row
+          if (_subjectDecks.isNotEmpty) ...[
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: FilterChip(
+                      label: Text('الكل (${_subjectCards.length})', style: const TextStyle(fontFamily: 'Cairo', fontSize: 11, fontWeight: FontWeight.bold)),
+                      selected: _selectedDeckFilter == null,
+                      onSelected: (_) => setState(() => _selectedDeckFilter = null),
+                      selectedColor: primaryOlive.withOpacity(0.25),
+                    ),
+                  ),
+                  ..._subjectDecks.map((d) {
+                    final dId = d['id'];
+                    final isSel = _selectedDeckFilter == dId;
+                    return Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: FilterChip(
+                        label: Text(d['title'] ?? '', style: const TextStyle(fontFamily: 'Cairo', fontSize: 11, fontWeight: FontWeight.bold)),
+                        selected: isSel,
+                        onSelected: (_) => setState(() => _selectedDeckFilter = isSel ? null : dId),
+                        selectedColor: primaryOlive.withOpacity(0.25),
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          if (displayCards.isEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(32),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: bgCard, borderRadius: BorderRadius.circular(16)),
+              child: Text('لا توجد كروت تعليمية تعرض حسب هذا الفلتر.', style: TextStyle(fontFamily: 'Cairo', color: textMuted)),
+            ),
+          ] else if (_viewMode == 'grid') ...[
+            // ALL CARDS LIST VIEW
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'عرض جميع الكروت (${displayCards.length} كارت):',
+                  style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 12.5, color: textSecondary),
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      final allRev = displayCards.every((c) => _revealedCardIds.contains(c['id']));
+                      if (allRev) {
+                        _revealedCardIds.clear();
+                      } else {
+                        for (var c in displayCards) {
+                          _revealedCardIds.add(c['id'].toString());
+                        }
+                      }
+                    });
+                  },
+                  icon: Icon(displayCards.every((c) => _revealedCardIds.contains(c['id'])) ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 16, color: primaryOlive),
+                  label: Text(
+                    displayCards.every((c) => _revealedCardIds.contains(c['id'])) ? 'إخفاء الكل' : 'عرض الكل',
+                    style: TextStyle(fontFamily: 'Cairo', fontSize: 11, fontWeight: FontWeight.bold, color: primaryOlive),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...displayCards.map((card) {
+              final cId = card['id'].toString();
+              final isRevealed = _revealedCardIds.contains(cId);
+              final boxVal = (card['box'] as num? ?? 1).toInt();
+              final boxLabel = boxVal == 1 ? 'مبتدئ' : boxVal == 2 ? 'متوسط' : 'متقدم';
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: bgCard,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: isRevealed ? primaryOlive.withOpacity(0.4) : borderSubtle),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: bgElevated,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            card['deck_title'] ?? 'كارت مراجعة',
+                            style: TextStyle(fontFamily: 'Cairo', fontSize: 10.5, color: textSecondary, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: boxVal == 1 ? Colors.orange.withOpacity(0.15) : primaryOlive.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                'صندوق $boxVal ($boxLabel)',
+                                style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: boxVal == 1 ? Colors.orange : primaryOlive,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.edit_outlined, size: 16, color: textMuted),
+                              onPressed: () => _editCardDialog(card),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline_rounded, size: 16, color: Colors.redAccent),
+                              onPressed: () => _deleteCard(card['id']),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text('السؤال:', style: TextStyle(fontFamily: 'Cairo', fontSize: 11, fontWeight: FontWeight.bold, color: primaryOlive)),
+                    const SizedBox(height: 2),
+                    Text(
+                      card['question'] ?? '',
+                      style: TextStyle(fontFamily: 'Cairo', fontSize: 13.5, fontWeight: FontWeight.bold, color: textPrimary),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            if (isRevealed) {
+                              _revealedCardIds.remove(cId);
+                            } else {
+                              _revealedCardIds.add(cId);
+                            }
+                          });
+                        },
+                        icon: Icon(isRevealed ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 16, color: primaryOlive),
+                        label: Text(
+                          isRevealed ? 'إخفاء الإجابة' : 'عرض الإجابة',
+                          style: TextStyle(fontFamily: 'Cairo', fontSize: 12, fontWeight: FontWeight.bold, color: primaryOlive),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: primaryOlive.withOpacity(0.3)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ),
+                    if (isRevealed) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: primaryOlive.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: primaryOlive.withOpacity(0.25)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('الإجابة النموذجية:', style: TextStyle(fontFamily: 'Cairo', fontSize: 11, fontWeight: FontWeight.bold, color: Colors.greenAccent)),
+                            const SizedBox(height: 4),
+                            Text(
+                              card['answer'] ?? '',
+                              style: TextStyle(fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold, color: textPrimary),
+                            ),
+                            const SizedBox(height: 10),
+                            Divider(color: borderSubtle, height: 1),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('تقييم الاستدعاء:', style: TextStyle(fontFamily: 'Cairo', fontSize: 10.5, color: textMuted)),
+                                Row(
+                                  children: [1, 2, 3, 4, 5].map((val) {
+                                    return Padding(
+                                      padding: const EdgeInsets.only(left: 4),
+                                      child: InkWell(
+                                        onTap: () => _submitSubjectCardReview(cId, val),
+                                        borderRadius: BorderRadius.circular(6),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: bgElevated,
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(color: borderSubtle),
+                                          ),
+                                          child: Text(
+                                            val.toString(),
+                                            style: const TextStyle(fontFamily: 'Cairo', fontSize: 11, fontWeight: FontWeight.bold, color: primaryOlive),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            }),
+          ] else ...[
+            // FOCUS STACK REVIEW MODE
+            if (_activeStackIndex >= displayCards.length) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(color: bgCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: borderSubtle)),
+                child: Column(
+                  children: [
+                    const Icon(Icons.emoji_events_rounded, size: 56, color: primaryOlive),
+                    const SizedBox(height: 12),
+                    Text(
+                      'أحسنت! أتممت مراجعة كل كروت $_selectedSubjectName',
+                      style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 15, color: textPrimary),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: () => setState(() {
+                        _activeStackIndex = 0;
+                        _isCardFlipped = false;
+                        _isDealingAway = false;
+                      }),
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('خلط وإعادة المراجعة', style: TextStyle(fontFamily: 'Cairo', color: Colors.white, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(backgroundColor: primaryOlive),
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              // Controls row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right_rounded, color: primaryOlive),
+                    onPressed: (_activeStackIndex == 0 || _isDealingAway)
+                        ? null
+                        : () => setState(() {
+                              _activeStackIndex--;
+                              _isCardFlipped = false;
+                            }),
+                  ),
+                  Text(
+                    'الكارت ${_activeStackIndex + 1} من ${displayCards.length}',
+                    style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 13, color: primaryOlive),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left_rounded, color: primaryOlive),
+                    onPressed: (_activeStackIndex >= displayCards.length - 1 || _isDealingAway)
+                        ? null
+                        : () => _advancePlayingCard(_activeStackIndex + 1),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // Playing Cards Deck Presentation Stack
+              Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.center,
+                children: [
+                  // Layered Backing 2
+                  if (_activeStackIndex + 2 < displayCards.length)
+                    Transform.translate(
+                      offset: const Offset(0, 16),
+                      child: Transform.rotate(
+                        angle: 0.05,
+                        child: Transform.scale(
+                          scale: 0.92,
+                          child: Container(
+                            height: 260,
+                            decoration: BoxDecoration(color: bgCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: borderSubtle)),
+                          ),
+                        ),
+                      ),
+                    ),
+                  // Layered Backing 1
+                  if (_activeStackIndex + 1 < displayCards.length)
+                    Transform.translate(
+                      offset: const Offset(0, 8),
+                      child: Transform.rotate(
+                        angle: -0.03,
+                        child: Transform.scale(
+                          scale: 0.96,
+                          child: Container(
+                            height: 265,
+                            decoration: BoxDecoration(color: bgCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: borderSubtle)),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // Top Playing Card with Deal Animation
+                  AnimatedSlide(
+                    offset: _isDealingAway ? const Offset(-1.4, 0.2) : Offset.zero,
+                    duration: const Duration(milliseconds: 380),
+                    curve: Curves.easeOutCubic,
+                    child: AnimatedRotation(
+                      turns: _isDealingAway ? -0.08 : 0.0,
+                      duration: const Duration(milliseconds: 380),
+                      child: GestureDetector(
+                        onTap: () {
+                          if (_isDealingAway) return;
+                          if (!_isCardFlipped) {
+                            setState(() => _isCardFlipped = true);
+                          } else {
+                            _advancePlayingCard();
+                          }
+                        },
+                        child: Stack(
+                          children: [
+                            FlipCardWidget(
+                              isFlipped: _isCardFlipped,
+                              front: _buildCardSide(
+                                title: displayCards[_activeStackIndex]['deck_title'] ?? 'السؤال',
+                                content: displayCards[_activeStackIndex]['question'] ?? '',
+                                subText: 'اضغط لقلب الكارت ورؤية الإجابة',
+                                color: primaryOlive.withOpacity(0.05),
+                                textColor: textPrimary,
+                              ),
+                              back: _buildCardSide(
+                                title: 'الإجابة النموذجية',
+                                content: displayCards[_activeStackIndex]['answer'] ?? '',
+                                subText: 'اضغط للتمرير للكارت التالي',
+                                color: primaryOlive.withOpacity(0.12),
+                                textColor: textPrimary,
+                                borderColor: primaryOlive.withOpacity(0.4),
+                              ),
+                            ),
+                            Positioned(
+                              top: 12,
+                              left: 12,
+                              child: Row(
+                                children: [
+                                  IconButton(
+                                    icon: Icon(Icons.edit_outlined, size: 18, color: textMuted),
+                                    onPressed: () => _editCardDialog(displayCards[_activeStackIndex]),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.redAccent),
+                                    onPressed: () => _deleteCard(displayCards[_activeStackIndex]['id']),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              if (_isCardFlipped)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: bgCard,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: borderSubtle),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        'كيف كان استدعاؤك للمعلومة؟',
+                        style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 12.5, color: textSecondary),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _buildRatingButtonSubject(displayCards[_activeStackIndex]['id'].toString(), 1, 'صعب', Colors.red),
+                          _buildRatingButtonSubject(displayCards[_activeStackIndex]['id'].toString(), 2, 'خاطئ', Colors.orange),
+                          _buildRatingButtonSubject(displayCards[_activeStackIndex]['id'].toString(), 3, 'مقبول', Colors.yellow),
+                          _buildRatingButtonSubject(displayCards[_activeStackIndex]['id'].toString(), 4, 'سهل', primaryOlive),
+                          _buildRatingButtonSubject(displayCards[_activeStackIndex]['id'].toString(), 5, 'ممتاز', Colors.greenAccent),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRatingButtonSubject(String cardId, int val, String label, Color color) {
+    return InkWell(
+      onTap: () => _submitSubjectCardReview(cardId, val),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Column(
+          children: [
+            Text(val.toString(), style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 13, fontFamily: 'Cairo')),
+            Text(label, style: TextStyle(fontSize: 10, color: color, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCardSide({
+    required String title,
+    required String content,
+    required String subText,
+    required Color color,
+    required Color textColor,
+    Color? borderColor,
+  }) {
+    return Container(
+      width: double.infinity,
+      height: 260,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: bgCard,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: borderColor ?? borderSubtle, width: borderColor != null ? 2 : 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: primaryOlive, letterSpacing: 1.5, fontFamily: 'Cairo'),
+          ),
+          const Spacer(),
+          Text(
+            content,
+            style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.bold, color: textColor, height: 1.6, fontFamily: 'Cairo'),
+            textAlign: TextAlign.center,
+          ),
+          const Spacer(),
+          Text(
+            subText,
+            style: TextStyle(fontSize: 10, color: textMuted, fontFamily: 'Cairo'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class FlipCardWidget extends StatelessWidget {
+  final Widget front;
+  final Widget back;
+  final bool isFlipped;
+
+  const FlipCardWidget({
+    super.key,
+    required this.front,
+    required this.back,
+    required this.isFlipped,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 500),
+      layoutBuilder: (currentChild, previousChildren) => Stack(
+        children: <Widget>[
+          if (currentChild != null) currentChild,
+          ...previousChildren,
+        ],
+      ),
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        final rotateAnim = Tween<double>(begin: pi, end: 0.0).animate(animation);
+        return AnimatedBuilder(
+          animation: rotateAnim,
+          child: child,
+          builder: (context, child) {
+            final isBack = child!.key == const ValueKey('back');
+            var tilt = 0.002;
+            tilt = isBack ? -tilt : tilt;
+            final rotation = isBack ? rotateAnim.value - pi : rotateAnim.value;
+            return Transform(
+              transform: Matrix4.rotationY(rotation)..setEntry(3, 0, tilt),
+              alignment: Alignment.center,
+              child: child,
+            );
+          },
+        );
+      },
+      child: isFlipped
+          ? SizedBox(key: const ValueKey('back'), child: back)
+          : SizedBox(key: const ValueKey('front'), child: front),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LEADERBOARD SCREEN (GAMIFICATION RANKINGS)
+// ═══════════════════════════════════════════════════════════════════════════════
+class LeaderboardScreen extends StatefulWidget {
+  final String websiteLink;
+
+  const LeaderboardScreen({super.key, required this.websiteLink});
+
+  @override
+  State<LeaderboardScreen> createState() => _LeaderboardScreenState();
+}
+
+class _LeaderboardScreenState extends State<LeaderboardScreen> {
+  List<dynamic> _leaderboard = [];
+  bool _loading = true;
+  String? _authToken;
+  String _filter = 'my';
+  String? _currentUserId;
+
+  String get _apiBase => resolveWebsiteLink(widget.websiteLink);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettingsAndData();
+  }
+
+  Future<void> _loadSettingsAndData() async {
+    final prefs = await SharedPreferences.getInstance();
+    _authToken = prefs.getString('auth_token');
+    
+    final userJson = prefs.getString('auth_user');
+    if (userJson != null) {
+      try {
+        final user = jsonDecode(userJson);
+        _currentUserId = user['id']?.toString();
+      } catch (_) {}
+    }
+
+    if (_authToken != null) {
+      _fetchLeaderboard();
+    } else {
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _fetchLeaderboard() async {
+    setState(() => _loading = true);
+    try {
+      final res = await http.get(
+        Uri.parse('$_apiBase/api/leaderboard?grade_level=$_filter'),
+        headers: {
+          'Authorization': 'Bearer $_authToken',
+        },
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        if (data['success'] == true) {
+          setState(() {
+            _leaderboard = data['leaderboard'] ?? [];
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Fetch Leaderboard error: $e');
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        backgroundColor: bgSurface,
+        appBar: AppBar(
+          title: const Text('لوحة المتصدرين', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 16)),
+          backgroundColor: bgCard,
+          elevation: 0,
+          foregroundColor: primaryOlive,
+        ),
+        body: Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: bgCard,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: borderSubtle),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      onTap: () {
+                        setState(() {
+                          _filter = 'my';
+                        });
+                        _fetchLeaderboard();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _filter == 'my' ? primaryOlive : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Center(
+                          child: Text(
+                            'صفي الدراسي',
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12.5,
+                              color: _filter == 'my' ? Colors.white : textSecondary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: InkWell(
+                      onTap: () {
+                        setState(() {
+                          _filter = 'all';
+                        });
+                        _fetchLeaderboard();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _filter == 'all' ? primaryOlive : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Center(
+                          child: Text(
+                            'الترتيب العام',
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12.5,
+                              color: _filter == 'all' ? Colors.white : textSecondary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator(color: primaryOlive))
+                  : _authToken == null
+                      ? const Center(child: Text('يجب تسجيل الدخول لعرض لوحة المتصدرين', style: TextStyle(fontFamily: 'Cairo')))
+                      : _leaderboard.isEmpty
+                          ? const Center(child: Text('لا توجد بيانات ترتيب حالياً', style: TextStyle(fontFamily: 'Cairo')))
+                          : ListView.builder(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: _leaderboard.length,
+                              itemBuilder: (context, idx) {
+                                final row = _leaderboard[idx];
+                                final rank = row['rank_number'] ?? (idx + 1);
+                                final isCurrentUser = row['user_id']?.toString() == _currentUserId;
+
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: isCurrentUser ? primaryOlive.withOpacity(0.08) : bgCard,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: isCurrentUser ? primaryOlive : borderSubtle,
+                                      width: isCurrentUser ? 1.5 : 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 32,
+                                        height: 32,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: rank == 1
+                                              ? const Color(0xFFFFD700)
+                                              : rank == 2
+                                                  ? const Color(0xFFC0C0C0)
+                                                  : rank == 3
+                                                      ? const Color(0xFFCD7F32)
+                                                      : bgSurface,
+                                          border: Border.all(color: borderSubtle),
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            rank.toString(),
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                              color: rank <= 3 ? Colors.black : textSecondary,
+                                              fontFamily: 'Cairo',
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 14),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Text(
+                                                  row['name'] ?? '',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 13.5,
+                                                    color: textPrimary,
+                                                    fontFamily: 'Cairo',
+                                                  ),
+                                                ),
+                                                if (isCurrentUser) ...[
+                                                  const SizedBox(width: 6),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                                    decoration: BoxDecoration(
+                                                      color: primaryOlive.withOpacity(0.2),
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: const Text(
+                                                      'أنت',
+                                                      style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: primaryOlive, fontFamily: 'Cairo'),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        children: [
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(Icons.monetization_on_rounded, size: 14, color: Color(0xFFFFD700)),
+                                              const SizedBox(width: 3),
+                                              Text(
+                                                (double.tryParse(row['coins']?.toString() ?? '0') ?? 0.0).toInt().toString(),
+                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFFFFD700), fontFamily: 'Cairo'),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(Icons.local_fire_department_rounded, size: 14, color: Colors.orange),
+                                              const SizedBox(width: 3),
+                                              Text(
+                                                '${row['study_streak'] ?? 1} يوم',
+                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.orange, fontFamily: 'Cairo'),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 
