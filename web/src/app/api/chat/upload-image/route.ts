@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifySessionToken } from '@/lib/auth_helpers';
+import { checkRateLimit, getClientIp } from '@/lib/rate_limiter';
 
 const EDENAI_API_KEY = process.env.EDENAI_API_KEY || '';
 const EDENAI_BASE = 'https://api.edenai.run/v2';
@@ -9,7 +10,7 @@ const IMAGE_ANALYSIS_COIN_COST = 0.5;
 
 export async function POST(req: NextRequest) {
   try {
-    // Auth + metering: this route proxies a paid VQA provider
+    const ip = getClientIp(req);
     const authHeader = req.headers.get('Authorization');
     let userId: string | null = null;
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -19,6 +20,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: 'تسجيل الدخول مطلوب لتحليل الصور.', code: 'login_required' },
         { status: 401 }
+      );
+    }
+
+    const rateLimit = checkRateLimit(`upload_img_${userId || ip}`, 10, 60);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: `تم تجاوز الحد المسموح لتحليل الصور في الدقيقة. يرجى الانتظار ${rateLimit.resetSeconds} ثانية.` },
+        { status: 429 }
       );
     }
 

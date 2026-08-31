@@ -11,6 +11,7 @@ import {
 import { PDFDocumentHandler, getPDFTotalPages } from "./pdf_parser";
 import { extractWithEdenAI } from "./eden_vision";
 import { organizeTextWithDeepSeek } from "./deepseek_organizer";
+import { cleanAndDeduplicateCurriculumMarkdown } from "./curriculum_cleaner";
 import {
   initCheckpoint,
   loadCheckpoint,
@@ -32,6 +33,7 @@ function ensureOutputDir(gradeLevel: GradeLevel): string {
 
 const DEFAULT_EDENAI_KEY = process.env.EDENAI_API_KEY || "";
 const DEFAULT_DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY || "";
+const DEFAULT_GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 
 export class QueueProcessor {
   private queue: FileQueueItem[] = [];
@@ -46,6 +48,8 @@ export class QueueProcessor {
   constructor(defaultSettings: ProcessingSettings) {
     this.settings = {
       ...defaultSettings,
+      geminiApiKey:
+        defaultSettings.geminiApiKey || process.env.GEMINI_API_KEY || DEFAULT_GEMINI_KEY,
       edenAiApiKey:
         defaultSettings.edenAiApiKey || process.env.EDENAI_API_KEY || DEFAULT_EDENAI_KEY,
       deepSeekApiKey:
@@ -62,6 +66,11 @@ export class QueueProcessor {
           this.settings = {
             ...this.settings,
             ...saved.settings,
+            geminiApiKey:
+              saved.settings.geminiApiKey ||
+              this.settings.geminiApiKey ||
+              process.env.GEMINI_API_KEY ||
+              DEFAULT_GEMINI_KEY,
             edenAiApiKey:
               saved.settings.edenAiApiKey ||
               this.settings.edenAiApiKey ||
@@ -101,6 +110,10 @@ export class QueueProcessor {
     this.settings = {
       ...this.settings,
       ...newSettings,
+      geminiApiKey:
+        newSettings.geminiApiKey !== undefined
+          ? newSettings.geminiApiKey
+          : this.settings.geminiApiKey || process.env.GEMINI_API_KEY || DEFAULT_GEMINI_KEY,
       edenAiApiKey:
         newSettings.edenAiApiKey ||
         this.settings.edenAiApiKey ||
@@ -432,7 +445,8 @@ export class QueueProcessor {
           }
         }
 
-        fs.writeFileSync(outputPath, fullMarkdown, "utf-8");
+        const sanitizedMarkdown = cleanAndDeduplicateCurriculumMarkdown(fullMarkdown);
+        fs.writeFileSync(outputPath, sanitizedMarkdown, "utf-8");
 
         file.status = "completed";
         file.outputFilePath = outputPath;
@@ -466,13 +480,14 @@ export class QueueProcessor {
         // Step 1: Extract Text & Image
         const pageContent = await docHandler.extractPage(pageNumber);
 
-        // Step 2: EdenAI Vision OCR
+        // Step 2: Vision OCR (Gemini / EdenAI / PDF Layer)
         const rawVisionText = await extractWithEdenAI(
           pageContent.extractedText,
           pageContent.imageBuffer,
           {
-            apiKey: this.settings.edenAiApiKey,
-            maxRetries: 4,
+            geminiApiKey: this.settings.geminiApiKey,
+            edenAiApiKey: this.settings.edenAiApiKey,
+            maxRetries: 3,
             onNetworkWait: (att, max, delay) => {
               this.log(
                 "warn",
@@ -485,20 +500,25 @@ export class QueueProcessor {
         );
 
         // Step 3: DeepSeek RAG Structuring
-        const processedMarkdown = await organizeTextWithDeepSeek(rawVisionText, {
-          apiKey: this.settings.deepSeekApiKey,
-          subjectName: file.subjectName,
-          gradeLevel: file.gradeLevel,
-          maxRetries: 4,
-          onNetworkWait: (att, max, delay) => {
-            this.log(
-              "warn",
-              `انتظار خادم DeepSeek للصفحة ${pageNumber} (المحاولة ${att}/${max})`,
-              file.id,
-              pageNumber
-            );
-          },
-        });
+        let processedMarkdown = "";
+        if (rawVisionText && rawVisionText.trim().length > 0) {
+          processedMarkdown = await organizeTextWithDeepSeek(rawVisionText, {
+            apiKey: this.settings.deepSeekApiKey,
+            subjectName: file.subjectName,
+            gradeLevel: file.gradeLevel,
+            maxRetries: 3,
+            onNetworkWait: (att, max, delay) => {
+              this.log(
+                "warn",
+                `انتظار خادم DeepSeek للصفحة ${pageNumber} (المحاولة ${att}/${max})`,
+                file.id,
+                pageNumber
+              );
+            },
+          });
+        }
+
+        const isBlank = !rawVisionText || rawVisionText.trim().length === 0;
 
         const pageResult: PageExtractionResult = {
           pageNumber,
@@ -511,17 +531,27 @@ export class QueueProcessor {
         };
 
         savePageResult(file.id, pageResult);
-        this.log("success", `تمت معالجة وهيكلة الصفحة ${pageNumber} بنجاح`, file.id, pageNumber);
+        if (isBlank) {
+          this.log("info", `تم تخطي الصفحة ${pageNumber} (صفحة فارغة أو بدون نصوص شرح)`, file.id, pageNumber);
+        } else {
+          this.log("success", `تمت معالجة وهيكلة الصفحة ${pageNumber} بنجاح`, file.id, pageNumber);
+        }
         return pageResult;
       } catch (error: any) {
+        const isAuthOrBillingError =
+          error.message?.includes("402") ||
+          error.message?.includes("No more credits") ||
+          error.message?.includes("401") ||
+          error.message?.includes("لم يتم إدخال مفتاح");
+
         this.log(
-          "warn",
+          isAuthOrBillingError ? "error" : "warn",
           `تعثرت معالجة الصفحة ${pageNumber} (المحاولة ${attempts}/${maxRetries}): ${error.message}`,
           file.id,
           pageNumber
         );
 
-        if (attempts >= maxRetries) {
+        if (isAuthOrBillingError || attempts >= maxRetries) {
           const failedResult: PageExtractionResult = {
             pageNumber,
             rawVisionText: "",
@@ -573,7 +603,50 @@ export class QueueProcessor {
         md += `\n\n<!-- بداية الصفحة ${pNo} -->\n` + pageRes.processedMarkdown;
       }
     }
-    return md;
+    return cleanAndDeduplicateCurriculumMarkdown(md);
+  }
+
+  public reexportAllFiles(): { count: number; files: string[] } {
+    const checkpointsDir = path.join(process.cwd(), "checkpoints");
+    if (!fs.existsSync(checkpointsDir)) return { count: 0, files: [] };
+
+    const checkpointFiles = fs
+      .readdirSync(checkpointsDir)
+      .filter((f) => f.startsWith("file_") && f.endsWith(".json"));
+
+    const exportedFiles: string[] = [];
+
+    for (const cpFile of checkpointFiles) {
+      try {
+        const fullPath = path.join(checkpointsDir, cpFile);
+        const cp = JSON.parse(fs.readFileSync(fullPath, "utf-8"));
+        if (!cp || !cp.completedPages || Object.keys(cp.completedPages).length === 0) continue;
+
+        const stageDir = ensureOutputDir(cp.gradeLevel || "1_middle");
+        const safeSubjectName = (cp.subjectName || "مادة").replace(/[\\/:*?"<>|]/g, "_");
+        const outputPath = path.join(stageDir, `${safeSubjectName}.md`);
+
+        const sortedPageNumbers = Object.keys(cp.completedPages)
+          .map(Number)
+          .sort((a, b) => a - b);
+
+        let fullMarkdown = `# منهج ${cp.subjectName}\n\n`;
+        for (const pNo of sortedPageNumbers) {
+          const pageRes = cp.completedPages[pNo];
+          if (pageRes && pageRes.processedMarkdown && pageRes.processedMarkdown.trim().length > 0) {
+            fullMarkdown += `\n\n<!-- بداية الصفحة ${pNo} -->\n` + pageRes.processedMarkdown;
+          }
+        }
+
+        const sanitizedMarkdown = cleanAndDeduplicateCurriculumMarkdown(fullMarkdown);
+        fs.writeFileSync(outputPath, sanitizedMarkdown, "utf-8");
+        exportedFiles.push(outputPath);
+      } catch (err) {
+        console.error(`Error re-exporting checkpoint ${cpFile}:`, err);
+      }
+    }
+
+    return { count: exportedFiles.length, files: exportedFiles };
   }
 
   private log(

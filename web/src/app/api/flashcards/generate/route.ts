@@ -1,7 +1,8 @@
-export const runtime = 'edge';
+﻿export const runtime = 'edge';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifySessionToken } from '@/lib/auth_helpers';
+import { getCurriculumContextForLesson } from '@/lib/curriculum_structure';
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
@@ -10,7 +11,7 @@ export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'يجب تسجيل الدخول لإنشاء الكروت' }, { status: 401 });
+      return NextResponse.json({ error: 'جلسة العمل غير مصرحة أو منتهية' }, { status: 401 });
     }
 
     const token = authHeader.substring(7);
@@ -23,80 +24,59 @@ export async function POST(req: NextRequest) {
     const { subject_name, grade_level, topic, count = 5 } = body;
 
     if (!subject_name || !grade_level || !topic) {
-      return NextResponse.json({ error: 'اسم المادة، السنة الدراسية، والموضوع مطلوبة' }, { status: 400 });
+      return NextResponse.json({ error: 'جميع الحقول مطلوبة (المادة، الصف الدراسي، الموضوع)' }, { status: 400 });
     }
 
     const profile = await db.getProfile(userId);
     if (!profile) {
-      return NextResponse.json({ error: 'لم يتم العثور على ملف المستخدم' }, { status: 404 });
+      return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم' }, { status: 404 });
     }
 
-    const coins = profile.coins === undefined ? 50.0 : profile.coins;
+    const coins = profile.coins === undefined ? 0.0 : profile.coins;
     const hasUnlimitedCredit = profile.role === 'admin' || !!profile.unlimited_credit;
     if (!hasUnlimitedCredit && coins <= 0) {
-      return NextResponse.json({ error: 'ليس لديك رصيد كافٍ من النقاط لإنشاء الكروت.' }, { status: 402 });
+      return NextResponse.json({ error: 'لقد استنفدت رصيدك من النقاط. يرجى شحن باقتك للمتابعة.' }, { status: 402 });
     }
 
-    // Retrieve curriculum text
-    let curriculumText = "";
-    const curriculums = await db.getCurriculums();
-    const targetCurr = curriculums.find(c => c.grade_level === grade_level && c.subject_name === subject_name);
-    
-    if (targetCurr) {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-      const isSupabaseEnabled = supabaseUrl !== '' && supabaseServiceKey !== '';
-      
-      if (isSupabaseEnabled) {
-        const { createClient } = require('@supabase/supabase-js');
-        const supabase = createClient(supabaseUrl, supabaseServiceKey);
-        const { data: chunks } = await supabase
-          .from('curriculum_chunks')
-          .select('content')
-          .eq('curriculum_id', targetCurr.id)
-          .limit(6);
-        if (chunks) {
-          curriculumText = chunks.map((c: any) => c.content).join('\n\n');
-        }
-      } else {
-        if (process.env.NEXT_RUNTIME !== 'edge') {
-          const fs = require('fs');
-          const DB_FILE = './db_data.json';
-          if (fs.existsSync(DB_FILE)) {
-            const raw = fs.readFileSync(DB_FILE, 'utf8');
-            const parsed = JSON.parse(raw);
-            const chunks = (parsed.curriculum_chunks || []).filter((cc: any) => cc.curriculum_id === targetCurr.id).slice(0, 6);
-            curriculumText = chunks.map((c: any) => c.content).join('\n\n');
-          }
-        }
-      }
-    }
+    // Retrieve targeted curriculum text for the selected topic/lesson
+    const curriculumText = await getCurriculumContextForLesson(grade_level, subject_name, topic);
 
-    const systemPrompt = `أنت معلم خبير ذكي ومبتكر للمناهج المصرية للمرحلتين الإعدادية والثانوية.
-مهمتك هي إنشاء مجموعة كروت تعليمية تفاعلية (Flashcards) للاستدعاء الفعال والمذاكرة النشطة (Active Recall).
+    const adherenceInstruction = (topic && topic !== 'المنهج بالكامل' && topic !== 'مراجعة المنهج بالكامل')
+      ? `\nFOCUS TOPIC CONSTRAINT: All cards MUST focus strictly on this lesson: "${topic}". Do not pull concepts from other lessons.`
+      : '';
 
-المادة: ${subject_name}
-الصف: ${grade_level}
-الموضوع المحدد: ${topic}
-عدد الكروت المطلوب: ${count}
+    const systemPrompt = `You are the Flashcards Generation Engine for the Egyptian National Curriculum (Middle & High School).
+Generate high-yield Active Recall flashcards to help students master key definitions, laws, and facts.
 
-سياق المنهج الدراسي المساعد:
+================================================================================
+CRITICAL LANGUAGE & OUTPUT MANDATE:
+- ALL USER-FACING TEXT (questions, answers, deck titles) MUST BE IN PURE, CLEAR ARABIC.
+- Format all mathematical, physical, and chemical formulas in standard LaTeX ($$ or $).
+- Return strict JSON ONLY (no markdown fences, no conversational prose).
+================================================================================
+
+Subject: ${subject_name}
+Grade: ${grade_level}
+Topic / Lesson: ${topic}${adherenceInstruction}
+Required Count: ${count} cards
+
+Curriculum Context:
 """
-${curriculumText || 'لا يتوفر سياق مباشر للمنهج، أنشئ كروت أسئلة عامة نموذجية تناسب المنهج المصري لهذا الصف الدراسي.'}
+${curriculumText || 'General curriculum content for ' + subject_name}
 """
 
-قواعد صياغة الكروت:
-1. السؤال يجب أن يكون قصيراً ومركزاً (مثال: "ما هو قانون السرعة؟" أو "ما تعريف الكيمياء الحرارية؟").
-2. الإجابة يجب أن تكون مختصرة ومباشرة، لا تتجاوز جملة أو جملتين، تلخص المفهوم أو القانون مع الوحدات.
-3. التزم تماماً بمخرجات اللغة العربية بلهجة محببة ومبسطة.
+Card Design Rules:
+1. Question: Clear, focused, single-concept question in Arabic.
+2. Answer: Concise, accurate model answer highlighting key terms.
+3. Strict Curriculum Adherence: Keep all facts strictly faithful to the textbook.
 
-أرجع المخرج بتنسيق JSON نظيف تماماً بدون علامات ماركداون كودبلوك أو نصوص إضافية، مطابقاً للهيكل التالي:
+JSON Output Schema:
 {
-  "title": "عنوان مجموعة الكروت (مثال: كروت المراجعة على الحركة والسرعة)",
+  "title": "عنوان مجموعة الكروت بالعربية (مثال: ملخص قوانين نيوتن)",
   "cards": [
     {
-      "question": "نص السؤال/المفهوم هنا؟",
-      "answer": "الإجابة المختصرة والمركزة هنا"
+      "question": "نص السؤال أو المفهوم؟",
+      "answer": "الإجابة النموذجية المركزة"
     }
   ]
 }`;
@@ -119,37 +99,50 @@ ${curriculumText || 'لا يتوفر سياق مباشر للمنهج، أنشئ
 
     if (!response.ok) {
       console.error('DeepSeek flashcard generation failed:', await response.text());
-      return NextResponse.json({ error: 'فشل توليد الكروت بواسطة الذكاء الاصطناعي' }, { status: 502 });
+      return NextResponse.json({ error: 'فشل مزود الذكاء الاصطناعي في توليد الكروت' }, { status: 502 });
     }
 
     const data = await response.json();
     let content = data.choices[0].message.content.trim();
-    if (content.startsWith('```')) {
-      content = content.replace(/^```json/, '').replace(/```$/, '').trim();
+
+    // Clean JSON markdown fences
+    if (content.startsWith('```json')) {
+      content = content.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+    } else if (content.startsWith('```')) {
+      content = content.replace(/^```\s*/, '').replace(/\s*```$/, '');
     }
 
-    const deckData = JSON.parse(content);
-    
-    // Deduct coins
+    let parsed: any;
+    try {
+      parsed = JSON.parse(content);
+    } catch (e) {
+      console.error('Flashcards JSON parse error:', content);
+      return NextResponse.json({ error: 'فشل في قراءة بيانات الكروت المولدة' }, { status: 500 });
+    }
+
+    if (!parsed.cards || !Array.isArray(parsed.cards) || parsed.cards.length === 0) {
+      return NextResponse.json({ error: 'لم يتم توليد أي كروت صالحة' }, { status: 500 });
+    }
+
+    // Deduct coins for generation (standard flash rate)
     const promptTokens = data.usage?.prompt_tokens || 0;
     const completionTokens = data.usage?.completion_tokens || 0;
     const egpCost = (promptTokens / 1000000) * 30 + (completionTokens / 1000000) * 50;
-    const coinsCost = Math.max(1.0, egpCost * 12.5); // Charge standard rate, min 1 coin
-
+    const coinsCost = egpCost * 10.0;
     await db.deductCoins(userId, null, coinsCost);
 
-    // Save to Database
-    const newDeck = await db.createFlashcardDeck(
-      userId,
-      subject_name,
-      grade_level,
-      deckData.title || `مجموعة كروت: ${topic}`,
-      deckData.cards
-    );
+    // Save deck and cards to database
+    const deckTitle = parsed.title || `كروت: ${topic}`;
+    const newDeck = await db.createFlashcardDeck(userId, subject_name, grade_level, deckTitle, parsed.cards);
 
-    return NextResponse.json({ success: true, deck: newDeck });
+    return NextResponse.json({
+      success: true,
+      deck: newDeck,
+      cards: parsed.cards
+    });
+
   } catch (error: any) {
-    console.error('Generate Flashcards Error:', error);
-    return NextResponse.json({ error: 'حدث خطأ أثناء توليد وحفظ الكروت التعليمية' }, { status: 500 });
+    console.error('Generate flashcards error:', error);
+    return NextResponse.json({ error: 'حدث خطأ غير متوقع أثناء توليد الكروت.' }, { status: 500 });
   }
 }

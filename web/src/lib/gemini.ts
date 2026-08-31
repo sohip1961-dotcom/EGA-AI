@@ -51,7 +51,6 @@ export async function callGeminiFlash(prompt: string, maxTokens: number = 600): 
 
   const data = await response.json();
 
-  // EdenAI response structure: { google: { generated_text: "...", status: "success" } }
   const googleResult = data?.google;
   if (googleResult?.status === 'fail') {
     throw new Error(`Gemini via EdenAI failed: ${googleResult?.error?.message || 'unknown error'}`);
@@ -76,7 +75,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     },
     body: JSON.stringify({
       providers: 'google',
-      texts: [text.slice(0, 8000)], // guard against oversized texts
+      texts: [text.slice(0, 8000)],
       model: 'text-embedding-004'
     })
   });
@@ -146,60 +145,43 @@ export async function generateEmbeddingBatch(texts: string[]): Promise<number[][
 // ─── Query Intelligence (ONE combined call) ───────────────────────────────────
 
 /**
- * Analyzes the student query in ONE Gemini API call.
- * Returns query type, bilingual keywords, HyDE passage, and search announcement.
- * The HyDE passage is what gets embedded for vector search (not the raw query).
+ * Analyzes the student query in ONE Gemini API call using efficient English instructions.
+ * Operates on Arabic curriculum data and returns bilingual keywords, HyDE passage, and search announcement.
  */
 export async function analyzeQueryIntelligence(
   query: string,
   subject: string,
   grade: string
 ): Promise<QueryIntelligence> {
-  const prompt = `أنت محلل ذكاء اصطناعي متخصص في تحليل أسئلة الطلاب في المناهج المصرية واستخراج البيانات الوصفية (Metadata).
+  const prompt = `You are an expert Query Intelligence and Metadata Extractor specialized in the Egyptian National Curriculum (Middle & High School).
+Analyze the student query against the curriculum context to extract metadata, search terms, and a hypothetical textbook answer (HyDE).
 
-المادة المقررة حالياً: "${subject}"
-الصف الدراسي المقرر حالياً: "${grade}"
-سؤال الطالب: "${query}"
+Active Subject: "${subject}"
+Active Grade Level: "${grade}"
+Student Query: "${query}"
 
-قم بتحليل السؤال وأعد JSON فقط (بدون markdown أو شرح):
-
+Return strict JSON ONLY (no markdown fences, no conversational text):
 {
   "queryType": "direct|inferential|overview|problem_solving",
-  "arabicKeywords": ["كلمة1", "كلمة2", "كلمة3"],
-  "englishKeywords": ["word1", "word2"],
-  "hydePassage": "فقرة افتراضية من 2-3 جمل تمثل الإجابة المثالية التي قد توجد في الكتاب المدرسي لهذا السؤال، مكتوبة كأنها من المنهج مباشرة",
+  "arabicKeywords": ["core scientific terms, laws, and concepts in Arabic"],
+  "englishKeywords": ["corresponding English scientific terms if applicable"],
+  "hydePassage": "A 2-3 sentence hypothetical textbook passage written in formal Arabic as if extracted directly from the Egyptian curriculum textbook to answer the question",
   "searchAnnouncement": "سأبحث الآن عن: [الموضوع المحدد]",
   "metadata": {
-    "gradeLevel": "الصف الدراسي إذا ذكره الطالب صراحة (مثال: '3_high' أو '1_middle') أو null إذا لم يذكر صراحة صفاً مختلفاً عن المقرر",
-    "subject": "اسم المادة إذا ذكرها الطالب صراحة (مثل: 'الفيزياء'، 'الكيمياء'، 'التاريخ') أو null إذا لم يذكر مادة مختلفة عن المقررة",
-    "unit": "اسم الوحدة أو الباب إذا ذكره الطالب (مثل: 'الوحدة الأولى'، 'الباب الثاني') أو null",
-    "chapter": "اسم الفصل أو الدرس إذا ذكره الطالب (مثل: 'الفصل الأول'، 'درس العجلة') أو null"
+    "gradeLevel": "Grade level if explicitly mentioned by student ('1_middle'|'2_middle'|'3_middle'|'1_high'|'2_high') or null",
+    "subject": "Subject name in Arabic if explicitly stated (e.g. 'الفيزياء', 'الكيمياء') or null",
+    "unit": "Unit name/number if mentioned (e.g. 'الوحدة الأولى') or null",
+    "chapter": "Lesson/chapter name if mentioned (e.g. 'الدرس الأول', 'قانون نيوتن') or null"
   }
 }
 
-دليل قيم gradeLevel (قم بمطابقتها وتحديدها فقط من هذه اللائحة):
-- "1_middle" (الصف الأول الإعدادي / أولى إعدادي)
-- "2_middle" (الصف الثاني الإعدادي / تانية إعدادي)
-- "3_middle" (الصف الثالث الإعدادي / تالتة إعدادي)
-- "1_high" (الصف الأول الثانوي / أولى ثانوي)
-- "2_high" (الصف الثاني الثانوي / تانية ثانوي)
-- "3_high" (الصف الثالث الثانوي / تالتة ثانوي)
-
-دليل queryType:
-- "overview": يسأل عن محتوى المنهج كله أو ملخص عام أو قائمة الموضوعات
-- "direct": يبحث عن تعريف أو قانون أو مصطلح محدد موجود في المنهج
-- "inferential": يسأل عن تطبيق أو استنتاج أو علاقة بين مفاهيم
-- "problem_solving": يطلب حل مسألة رياضية أو فيزيائية أو كيميائية
-
-للـ arabicKeywords: استخرج الكلمات المفتاحية العربية الجوهرية (مصطلحات علمية، أسماء قوانين، مفاهيم)
-للـ englishKeywords: استخرج المصطلحات العلمية الإنجليزية المقابلة فقط
-للـ hydePassage: اكتبها كأنها جزء من الكتاب المدرسي مباشرة، تجيب على السؤال بشكل غير مباشر
-للـ searchAnnouncement: جملة عربية قصيرة للعرض للطالب تخبره بما ستبحث عنه`;
+Rules:
+- queryType: 'overview' (whole curriculum summary), 'direct' (specific definition/law), 'inferential' (conceptual application/relation), 'problem_solving' (math/physics/chemistry problem).
+- hydePassage: Must be in authentic Arabic curriculum textbook language so vector cosine similarity against textbook chunks is maximized.
+- searchAnnouncement: Short friendly Arabic UI phrase telling the student what topic is being searched.`;
 
   try {
-    const raw = await callGeminiFlash(prompt, 700);
-
-    // Extract JSON from response (handle possible surrounding text)
+    const raw = await callGeminiFlash(prompt, 600);
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('No JSON in Gemini response');
 
@@ -213,7 +195,7 @@ export async function analyzeQueryIntelligence(
       englishKeywords: Array.isArray(parsed.englishKeywords) ? parsed.englishKeywords.slice(0, 5) : [],
       hydePassage: typeof parsed.hydePassage === 'string' && parsed.hydePassage.length > 10
         ? parsed.hydePassage
-        : query, // fallback: use original query
+        : query,
       searchAnnouncement: typeof parsed.searchAnnouncement === 'string'
         ? parsed.searchAnnouncement
         : `سأبحث الآن في منهج ${subject}...`,
@@ -226,7 +208,6 @@ export async function analyzeQueryIntelligence(
     };
   } catch (err) {
     console.error('analyzeQueryIntelligence failed, using fallback:', err);
-    // Graceful fallback: extract simple keywords from query
     const words = query.replace(/[؟?!.،,]/g, '').split(/\s+/).filter(w => w.length > 2);
     return {
       queryType: 'direct',
@@ -238,7 +219,7 @@ export async function analyzeQueryIntelligence(
   }
 }
 
-// ─── Context Gap Analysis (conditional, only for inferential/thin results) ────
+// ─── Context Gap Analysis ─────────────────────────────────────────────────────
 
 /**
  * Assesses whether the retrieved context is sufficient to answer the query.
@@ -248,28 +229,29 @@ export async function assessContextGap(
   query: string,
   context: string
 ): Promise<ContextGapAssessment> {
-  const prompt = `أنت مقيّم نظام RAG. قيّم ما إذا كان السياق المسترجع كافياً للإجابة على سؤال الطالب.
+  const prompt = `You are a RAG Context Sufficiency Evaluator for the Egyptian National Curriculum.
+Assess whether the retrieved curriculum context contains enough facts to answer the student's question.
 
-سؤال الطالب: "${query.slice(0, 500)}"
+Student Query:
+"${query.slice(0, 500)}"
 
-السياق المسترجع:
+Retrieved Context:
 """
 ${context.slice(0, 2000)}
 """
 
-أعد JSON فقط (بدون markdown):
+Return strict JSON ONLY:
 {
   "sufficient": true|false,
   "confidence": 0.0-1.0,
-  "missingTopics": ["موضوع ناقص 1", "موضوع ناقص 2"],
+  "missingTopics": ["specific missing topic in Arabic (max 2)"],
   "followUpAnnouncement": "سأبحث أيضاً عن: [الموضوع الناقص]"
 }
 
-إذا كان السياق يحتوي على معلومات ذات صلة بالسؤال ولو جزئياً، اعتبره كافياً (sufficient: true).
-missingTopics لا يجب أن تتجاوز 2 عناصر.`;
+Rule: If the context contains relevant information to address the query even partially, set sufficient to true.`;
 
   try {
-    const raw = await callGeminiFlash(prompt, 300);
+    const raw = await callGeminiFlash(prompt, 250);
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('No JSON in gap analysis response');
 
@@ -291,19 +273,20 @@ missingTopics لا يجب أن تتجاوز 2 عناصر.`;
 // ─── Curriculum Summary Generator ─────────────────────────────────────────────
 
 /**
- * Generates a 500-word semantic summary of the full curriculum.
+ * Generates a semantic summary of the full curriculum.
  * Called once during curriculum upload and stored as a special chunk.
  */
 export async function generateCurriculumSummary(fullText: string): Promise<string> {
-  const prompt = `أنت خبير تربوي. اقرأ محتوى المنهج الدراسي التالي وأنشئ ملخصاً شاملاً من 400-600 كلمة عربية يغطي:
-1. الموضوعات الرئيسية والفصول
-2. أهم القوانين والمفاهيم العلمية
-3. المهارات التي يكتسبها الطالب
-4. الترتيب المنطقي للمحتوى
+  const prompt = `You are a curriculum architect for Egyptian secondary education.
+Read the textbook content below and produce a comprehensive 400-600 word academic summary in clear, structured Arabic covering:
+1. Main units and chapters (الموضوعات الرئيسية والفصول)
+2. Core scientific laws, definitions, and formulas (أهم القوانين والمفاهيم العلمية)
+3. Essential student competencies and problem-solving skills (المهارات المكتسبة)
+4. Logical sequence of topics (الترتيب المنطقي للمحتوى)
 
-اكتب الملخص بأسلوب أكاديمي مباشر مناسب للمنهج المصري.
+Write directly in formal academic Arabic without meta-intro or filler.
 
-المنهج:
+Curriculum Content:
 """
 ${fullText.slice(0, 15000)}
 """`;
@@ -316,34 +299,52 @@ ${fullText.slice(0, 15000)}
   }
 }
 
+// ─── Student Engagement Classifier ───────────────────────────────────────────
+
 /**
  * Classifies whether a chat turn represents genuine, meaningful student engagement.
  * Used for silent background points scoring (+3 points, max once per session).
- * Returns strict JSON { genuine_engagement: boolean }. Fail-open on errors.
+ * Returns boolean. Fails open on errors for substantive messages.
  */
 export async function classifyEngagement(
   userMessage: string,
   aiResponseText: string
 ): Promise<boolean> {
-  const prompt = `أنت محكّم ذكاء اصطناعي لتقييم تفاعل واستيعاب الطالب.
-اقرأ رسالة الطالب وإجابة المعلم وحدد ما إذا كانت رسالة الطالب تظهر تفاعلاً حقيقياً أو دراسة جادة (مثل سؤال عن نقطة علمية، استفسار عن خطوة، طلب توضيح، أو حل مسألة) وليس مجرد سلام أو كلمة واحدة غير مفيدة مثل "شكرا" أو "مرحبا".
+  const trimmed = userMessage.trim();
+  if (!trimmed || trimmed.length < 2) return false;
 
-رسالة الطالب: "${userMessage.slice(0, 500)}"
-رد المعلم: "${aiResponseText.slice(0, 500)}"
+  // Filter out superficial single-word greetings or acknowledgments
+  const trivialPattern = /^(مرحبا|أهلا|اهلا|سلام|السلام عليكم|شكرا|شكراً|تمام|اوك|أوك|ماشى|ماشي|ok|okay|hi|hello|hey|thanks|thx|bye)[\s.!,]*$/i;
+  if (trivialPattern.test(trimmed)) {
+    return false;
+  }
 
-أرجِع JSON فقط (بدون ماركداون):
+  const prompt = `You are an AI student engagement evaluator.
+Read the student message and teacher response. Determine if the student is showing genuine academic engagement (asking conceptual questions, seeking clarification, solving problems) vs superficial chatter or single greetings (e.g. 'hi', 'thanks', 'ok').
+
+Student Message: "${trimmed.slice(0, 400)}"
+Teacher Response: "${aiResponseText.slice(0, 400)}"
+
+Return strict JSON ONLY:
 {
   "genuine_engagement": true|false
 }`;
 
-  try {
-    const raw = await callGeminiFlash(prompt, 150);
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return false;
-    const parsed = JSON.parse(jsonMatch[0]);
-    return !!parsed.genuine_engagement;
-  } catch (err) {
-    console.error('classifyEngagement failed (failing open):', err);
-    return false;
+  if (EDENAI_API_KEY) {
+    try {
+      const raw = await callGeminiFlash(prompt, 120);
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (typeof parsed.genuine_engagement === 'boolean') {
+          return parsed.genuine_engagement;
+        }
+      }
+    } catch (err) {
+      console.warn('classifyEngagement evaluator notice (failing open):', err);
+    }
   }
+
+  // Fail-open for meaningful student questions and prompts
+  return trimmed.length >= 6;
 }

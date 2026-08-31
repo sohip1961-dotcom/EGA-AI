@@ -37,6 +37,7 @@ import {
 } from "@/lib/types";
 
 export default function Dashboard() {
+  const [mounted, setMounted] = useState<boolean>(false);
   const [queue, setQueue] = useState<FileQueueItem[]>([]);
   const [logs, setLogs] = useState<ProcessingLog[]>([]);
   const [selectedGrade, setSelectedGrade] = useState<GradeLevel>("1_middle");
@@ -53,6 +54,7 @@ export default function Dashboard() {
   const [copied, setCopied] = useState<boolean>(false);
 
   const [settings, setSettings] = useState<ProcessingSettings>({
+    geminiApiKey: "",
     edenAiApiKey: "",
     deepSeekApiKey: "",
     batchSize: 3,
@@ -65,12 +67,17 @@ export default function Dashboard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // Poll status from server every 2 seconds
   useEffect(() => {
+    if (!mounted) return;
     fetchStatus();
     const interval = setInterval(fetchStatus, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [mounted]);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -226,8 +233,14 @@ export default function Dashboard() {
     return log.level === logFilter;
   });
 
+  if (!mounted) {
+    return (
+      <div suppressHydrationWarning style={{ minHeight: "100vh", backgroundColor: "var(--bg-main)" }} />
+    );
+  }
+
   return (
-    <div style={{ padding: "24px", maxWidth: "1440px", margin: "0 auto" }}>
+    <div suppressHydrationWarning style={{ padding: "24px", maxWidth: "1440px", margin: "0 auto" }}>
       {/* Header Bar */}
       <header
         style={{
@@ -512,7 +525,27 @@ export default function Dashboard() {
           >
             <div>
               <label style={{ fontSize: "13px", color: "var(--text-muted)", display: "block", marginBottom: "6px" }}>
-                مفتاح EdenAI API Key (لاستخراج OCR والرؤية البصرية)
+                مفتاح Google Gemini API Key (موصى به - رؤية بصرية و OCR فائقة الدقة ومجانية)
+              </label>
+              <input
+                type="password"
+                value={settings.geminiApiKey || ""}
+                onChange={(e) => setSettings({ ...settings, geminiApiKey: e.target.value })}
+                placeholder="أدخل مفتاح Google Gemini (AIzaSy...)"
+                style={{
+                  width: "100%",
+                  padding: "10px 14px",
+                  backgroundColor: "var(--bg-main)",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "8px",
+                  color: "var(--text-main)",
+                }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: "13px", color: "var(--text-muted)", display: "block", marginBottom: "6px" }}>
+                مفتاح EdenAI API Key (احتياطي لاستخراج OCR والرؤية البصرية)
               </label>
               <input
                 type="password"

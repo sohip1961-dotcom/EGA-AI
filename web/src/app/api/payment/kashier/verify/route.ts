@@ -1,6 +1,7 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifySessionToken } from '@/lib/auth_helpers';
+import { verifyKashierCallbackSignature } from '@/lib/kashier';
 
 export async function POST(req: NextRequest) {
   try {
@@ -34,7 +35,11 @@ export async function POST(req: NextRequest) {
     const status = (paymentStatus || '').toUpperCase();
     const isSuccess = status === 'SUCCESS' || status === 'CAPTURED' || status === 'APPROVED' || status === 'PAID';
 
-    if (isSuccess) {
+    // If transaction was already verified server-side by webhook/callback, or client passes valid Kashier signature
+    const hasValidSignature = rawData ? verifyKashierCallbackSignature(rawData) : false;
+    const isVerifiedSuccess = transaction.status === 'success' || (isSuccess && hasValidSignature);
+
+    if (isVerifiedSuccess) {
       if (transaction.status !== 'success') {
         const transactionId = rawData?.kashierOrderReference || rawData?.transactionId || null;
         const paymentMethod = rawData?.method || rawData?.paymentMethod || null;
@@ -45,7 +50,7 @@ export async function POST(req: NextRequest) {
       const updatedProfile = await db.getProfile(userId);
       return NextResponse.json({
         success: true,
-        message: 'تم تفعيل الاشتراك بنجاح!',
+        message: 'تم تفعيل وتأكيد الاشتراك بنجاح!',
         user: updatedProfile ? {
           id: updatedProfile.id,
           phone: updatedProfile.phone,
@@ -53,15 +58,26 @@ export async function POST(req: NextRequest) {
           name: updatedProfile.name,
           grade_level: updatedProfile.grade_level,
           plan_type: updatedProfile.plan_type,
+          subscription_status: updatedProfile.subscription_status || 'active',
+          subscription_start_date: updatedProfile.subscription_start_date,
+          subscription_end_date: updatedProfile.subscription_end_date,
+          subscription_plan_id: updatedProfile.subscription_plan_id,
           role: updatedProfile.role,
-          coins: updatedProfile.coins === undefined ? 50.0 : updatedProfile.coins
+          coins: updatedProfile.coins === undefined ? 0.0 : updatedProfile.coins
         } : null
       });
+    } else if (transaction.status === 'pending' && isSuccess) {
+      // Transaction is still pending server-to-server webhook confirmation
+      return NextResponse.json({
+        success: false,
+        pending: true,
+        message: 'جاري تأكيد عملية الدفع من مزود الخدمة... يرجى الانتظار بضع ثوانٍ.'
+      }, { status: 202 });
     } else {
       await db.updatePaymentTransactionStatus(orderId, 'failed', null, null, rawData);
       return NextResponse.json({
         success: false,
-        error: 'لم تكتمل عملية الدفع أو تم إلغاؤها من قبل العميل.'
+        error: 'لم تكتمل عملية الدفع أو لم يتم التحقق من صحتها من قبل مزود الخدمة.'
       }, { status: 400 });
     }
 

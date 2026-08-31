@@ -114,3 +114,68 @@ export function verifySessionToken(token: string): string | null {
   return null;
 }
 
+export function parseDeviceMetadata(
+  userAgent?: string,
+  clientDeviceId?: string,
+  platform?: 'web' | 'mobile'
+): { deviceName: string; deviceType: 'web' | 'mobile' | 'tablet' | 'desktop' } {
+  const ua = (userAgent || '').toLowerCase();
+  const isMobileClient = platform === 'mobile' || (clientDeviceId && clientDeviceId.startsWith('mobile_'));
+
+  if (isMobileClient) {
+    if (ua.includes('ipad') || ua.includes('tablet')) {
+      return { deviceName: 'جهاز لوحي (تطبيق EGS AI)', deviceType: 'tablet' };
+    }
+    if (ua.includes('iphone')) {
+      return { deviceName: 'هاتف آيفون (تطبيق EGS AI)', deviceType: 'mobile' };
+    }
+    return { deviceName: 'هاتف أندرويد (تطبيق EGS AI)', deviceType: 'mobile' };
+  }
+
+  let browser = 'متصفح الويب';
+  if (ua.includes('edg/')) {
+    browser = 'Microsoft Edge';
+  } else if (ua.includes('chrome/') && !ua.includes('edg/')) {
+    browser = 'Google Chrome';
+  } else if (ua.includes('safari/') && !ua.includes('chrome/')) {
+    browser = 'Safari';
+  } else if (ua.includes('firefox/')) {
+    browser = 'Firefox';
+  } else if (ua.includes('opera/') || ua.includes('opr/')) {
+    browser = 'Opera';
+  }
+
+  let os = 'كمبيوتر';
+  let deviceType: 'web' | 'mobile' | 'tablet' | 'desktop' = 'desktop';
+
+  if (ua.includes('windows')) {
+    os = 'Windows';
+    deviceType = 'desktop';
+  } else if (ua.includes('macintosh') || ua.includes('mac os')) {
+    os = 'Mac';
+    deviceType = 'desktop';
+  } else if (ua.includes('linux') && !ua.includes('android')) {
+    os = 'Linux';
+    deviceType = 'desktop';
+  } else if (ua.includes('ipad')) {
+    os = 'iPad';
+    deviceType = 'tablet';
+  } else if (ua.includes('iphone')) {
+    os = 'iPhone';
+    deviceType = 'mobile';
+  } else if (ua.includes('android')) {
+    if (ua.includes('tablet') || ua.includes('tab')) {
+      os = 'Android Tablet';
+      deviceType = 'tablet';
+    } else {
+      os = 'Android';
+      deviceType = 'mobile';
+    }
+  }
+
+  return {
+    deviceName: `${browser} على ${os}`,
+    deviceType
+  };
+}
+

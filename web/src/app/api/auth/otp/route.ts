@@ -1,16 +1,27 @@
 export const runtime = 'edge';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { generateSessionToken } from '@/lib/auth_helpers';
+import { generateSessionToken, parseDeviceMetadata } from '@/lib/auth_helpers';
+import { checkRateLimit, getClientIp } from '@/lib/rate_limiter';
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, otp, has_registered_before } = await req.json();
+    const ip = getClientIp(req);
+    const body = await req.json();
+    const { email, otp, has_registered_before, browser_fingerprint, device_id } = body;
 
     if (!email || !otp) {
       return NextResponse.json(
         { error: 'البريد الإلكتروني ورمز التحقق مطلوبان' },
         { status: 400 }
+      );
+    }
+
+    const rateLimit = checkRateLimit(`otp_${ip}_${email}`, 5, 600);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: `تم تجاوز الحد المسموح لمحاولات التحقق. يرجى الانتظار ${rateLimit.resetSeconds} ثانية.` },
+        { status: 429 }
       );
     }
 
@@ -38,17 +49,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create profile
+    // Anti-Abuse Tracking (IP, User-Agent, Browser Fingerprint, Device ID)
+    const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+                      req.headers.get('cf-connecting-ip') ||
+                      req.headers.get('x-real-ip') ||
+                      'unknown';
+    const userAgent = req.headers.get('user-agent') || 'unknown';
+    const clientDeviceId = device_id || req.headers.get('x-device-id') || undefined;
+    const clientFingerprint = browser_fingerprint || req.headers.get('x-browser-fingerprint') || undefined;
+    const platform = (clientDeviceId && clientDeviceId.startsWith('mobile_')) ? 'mobile' : 'web';
+
     const userId = crypto.randomUUID();
+
+    const trialResult = await db.checkAndRecordTrialGrant({
+      userId,
+      ipAddress,
+      userAgent,
+      browserFingerprint: clientFingerprint,
+      deviceId: clientDeviceId,
+      platform,
+      hasRegisteredBefore: !!has_registered_before
+    });
+
+    // Create profile
     const profile = await db.createProfile({
       id: userId,
       email: pending.email,
       name: pending.name,
       grade_level: pending.grade_level,
+      track_id: pending.track_id || null,
+      elective_subject: pending.elective_subject || null,
       plan_type: 'free',
       role: 'student',
       password_hash: pending.password_hash,
-      coins: has_registered_before ? 0.0 : 50.0,
+      coins: trialResult.coins,
       terms_accepted_at: pending.terms_accepted_at || new Date().toISOString()
     });
 
@@ -58,17 +92,41 @@ export async function POST(req: NextRequest) {
     // Generate Session Token
     const token = generateSessionToken(userId);
 
+    // Device Tracking & Multi-Device Limit Enforcement (Max 3 Devices)
+    const { deviceName } = parseDeviceMetadata(userAgent, clientDeviceId, platform);
+    const deviceResult = await db.registerUserDevice({
+      userId,
+      deviceId: clientDeviceId,
+      sessionToken: token,
+      userAgent,
+      ipAddress: (ipAddress !== 'unknown' && ipAddress.length > 3) ? ipAddress : undefined,
+      browserFingerprint: clientFingerprint,
+      platform,
+      deviceName
+    });
+
     return NextResponse.json({
       success: true,
       token,
+      device_id: deviceResult.device.device_id,
+      active_devices_count: deviceResult.activeCount,
+      devices_revoked: deviceResult.devicesRevoked,
       user: {
         id: profile.id,
         email: profile.email,
         name: profile.name,
         grade_level: profile.grade_level,
+        track_id: profile.track_id || null,
+        elective_subject: profile.elective_subject || null,
         plan_type: profile.plan_type,
+        subscription_status: profile.subscription_status || 'inactive',
+        subscription_start_date: profile.subscription_start_date || null,
+        subscription_end_date: profile.subscription_end_date || null,
+        subscription_plan_id: profile.subscription_plan_id || null,
         role: profile.role,
-        coins: profile.coins === undefined ? 50.0 : profile.coins
+        coins: profile.coins === undefined ? 15.0 : profile.coins,
+        points: profile.points || 0,
+        study_streak: profile.study_streak || 1
       }
     });
 
@@ -80,3 +138,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { getCairoDateString, toPreciseCoins } from './currency_verifier';
 
 // Types
 export interface Profile {
@@ -6,8 +7,14 @@ export interface Profile {
   phone?: string;
   email?: string;
   name: string;
-  grade_level: string; // '1_middle', '2_middle', '3_middle', '1_high', '2_high', '3_high'
-  plan_type: 'free' | 'pro' | 'max';
+  grade_level: string; // '1_middle', '2_middle', '3_middle', '1_high', '2_high'
+  track_id?: string | null; // 'medicine_life_sciences' | 'engineering_cs' | 'business' | 'arts_literature'
+  elective_subject?: string | null;
+  plan_type: 'free' | 'pro' | 'pro_1m' | 'pro_2m' | 'pro_3m' | 'max';
+  subscription_status?: 'active' | 'expired' | 'inactive';
+  subscription_start_date?: string | null;
+  subscription_end_date?: string | null;
+  subscription_plan_id?: string | null;
   role: 'student' | 'admin' | 'security';
   password_hash: string;
   created_at: string;
@@ -24,6 +31,8 @@ export interface PendingRegistration {
   phone?: string;
   name: string;
   grade_level: string;
+  track_id?: string | null;
+  elective_subject?: string | null;
   password_hash: string;
   otp: string;
   created_at: string;
@@ -36,6 +45,14 @@ export interface PasswordReset {
   otp: string;
   expires_at: string;
   created_at: string;
+}
+
+export interface AccountDeletion {
+  user_id: string;
+  email: string;
+  otp: string;
+  expires_at: string;
+  created_at?: string;
 }
 
 export interface Report {
@@ -80,11 +97,45 @@ export interface DeviceGuest {
   coins?: number;
 }
 
+export interface FreeTrialGrant {
+  id: string;
+  user_id?: string;
+  ip_address?: string;
+  user_agent?: string;
+  browser_fingerprint?: string;
+  device_id?: string;
+  platform: 'web' | 'mobile';
+  coins_granted: number;
+  created_at: string;
+}
+
+export interface CurriculumLesson {
+  id: string;
+  title: string;
+  lessonNumber: number;
+  unitTitle?: string;
+  unitId?: string;
+  subtopics?: string[];
+  startPage?: number;
+}
+
+export interface CurriculumUnit {
+  id: string;
+  title: string;
+  unitNumber: number;
+  startPage?: number;
+  lessons: CurriculumLesson[];
+}
+
 export interface Curriculum {
   id: string;
   grade_level: string;
   subject_name: string;
   file_name: string;
+  units?: CurriculumUnit[];
+  is_placeholder?: boolean;
+  track_id?: string | null;
+  is_elective?: boolean;
   created_at: string;
 }
 
@@ -194,6 +245,21 @@ export interface PaymentTransaction {
   updated_at: string;
 }
 
+export interface UserDevice {
+  id: string;
+  user_id: string;
+  device_id: string;
+  session_token?: string;
+  device_name: string;
+  device_type: 'web' | 'mobile' | 'tablet' | 'desktop';
+  browser_fingerprint?: string;
+  ip_address?: string;
+  user_agent?: string;
+  is_active: boolean;
+  last_active_at: string;
+  created_at: string;
+}
+
 // Initialize local DB file if missing
 function initLocalDB() {
   if (process.env.NEXT_RUNTIME === 'edge') return;
@@ -207,7 +273,7 @@ function initLocalDB() {
           phone: '01147814652',
           email: 'admin@egsaiedu.com',
           name: 'مدير النظام',
-          grade_level: '3_high',
+          grade_level: '1_high',
           plan_type: 'max',
           role: 'admin',
           password_hash: '343f7ea65b1d1ed5b5980d214808c2e06379a8b97586db4d6c97874d4440c174',
@@ -234,7 +300,9 @@ function initLocalDB() {
       app_versions: [],
       flashcard_decks: [],
       flashcards: [],
-      payment_transactions: []
+      payment_transactions: [],
+      free_trial_grants: [],
+      user_devices: []
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf8');
   }
@@ -260,7 +328,9 @@ function readLocalDB() {
       app_versions: [],
       flashcard_decks: [],
       flashcards: [],
-      payment_transactions: []
+      payment_transactions: [],
+      free_trial_grants: [],
+      user_devices: []
     };
   }
   const fs = require('fs');
@@ -281,11 +351,19 @@ function readLocalDB() {
       changed = true;
     }
     
-    // Migrate local profiles if coins or last_active_date are missing
+    // Migrate local profiles if coins, points, study_streak, or last_active_date are missing
     if (parsed.profiles) {
       parsed.profiles.forEach((p: any) => {
         if (p.coins === undefined) {
           p.coins = p.plan_type === 'pro' ? 500.0 : (p.plan_type === 'max' ? 1000.0 : 50.0);
+          changed = true;
+        }
+        if (p.points === undefined) {
+          p.points = 0;
+          changed = true;
+        }
+        if (p.study_streak === undefined) {
+          p.study_streak = 1;
           changed = true;
         }
         if (p.last_active_date === undefined) {
@@ -363,7 +441,7 @@ function readLocalDB() {
           phone: '01147814652',
           email: 'admin@egsaiedu.com',
           name: 'مدير النظام',
-          grade_level: '3_high',
+          grade_level: '1_high',
           plan_type: 'max',
           role: 'admin',
           password_hash: '343f7ea65b1d1ed5b5980d214808c2e06379a8b97586db4d6c97874d4440c174',
@@ -417,25 +495,50 @@ if (isSupabaseEnabled) {
 
 // Daily coin caps per plan. Replenishment tops the balance UP TO the cap on the
 // first request of a new day — it never reduces a balance already above the cap.
+// Note: free accounts receive a one-time grant of 15 trial points (non-renewable).
 export const DAILY_COIN_CAPS: Record<string, number> = {
-  free: 15.0,
-  pro: 50.0,
-  max: 100.0
+  free: 0.0, // Non-renewable trial points
+  pro: 80.0,
+  pro_1m: 80.0,
+  pro_2m: 90.0,
+  pro_3m: 120.0,
+  max: 120.0
 };
 
-// Helper: Daily coin replenishment + activity date refresh + streak update
+// Helper: Daily coin replenishment + activity date refresh + streak update + subscription expiry check
 async function checkAndResetDailyCoins(profile: Profile): Promise<Profile> {
-  const today = new Date().toISOString().split('T')[0];
-  if (profile.last_active_date !== today) {
-    const cap = DAILY_COIN_CAPS[profile.plan_type] ?? DAILY_COIN_CAPS.free;
-    const current = profile.coins === undefined ? 0.0 : profile.coins;
-    const newCoins = Math.max(current, cap);
+  const today = getCairoDateString();
+  let profileModified = false;
 
-    // Calculate new streak
+  // Check and enforce subscription expiry
+  if (profile.subscription_end_date) {
+    const isExpired = new Date(profile.subscription_end_date).getTime() <= Date.now();
+    if (isExpired && profile.subscription_status === 'active') {
+      profile.subscription_status = 'expired';
+      profile.plan_type = 'free';
+      profileModified = true;
+    } else if (!isExpired && (profile.subscription_status !== 'active' || profile.plan_type === 'free')) {
+      if (profile.subscription_plan_id) {
+        profile.subscription_status = 'active';
+        profile.plan_type = (profile.subscription_plan_id as any) || 'pro_1m';
+        profileModified = true;
+      }
+    }
+  }
+
+  // Daily coin replenishment and streak update on new day (aligned with Africa/Cairo calendar date)
+  if (profile.last_active_date !== today) {
+    const isFree = !profile.plan_type || profile.plan_type === 'free' || profile.subscription_status !== 'active';
+    const cap = DAILY_COIN_CAPS[profile.plan_type] ?? 0.0;
+    const current = toPreciseCoins(profile.coins === undefined ? 0.0 : profile.coins);
+    // Free plan points are one-time non-renewable; packages replenish up to their daily cap
+    const newCoins = isFree ? current : toPreciseCoins(Math.max(current, cap));
+
+    // Calculate new streak based on Cairo calendar days
     let newStreak = profile.study_streak || 1;
     if (profile.last_active_date) {
-      const todayDate = new Date(today);
-      const lastActiveDate = new Date(profile.last_active_date);
+      const todayDate = new Date(today + 'T00:00:00Z');
+      const lastActiveDate = new Date(profile.last_active_date + 'T00:00:00Z');
       const diffTime = todayDate.getTime() - lastActiveDate.getTime();
       const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
       
@@ -451,31 +554,40 @@ async function checkAndResetDailyCoins(profile: Profile): Promise<Profile> {
     profile.last_active_date = today;
     profile.coins = newCoins;
     profile.study_streak = newStreak;
+    profileModified = true;
+  }
+
+  if (profileModified) {
+    const updatePayload: Partial<Profile> = {
+      last_active_date: profile.last_active_date,
+      coins: toPreciseCoins(profile.coins ?? 0.0),
+      study_streak: profile.study_streak,
+      plan_type: profile.plan_type,
+      subscription_status: profile.subscription_status,
+      subscription_start_date: profile.subscription_start_date,
+      subscription_end_date: profile.subscription_end_date,
+      subscription_plan_id: profile.subscription_plan_id
+    };
 
     if (supabase) {
-      await supabase.from('profiles').update({ 
-        last_active_date: today, 
-        coins: newCoins,
-        study_streak: newStreak
-      }).eq('id', profile.id);
+      await supabase.from('profiles').update(updatePayload).eq('id', profile.id);
     } else {
       const data = readLocalDB();
-      const p = data.profiles.find((x: any) => x.id === profile.id);
+      const p = (data.profiles || []).find((x: any) => x.id === profile.id);
       if (p) {
-        p.last_active_date = today;
-        p.coins = newCoins;
-        p.study_streak = newStreak;
+        Object.assign(p, updatePayload);
         writeLocalDB(data);
       }
     }
   }
+
   return profile;
 }
 
 
 // Helper: Check and reset device guest coins daily
 async function checkAndResetGuestDailyCoins(guest: DeviceGuest): Promise<DeviceGuest> {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getCairoDateString();
   if (guest.last_message_date !== today) {
     guest.coins = 5.0; // Reset guest to 5 coins daily
     guest.last_message_date = today;
@@ -537,11 +649,13 @@ export const db = {
   },
 
   async createProfile(profile: Omit<Profile, 'created_at'>): Promise<Profile> {
-    const defaultCoins = profile.plan_type === 'pro' ? 500.0 : (profile.plan_type === 'max' ? 1000.0 : 50.0);
+    const defaultCoins = profile.plan_type === 'pro' ? 80.0 : (profile.plan_type === 'max' ? 120.0 : 15.0);
     const newProfile = {
       ...profile,
       email: profile.email ? profile.email.toLowerCase() : undefined,
       coins: profile.coins !== undefined ? profile.coins : defaultCoins,
+      points: profile.points !== undefined ? profile.points : 0,
+      study_streak: profile.study_streak !== undefined ? profile.study_streak : 1,
       last_active_date: profile.last_active_date || new Date().toISOString().split('T')[0],
       created_at: new Date().toISOString()
     };
@@ -564,27 +678,39 @@ export const db = {
   },
 
   async updateProfilePlan(id: string, planType: 'free' | 'pro' | 'max'): Promise<Profile | null> {
-    const coins = planType === 'pro' ? 500.0 : (planType === 'max' ? 1000.0 : 50.0);
+    const coins = planType === 'pro' ? 80.0 : (planType === 'max' ? 120.0 : 0.0);
     const today = new Date().toISOString().split('T')[0];
+    const isFree = planType === 'free';
+    const updatePayload = {
+      plan_type: planType,
+      coins,
+      last_active_date: today,
+      subscription_status: isFree ? ('inactive' as const) : ('active' as const),
+      subscription_start_date: isFree ? null : new Date().toISOString(),
+      subscription_end_date: isFree ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      subscription_plan_id: isFree ? null : (planType === 'max' ? 'pro_3m' : 'pro_1m')
+    };
     if (supabase) {
-      const { data, error } = await supabase.from('profiles').update({ plan_type: planType, coins, last_active_date: today }).eq('id', id).select().single();
+      const { data, error } = await supabase.from('profiles').update(updatePayload).eq('id', id).select().single();
       if (error) return null;
       return data;
     } else {
       const data = readLocalDB();
       const profile = data.profiles.find((p: Profile) => p.id === id);
       if (!profile) return null;
-      profile.plan_type = planType;
-      profile.coins = coins;
-      profile.last_active_date = today;
+      Object.assign(profile, updatePayload);
       writeLocalDB(data);
       return profile;
     }
   },
 
-  async updateProfileGradeLevel(id: string, gradeLevel: string): Promise<Profile | null> {
+  async updateProfileGradeLevel(id: string, gradeLevel: string, trackId?: string | null, electiveSubject?: string | null): Promise<Profile | null> {
+    const updatePayload: any = { grade_level: gradeLevel };
+    if (trackId !== undefined) updatePayload.track_id = trackId;
+    if (electiveSubject !== undefined) updatePayload.elective_subject = electiveSubject;
+
     if (supabase) {
-      const { data, error } = await supabase.from('profiles').update({ grade_level: gradeLevel }).eq('id', id).select().single();
+      const { data, error } = await supabase.from('profiles').update(updatePayload).eq('id', id).select().single();
       if (error) return null;
       return data;
     } else {
@@ -592,6 +718,8 @@ export const db = {
       const profile = data.profiles.find((p: Profile) => p.id === id);
       if (!profile) return null;
       profile.grade_level = gradeLevel;
+      if (trackId !== undefined) profile.track_id = trackId;
+      if (electiveSubject !== undefined) profile.elective_subject = electiveSubject;
       writeLocalDB(data);
       return profile;
     }
@@ -609,12 +737,25 @@ export const db = {
     }
   },
 
-  async createPendingRegistration(email: string, name: string, gradeLevel: string, passwordHash: string, otp: string, termsAcceptedAt?: string, phone?: string, expiresAt?: string): Promise<PendingRegistration> {
-    const pending = {
+  async createPendingRegistration(
+    email: string,
+    name: string,
+    gradeLevel: string,
+    passwordHash: string,
+    otp: string,
+    termsAcceptedAt?: string,
+    phone?: string,
+    expiresAt?: string,
+    trackId?: string | null,
+    electiveSubject?: string | null
+  ): Promise<PendingRegistration> {
+    const pending: PendingRegistration = {
       email: email.toLowerCase(),
       phone: phone || undefined,
       name,
       grade_level: gradeLevel,
+      track_id: trackId || null,
+      elective_subject: electiveSubject || null,
       password_hash: passwordHash,
       otp,
       created_at: new Date().toISOString(),
@@ -676,6 +817,41 @@ export const db = {
     } else {
       const data = readLocalDB();
       data.password_resets = (data.password_resets || []).filter((pr: PasswordReset) => pr.user_id !== userId);
+      writeLocalDB(data);
+    }
+  },
+
+  // Account deletion OTPs
+  async getAccountDeletion(userId: string): Promise<AccountDeletion | null> {
+    if (supabase) {
+      const { data, error } = await supabase.from('account_deletions').select('*').eq('user_id', userId).maybeSingle();
+      if (error) return null;
+      return data;
+    } else {
+      const data = readLocalDB();
+      return (data.account_deletions || []).find((ad: AccountDeletion) => ad.user_id === userId) || null;
+    }
+  },
+
+  async createAccountDeletion(userId: string, email: string, otp: string, expiresAt: string): Promise<void> {
+    const record = { user_id: userId, email: email.toLowerCase(), otp, expires_at: expiresAt, created_at: new Date().toISOString() };
+    if (supabase) {
+      const { error } = await supabase.from('account_deletions').upsert(record);
+      if (error) throw error;
+    } else {
+      const data = readLocalDB();
+      data.account_deletions = (data.account_deletions || []).filter((ad: AccountDeletion) => ad.user_id !== userId);
+      data.account_deletions.push(record);
+      writeLocalDB(data);
+    }
+  },
+
+  async deleteAccountDeletion(userId: string): Promise<void> {
+    if (supabase) {
+      await supabase.from('account_deletions').delete().eq('user_id', userId);
+    } else {
+      const data = readLocalDB();
+      data.account_deletions = (data.account_deletions || []).filter((ad: AccountDeletion) => ad.user_id !== userId);
       writeLocalDB(data);
     }
   },
@@ -742,10 +918,22 @@ export const db = {
     if (supabase) {
       const { data, error } = await supabase.from('curriculums').select('*');
       if (error) return [];
-      return data;
+      return (data || []).map((c: any) => ({
+        ...c,
+        units: Array.isArray(c.units) ? c.units : [],
+        is_placeholder: !!c.is_placeholder,
+        track_id: c.track_id || null,
+        is_elective: !!c.is_elective
+      }));
     } else {
       const data = readLocalDB();
-      return data.curriculums;
+      return (data.curriculums || []).map((c: any) => ({
+        ...c,
+        units: Array.isArray(c.units) ? c.units : [],
+        is_placeholder: !!c.is_placeholder,
+        track_id: c.track_id || null,
+        is_elective: !!c.is_elective
+      }));
     }
   },
 
@@ -753,7 +941,10 @@ export const db = {
     gradeLevel: string,
     subjectName: string,
     fileName: string,
-    chunks: Omit<CurriculumChunk, 'curriculum_id'>[]
+    chunks: Omit<CurriculumChunk, 'curriculum_id'>[],
+    units: CurriculumUnit[] = [],
+    trackId?: string | null,
+    isElective?: boolean
   ): Promise<Curriculum> {
     const cleanGrade = gradeLevel.trim();
     const cleanSubject = subjectName.trim();
@@ -763,6 +954,10 @@ export const db = {
       grade_level: cleanGrade,
       subject_name: cleanSubject,
       file_name: fileName,
+      units: Array.isArray(units) ? units : [],
+      is_placeholder: false,
+      track_id: trackId || null,
+      is_elective: !!isElective,
       created_at: new Date().toISOString()
     };
 
@@ -823,12 +1018,151 @@ export const db = {
         chunk_level: c.chunk_level || 'parent',
         parent_id: c.parent_id || null,
         position_index: c.position_index || 0
-        // Note: embeddings not stored in local JSON (too large)
       }));
       data.curriculum_chunks.push(...newChunks);
 
       writeLocalDB(data);
       return newCurriculum;
+    }
+  },
+
+  async createPlaceholderCurriculum(
+    gradeLevel: string,
+    subjectName: string,
+    trackId?: string | null,
+    isElective?: boolean
+  ): Promise<Curriculum> {
+    const cleanGrade = gradeLevel.trim();
+    const cleanSubject = subjectName.trim();
+    const curriculumId = crypto.randomUUID();
+    const newCurriculum: Curriculum = {
+      id: curriculumId,
+      grade_level: cleanGrade,
+      subject_name: cleanSubject,
+      file_name: 'قيد الإعداد (بدون ملف)',
+      units: [],
+      is_placeholder: true,
+      track_id: trackId || null,
+      is_elective: !!isElective,
+      created_at: new Date().toISOString()
+    };
+
+    if (supabase) {
+      const { error: currError } = await supabase.from('curriculums').insert(newCurriculum);
+      if (currError) throw currError;
+      return newCurriculum;
+    } else {
+      const data = readLocalDB();
+      const existing = data.curriculums.find((c: Curriculum) => c.grade_level === cleanGrade && c.subject_name === cleanSubject);
+      if (existing) {
+        data.curriculums = data.curriculums.filter((c: Curriculum) => c.id !== existing.id);
+      }
+      data.curriculums.push(newCurriculum);
+      writeLocalDB(data);
+      return newCurriculum;
+    }
+  },
+
+  async attachFileToCurriculum(
+    curriculumId: string,
+    fileName: string,
+    chunks: Omit<CurriculumChunk, 'curriculum_id'>[],
+    units: CurriculumUnit[] = []
+  ): Promise<Curriculum | null> {
+    if (supabase) {
+      const { data: existing, error: findError } = await supabase.from('curriculums').select('*').eq('id', curriculumId).single();
+      if (findError || !existing) return null;
+
+      const { error: updateError } = await supabase
+        .from('curriculums')
+        .update({
+          file_name: fileName,
+          is_placeholder: false,
+          units: Array.isArray(units) && units.length > 0 ? units : existing.units || []
+        })
+        .eq('id', curriculumId);
+      if (updateError) throw updateError;
+
+      // Delete existing chunks if any
+      await supabase.from('curriculum_chunks').delete().eq('curriculum_id', curriculumId);
+
+      // Assign IDs to parent chunks first so children can reference them
+      const parentMap = new Map<string, string>();
+      for (const c of chunks) {
+        if (c.chunk_level === 'parent' && c.id) {
+          parentMap.set(c.id, crypto.randomUUID());
+        }
+      }
+
+      const formattedChunks = chunks.map(c => {
+        const realId = (c.chunk_level === 'parent' && c.id && parentMap.has(c.id))
+          ? parentMap.get(c.id)!
+          : (c.id || crypto.randomUUID());
+        return {
+          id: realId,
+          curriculum_id: curriculumId,
+          content: c.content,
+          heading: c.heading,
+          chunk_level: c.chunk_level || 'parent',
+          parent_id: c.parent_id ? (parentMap.get(c.parent_id) || c.parent_id) : null,
+          position_index: c.position_index || 0,
+          embedding: c.embedding || null
+        };
+      });
+
+      const BATCH = 100;
+      for (let i = 0; i < formattedChunks.length; i += BATCH) {
+        const batch = formattedChunks.slice(i, i + BATCH);
+        const { error: chunkError } = await supabase.from('curriculum_chunks').insert(batch);
+        if (chunkError) throw chunkError;
+      }
+
+      return {
+        ...existing,
+        file_name: fileName,
+        is_placeholder: false,
+        units: Array.isArray(units) && units.length > 0 ? units : existing.units || []
+      };
+    } else {
+      const data = readLocalDB();
+      const existing = data.curriculums.find((c: Curriculum) => c.id === curriculumId);
+      if (!existing) return null;
+
+      existing.file_name = fileName;
+      existing.is_placeholder = false;
+      if (units && units.length > 0) existing.units = units;
+
+      data.curriculum_chunks = (data.curriculum_chunks || []).filter((cc: CurriculumChunk) => cc.curriculum_id !== curriculumId);
+      const newChunks = chunks.map(c => ({
+        id: c.id || crypto.randomUUID(),
+        curriculum_id: curriculumId,
+        content: c.content,
+        heading: c.heading,
+        chunk_level: c.chunk_level || 'parent',
+        parent_id: c.parent_id || null,
+        position_index: c.position_index || 0
+      }));
+      data.curriculum_chunks.push(...newChunks);
+      writeLocalDB(data);
+      return existing;
+    }
+  },
+
+  async updateCurriculumUnits(id: string, units: CurriculumUnit[]): Promise<boolean> {
+    const sanitizedUnits = Array.isArray(units) ? units : [];
+    if (supabase) {
+      const { error } = await supabase
+        .from('curriculums')
+        .update({ units: sanitizedUnits })
+        .eq('id', id);
+      return !error;
+    } else {
+      const data = readLocalDB();
+      const curr = data.curriculums.find((c: Curriculum) => c.id === id);
+      if (!curr) return false;
+      curr.units = sanitizedUnits;
+      writeLocalDB(data);
+      return true;
     }
   },
 
@@ -1169,15 +1503,15 @@ export const db = {
   },
 
   async deductCoins(userId: string | null, deviceId: string | null, amount: number): Promise<number> {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getCairoDateString();
     if (userId) {
       const profile = await this.getProfile(userId);
       if (!profile) return 0;
       const currentCoins = profile.coins === undefined ? 50.0 : profile.coins;
       if (profile.role === 'admin' || profile.unlimited_credit) {
-        return currentCoins;
+        return toPreciseCoins(currentCoins);
       }
-      const newCoins = Math.max(0, currentCoins - amount);
+      const newCoins = Math.max(0, toPreciseCoins(currentCoins - amount));
       
       if (supabase) {
         await supabase.from('profiles').update({ coins: newCoins, last_active_date: today }).eq('id', userId);
@@ -1194,7 +1528,7 @@ export const db = {
     } else if (deviceId) {
       const guest = await this.getDeviceGuest(deviceId);
       const currentCoins = guest ? (guest.coins === undefined ? 5.0 : guest.coins) : 5.0;
-      const newCoins = Math.max(0, currentCoins - amount);
+      const newCoins = Math.max(0, toPreciseCoins(currentCoins - amount));
       
       if (supabase) {
         await supabase.from('device_guests').upsert({ device_id: deviceId, coins: newCoins, last_message_date: today });
@@ -1342,29 +1676,61 @@ export const db = {
       const { data: curriculum, error: err1 } = await supabase.from('curriculums').select('*').eq('id', id).single();
       if (err1 || !curriculum) return null;
       
-      const { data: chunks, error: err2 } = await supabase.from('curriculum_chunks').select('*').eq('curriculum_id', id);
-      if (err2 || !chunks) return null;
+      curriculum.units = Array.isArray(curriculum.units) ? curriculum.units : [];
+
+      // Fetch parent chunks only to avoid duplicating content with child chunks
+      let allChunks: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data: chunkPage, error: err2 } = await supabase
+          .from('curriculum_chunks')
+          .select('heading, content, position_index, chunk_level')
+          .eq('curriculum_id', id)
+          .neq('chunk_level', 'child')
+          .order('position_index', { ascending: true })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+        if (err2 || !chunkPage || chunkPage.length === 0) break;
+        allChunks = allChunks.concat(chunkPage);
+        if (chunkPage.length < pageSize) break;
+        page++;
+      }
+
+      allChunks.sort((a, b) => (a.position_index ?? 0) - (b.position_index ?? 0));
       
-      const content = chunks.map(c => {
-        if (c.heading && c.heading !== 'مقدمة المنهج' && !c.heading.includes('(جزء')) {
-          return `# ${c.heading}\n${c.content}`;
+      const content = allChunks.map(c => {
+        const rawContent = (c.content || '').trim();
+        if (c.heading && c.heading !== '__CURRICULUM_SUMMARY__' && c.heading !== 'مقدمة المنهج' && !c.heading.includes('(جزء') && !c.heading.includes('(')) {
+          if (rawContent.startsWith('# ') || rawContent.startsWith('## ') || rawContent.startsWith('### ')) {
+            return rawContent;
+          }
+          return `# ${c.heading}\n${rawContent}`;
         }
-        return c.content;
-      }).join('\n\n');
+        return rawContent;
+      }).filter(Boolean).join('\n\n');
       
       return { curriculum, content };
     } else {
       const data = readLocalDB();
-      const curriculum = data.curriculums.find((c: Curriculum) => c.id === id);
+      const curriculum = (data.curriculums || []).find((c: Curriculum) => c.id === id);
       if (!curriculum) return null;
       
-      const chunks = data.curriculum_chunks.filter((cc: CurriculumChunk) => cc.curriculum_id === id);
+      curriculum.units = Array.isArray(curriculum.units) ? curriculum.units : [];
+
+      const chunks = (data.curriculum_chunks || [])
+        .filter((cc: CurriculumChunk) => cc.curriculum_id === id && cc.chunk_level !== 'child')
+        .sort((a: any, b: any) => (a.position_index ?? 0) - (b.position_index ?? 0));
+
       const content = chunks.map((c: CurriculumChunk) => {
-        if (c.heading && c.heading !== 'مقدمة المنهج' && !c.heading.includes('(جزء')) {
-          return `# ${c.heading}\n${c.content}`;
+        const rawContent = (c.content || '').trim();
+        if (c.heading && c.heading !== '__CURRICULUM_SUMMARY__' && c.heading !== 'مقدمة المنهج' && !c.heading.includes('(جزء') && !c.heading.includes('(')) {
+          if (rawContent.startsWith('# ') || rawContent.startsWith('## ') || rawContent.startsWith('### ')) {
+            return rawContent;
+          }
+          return `# ${c.heading}\n${rawContent}`;
         }
-        return c.content;
-      }).join('\n\n');
+        return rawContent;
+      }).filter(Boolean).join('\n\n');
       
       return { curriculum, content };
     }
@@ -1374,7 +1740,7 @@ export const db = {
     id: string,
     gradeLevel: string,
     subjectName: string,
-    chunks: Omit<CurriculumChunk, 'id' | 'curriculum_id'>[]
+    chunks: (Omit<CurriculumChunk, 'curriculum_id'> | CurriculumChunk)[]
   ): Promise<boolean> {
     const cleanGrade = gradeLevel.trim();
     const cleanSubject = subjectName.trim();
@@ -1391,15 +1757,41 @@ export const db = {
         .delete()
         .eq('curriculum_id', id);
       if (err2) return false;
+
+      // Assign IDs to parent chunks first so children can reference them
+      const parentMap = new Map<string, string>();
+      for (const c of chunks) {
+        if (c.chunk_level === 'parent' && c.id) {
+          parentMap.set(c.id, crypto.randomUUID());
+        }
+      }
       
-      const formattedChunks = chunks.map(c => ({
-        id: crypto.randomUUID(),
-        curriculum_id: id,
-        content: c.content,
-        heading: c.heading
-      }));
-      const { error: err3 } = await supabase.from('curriculum_chunks').insert(formattedChunks);
-      if (err3) return false;
+      const formattedChunks = chunks.map(c => {
+        const realId = (c.chunk_level === 'parent' && c.id && parentMap.has(c.id))
+          ? parentMap.get(c.id)!
+          : (c.id || crypto.randomUUID());
+        return {
+          id: realId,
+          curriculum_id: id,
+          content: c.content,
+          heading: c.heading,
+          chunk_level: c.chunk_level || 'parent',
+          parent_id: c.parent_id ? (parentMap.get(c.parent_id) || c.parent_id) : null,
+          position_index: c.position_index || 0,
+          embedding: c.embedding || null
+        };
+      });
+
+      // Insert in batches of 100 to avoid payload limits
+      const BATCH = 100;
+      for (let i = 0; i < formattedChunks.length; i += BATCH) {
+        const batch = formattedChunks.slice(i, i + BATCH);
+        const { error: chunkError } = await supabase.from('curriculum_chunks').insert(batch);
+        if (chunkError) {
+          console.error('Error inserting updated chunks:', chunkError);
+          return false;
+        }
+      }
       
       return true;
     } else {
@@ -1413,10 +1805,13 @@ export const db = {
       data.curriculum_chunks = data.curriculum_chunks.filter((cc: CurriculumChunk) => cc.curriculum_id !== id);
       
       const newChunks = chunks.map(c => ({
-        id: crypto.randomUUID(),
+        id: c.id || crypto.randomUUID(),
         curriculum_id: id,
         content: c.content,
-        heading: c.heading
+        heading: c.heading,
+        chunk_level: c.chunk_level || 'parent',
+        parent_id: c.parent_id || null,
+        position_index: c.position_index || 0
       }));
       data.curriculum_chunks.push(...newChunks);
       
@@ -1970,8 +2365,13 @@ export const db = {
   // ─── User management (admin) ───────────────────────────────────────────────
   async getUsers(search?: string): Promise<Omit<Profile, 'password_hash'>[]> {
     if (supabase) {
-      let query = supabase.from('profiles').select('id, phone, email, name, grade_level, plan_type, role, coins, unlimited_credit, created_at, last_active_date');
-      if (search) query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
+      let query = supabase.from('profiles').select('id, phone, email, name, grade_level, plan_type, role, coins, points, study_streak, unlimited_credit, created_at, last_active_date');
+      if (search) {
+        const cleanSearch = search.replace(/[%(),.*+?^${}|[\]\\]/g, '').trim();
+        if (cleanSearch) {
+          query = query.or(`name.ilike.%${cleanSearch}%,phone.ilike.%${cleanSearch}%,email.ilike.%${cleanSearch}%`);
+        }
+      }
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) return [];
       return data || [];
@@ -2005,11 +2405,29 @@ export const db = {
 
   async deleteUser(id: string): Promise<boolean> {
     if (supabase) {
+      try {
+        await supabase.from('chat_history').delete().eq('user_id', id);
+        await supabase.from('exams').delete().eq('user_id', id);
+        await supabase.from('reports').delete().eq('user_id', id);
+        await supabase.from('payment_transactions').delete().eq('user_id', id);
+        await supabase.from('account_deletions').delete().eq('user_id', id);
+      } catch (e) {
+        console.warn('deleteUser related tables cleanup notice:', e);
+      }
       const { error } = await supabase.from('profiles').delete().eq('id', id);
       return !error;
     } else {
       const data = readLocalDB();
-      data.profiles = data.profiles.filter((p: Profile) => p.id !== id);
+      data.profiles = (data.profiles || []).filter((p: Profile) => p.id !== id);
+      if (data.chat_sessions) data.chat_sessions = data.chat_sessions.filter((s: any) => s.user_id !== id);
+      if (data.chat_history) data.chat_history = data.chat_history.filter((h: any) => h.user_id !== id);
+      if (data.exams) data.exams = data.exams.filter((e: any) => e.user_id !== id);
+      if (data.exam_submissions) data.exam_submissions = data.exam_submissions.filter((es: any) => es.user_id !== id);
+      if (data.reports) data.reports = data.reports.filter((r: any) => r.user_id !== id);
+      if (data.password_resets) data.password_resets = data.password_resets.filter((pr: any) => pr.user_id !== id);
+      if (data.account_deletions) data.account_deletions = data.account_deletions.filter((ad: any) => ad.user_id !== id);
+      if (data.flashcard_decks) data.flashcard_decks = data.flashcard_decks.filter((fd: any) => fd.user_id !== id);
+      if (data.payment_transactions) data.payment_transactions = data.payment_transactions.filter((pt: any) => pt.user_id !== id);
       writeLocalDB(data);
       return true;
     }
@@ -2019,7 +2437,7 @@ export const db = {
     const profile = await this.getProfile(userId);
     if (!profile) return 0;
     const currentCoins = profile.coins === undefined ? 50.0 : profile.coins;
-    const newCoins = currentCoins + amount;
+    const newCoins = toPreciseCoins(currentCoins + amount);
     
     if (supabase) {
       await supabase.from('profiles').update({ coins: newCoins }).eq('id', userId);
@@ -2041,10 +2459,9 @@ export const db = {
     const newPoints = currentPoints + amount;
     
     if (supabase) {
-      try {
-        await supabase.from('profiles').update({ points: newPoints }).eq('id', userId);
-      } catch (e) {
-        console.warn('addPoints update failed:', e);
+      const { error } = await supabase.from('profiles').update({ points: newPoints }).eq('id', userId);
+      if (error) {
+        console.error('addPoints update failed in Supabase:', error);
       }
     } else {
       const data = readLocalDB();
@@ -2054,6 +2471,7 @@ export const db = {
         writeLocalDB(data);
       }
     }
+    profile.points = newPoints;
     return newPoints;
   },
 
@@ -2071,7 +2489,7 @@ export const db = {
     }
   },
 
-  async getLeaderboard(gradeLevel?: string, limit: number = 20): Promise<any[]> {
+  async getLeaderboard(gradeLevel?: string, limit: number = 10): Promise<any[]> {
     if (supabase) {
       const { data, error } = await supabase.rpc('get_leaderboard', {
         p_grade_level: gradeLevel || null,
@@ -2120,6 +2538,84 @@ export const db = {
         ...s,
         rank_number: idx + 1
       }));
+    }
+  },
+
+  async getUserLeaderboardRank(userId: string, gradeLevel?: string): Promise<any | null> {
+    if (supabase) {
+      const { data, error } = await supabase.rpc('get_user_leaderboard_rank', {
+        p_user_id: userId,
+        p_grade_level: gradeLevel || null
+      });
+      if (!error && data && data.length > 0) {
+        return data[0];
+      }
+      // Fallback: If RPC not present, compute from broader query
+      const fullList = await this.getLeaderboard(gradeLevel, 500);
+      const userEntry = fullList.find((s: any) => s.user_id === userId);
+      if (userEntry) {
+        return {
+          ...userEntry,
+          is_in_top_10: userEntry.rank_number <= 10
+        };
+      }
+      return null;
+    } else {
+      const data = readLocalDB();
+      const students = data.profiles.filter((p: any) => {
+        if (p.role !== 'student') return false;
+        if (gradeLevel && p.grade_level !== gradeLevel) return false;
+        const email = (p.email || '').toLowerCase();
+        const name = (p.name || '').toLowerCase();
+        if (email.includes('test') || email.includes('trial')) return false;
+        if (name.includes('test') || name.includes('trial') || p.name?.includes('اختباري') || p.name?.includes('تجريبي')) return false;
+        return true;
+      });
+      
+      const stats = students.map((p: any) => {
+        const userSubmissions = data.exam_submissions ? data.exam_submissions.filter((es: any) => es.user_id === p.id) : [];
+        const avgAccuracy = userSubmissions.length > 0 
+          ? userSubmissions.reduce((acc: number, curr: any) => acc + curr.score, 0) / userSubmissions.length
+          : 0.0;
+        return {
+          user_id: p.id,
+          name: p.name,
+          grade_level: p.grade_level,
+          coins: p.coins || 0,
+          points: p.points || 0,
+          study_streak: p.study_streak || 1,
+          average_accuracy: Math.round(avgAccuracy * 100) / 100
+        };
+      });
+      
+      stats.sort((a: any, b: any) => {
+        if ((b.points || 0) !== (a.points || 0)) return (b.points || 0) - (a.points || 0);
+        if (b.study_streak !== a.study_streak) return b.study_streak - a.study_streak;
+        return b.average_accuracy - a.average_accuracy;
+      });
+      
+      const index = stats.findIndex((s: any) => s.user_id === userId);
+      if (index === -1) {
+        const currentUser = data.profiles.find((p: any) => p.id === userId);
+        if (!currentUser) return null;
+        return {
+          user_id: currentUser.id,
+          name: currentUser.name,
+          grade_level: currentUser.grade_level,
+          coins: currentUser.coins || 0,
+          points: currentUser.points || 0,
+          study_streak: currentUser.study_streak || 1,
+          average_accuracy: 0,
+          rank_number: stats.length + 1,
+          is_in_top_10: false
+        };
+      }
+      
+      return {
+        ...stats[index],
+        rank_number: index + 1,
+        is_in_top_10: (index + 1) <= 10
+      };
     }
   },
 
@@ -2220,9 +2716,13 @@ export const db = {
     }
   },
 
-  async getFlashcardsDue(deckId: string): Promise<any[]> {
+  async getFlashcardsDue(deckId: string, userId?: string): Promise<any[]> {
     const today = new Date().toISOString();
     if (supabase) {
+      if (userId) {
+        const { data: deck } = await supabase.from('flashcard_decks').select('id').eq('id', deckId).eq('user_id', userId).maybeSingle();
+        if (!deck) return [];
+      }
       const { data, error } = await supabase
         .from('flashcards')
         .select('*')
@@ -2233,21 +2733,33 @@ export const db = {
       return data || [];
     } else {
       const data = readLocalDB();
+      if (userId) {
+        const deck = (data.flashcard_decks || []).find((d: any) => d.id === deckId && d.user_id === userId);
+        if (!deck) return [];
+      }
       const cards = (data.flashcards || []).filter((c: any) => c.deck_id === deckId && c.next_review_at <= today);
       return cards.sort((a: any, b: any) => a.created_at.localeCompare(b.created_at));
     }
   },
 
-  async reviewFlashcard(cardId: string, rating: number): Promise<any> {
+  async reviewFlashcard(cardId: string, rating: number, userId?: string): Promise<any> {
     const intervals = [1, 2, 4, 7, 14];
     
     let card: any = null;
     if (supabase) {
       const { data } = await supabase.from('flashcards').select('*').eq('id', cardId).maybeSingle();
       card = data;
+      if (card && userId) {
+        const { data: deck } = await supabase.from('flashcard_decks').select('id').eq('id', card.deck_id).eq('user_id', userId).maybeSingle();
+        if (!deck) throw new Error('Unauthorized access to flashcard');
+      }
     } else {
       const data = readLocalDB();
       card = (data.flashcards || []).find((c: any) => c.id === cardId) || null;
+      if (card && userId) {
+        const deck = (data.flashcard_decks || []).find((d: any) => d.id === card.deck_id && d.user_id === userId);
+        if (!deck) throw new Error('Unauthorized access to flashcard');
+      }
     }
 
     if (!card) throw new Error('Flashcard not found');
@@ -2346,11 +2858,15 @@ export const db = {
 
   async deleteFlashcardDeck(deckId: string, userId: string): Promise<boolean> {
     if (supabase) {
+      const { data: deck } = await supabase.from('flashcard_decks').select('id').eq('id', deckId).eq('user_id', userId).maybeSingle();
+      if (!deck) return false;
       const { error: cardsErr } = await supabase.from('flashcards').delete().eq('deck_id', deckId);
       const { error: deckErr } = await supabase.from('flashcard_decks').delete().eq('id', deckId).eq('user_id', userId);
       return !deckErr && !cardsErr;
     } else {
       const data = readLocalDB();
+      const hasDeck = (data.flashcard_decks || []).some((d: any) => d.id === deckId && d.user_id === userId);
+      if (!hasDeck) return false;
       data.flashcards = (data.flashcards || []).filter((c: any) => c.deck_id !== deckId);
       data.flashcard_decks = (data.flashcard_decks || []).filter((d: any) => !(d.id === deckId && d.user_id === userId));
       writeLocalDB(data);
@@ -2358,14 +2874,20 @@ export const db = {
     }
   },
 
-  async updateFlashcard(cardId: string, question: string, answer: string): Promise<boolean> {
+  async updateFlashcard(cardId: string, userId: string, question: string, answer: string): Promise<boolean> {
     if (supabase) {
+      const { data: card } = await supabase.from('flashcards').select('deck_id').eq('id', cardId).maybeSingle();
+      if (!card) return false;
+      const { data: deck } = await supabase.from('flashcard_decks').select('id').eq('id', card.deck_id).eq('user_id', userId).maybeSingle();
+      if (!deck) return false;
       const { error } = await supabase.from('flashcards').update({ question, answer }).eq('id', cardId);
       return !error;
     } else {
       const data = readLocalDB();
       const card = (data.flashcards || []).find((c: any) => c.id === cardId);
       if (!card) return false;
+      const deck = (data.flashcard_decks || []).find((d: any) => d.id === card.deck_id && d.user_id === userId);
+      if (!deck) return false;
       card.question = question;
       card.answer = answer;
       writeLocalDB(data);
@@ -2373,12 +2895,20 @@ export const db = {
     }
   },
 
-  async deleteFlashcard(cardId: string): Promise<boolean> {
+  async deleteFlashcard(cardId: string, userId: string): Promise<boolean> {
     if (supabase) {
+      const { data: card } = await supabase.from('flashcards').select('deck_id').eq('id', cardId).maybeSingle();
+      if (!card) return false;
+      const { data: deck } = await supabase.from('flashcard_decks').select('id').eq('id', card.deck_id).eq('user_id', userId).maybeSingle();
+      if (!deck) return false;
       const { error } = await supabase.from('flashcards').delete().eq('id', cardId);
       return !error;
     } else {
       const data = readLocalDB();
+      const card = (data.flashcards || []).find((c: any) => c.id === cardId);
+      if (!card) return false;
+      const deck = (data.flashcard_decks || []).find((d: any) => d.id === card.deck_id && d.user_id === userId);
+      if (!deck) return false;
       data.flashcards = (data.flashcards || []).filter((c: any) => c.id !== cardId);
       writeLocalDB(data);
       return true;
@@ -2461,34 +2991,52 @@ export const db = {
     const profile = await this.getProfile(userId);
     if (!profile) return { success: false };
 
-    let bonusCoins = 500.0;
-    let planTitle = 'باقة برو (شهر)';
-    if (planId === 'pro_2m' || planId === '2_months') {
-      bonusCoins = 1000.0;
-      planTitle = 'باقة برو (شهرين)';
-    } else if (planId === 'pro_3m' || planId === '3_months') {
-      bonusCoins = 2500.0;
-      planTitle = 'باقة برو (3 أشهر)';
+    let dailyCap = 80.0;
+    let planTitle = 'باقة شهر (80 نقطة يومياً متجددة)';
+    let planType: 'pro' | 'pro_1m' | 'pro_2m' | 'pro_3m' = 'pro_1m';
+    let durationDays = 30;
+
+    if (planId === 'pro_1m' || planId === '1_month' || planId === 'pro') {
+      dailyCap = 80.0;
+      planType = 'pro_1m';
+      planTitle = 'باقة شهر (80 نقطة يومياً متجددة)';
+      durationDays = 30;
+    } else if (planId === 'pro_2m' || planId === '2_months') {
+      dailyCap = 90.0;
+      planType = 'pro_2m';
+      planTitle = 'باقة شهرين (90 نقطة يومياً متجددة)';
+      durationDays = 60;
+    } else if (planId === 'pro_3m' || planId === '3_months' || planId === 'max') {
+      dailyCap = 120.0;
+      planType = 'pro_3m';
+      planTitle = 'باقة 3 أشهر (120 نقطة يومياً متجددة)';
+      durationDays = 90;
     }
 
-    const currentCoins = profile.coins ?? 50.0;
-    const newCoins = currentCoins + bonusCoins;
-    const today = new Date().toISOString().split('T')[0];
+    const currentCoins = profile.coins ?? 0.0;
+    const newCoins = toPreciseCoins(Math.max(currentCoins, dailyCap));
+    const today = getCairoDateString();
+    const startDate = new Date().toISOString();
+    const endDate = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
 
-    // Upgrade profile to pro
+    const subscriptionPayload = {
+      plan_type: planType,
+      subscription_status: 'active' as const,
+      subscription_start_date: startDate,
+      subscription_end_date: endDate,
+      subscription_plan_id: planId,
+      coins: newCoins,
+      last_active_date: today
+    };
+
+    // Upgrade profile to active package
     if (supabase) {
-      await supabase.from('profiles').update({
-        plan_type: 'pro',
-        coins: newCoins,
-        last_active_date: today
-      }).eq('id', userId);
+      await supabase.from('profiles').update(subscriptionPayload).eq('id', userId);
     } else {
       const data = readLocalDB();
       const p = (data.profiles || []).find((x: Profile) => x.id === userId);
       if (p) {
-        p.plan_type = 'pro';
-        p.coins = newCoins;
-        p.last_active_date = today;
+        Object.assign(p, subscriptionPayload);
         writeLocalDB(data);
       }
     }
@@ -2497,9 +3045,9 @@ export const db = {
     try {
       await this.createNotification({
         title: 'تم تفعيل اشتراكك بنجاح',
-        body: `تهانينا! تم تفعيل ${planTitle} وإضافة ${bonusCoins} نقطة إلى رصيدك. استمتع بميزات المساعد الذكي غير المحدودة.`,
+        body: `تهانينا! تم تفعيل ${planTitle} وضبط رصيدك إلى ${newCoins} نقطة تتجدد يومياً. استمتع بميزات المساعد الذكي غير المحدودة.`,
         type: 'success',
-        target: 'web'
+        target: 'both'
       });
     } catch {
       // Non-blocking
@@ -2507,8 +3055,446 @@ export const db = {
 
     const updatedProfile = await this.getProfile(userId);
     return { success: true, profile: updatedProfile };
+  },
+
+  async checkAndRecordTrialGrant(params: {
+    userId: string;
+    ipAddress?: string;
+    userAgent?: string;
+    browserFingerprint?: string;
+    deviceId?: string;
+    platform?: 'web' | 'mobile';
+    hasRegisteredBefore?: boolean;
+  }): Promise<{ isAbuse: boolean; coins: number }> {
+    const { userId, ipAddress, userAgent, browserFingerprint, deviceId, platform = 'web', hasRegisteredBefore } = params;
+
+    const cleanIp = (ipAddress && ipAddress !== 'unknown' && ipAddress !== '127.0.0.1' && ipAddress !== '::1' && ipAddress.length > 3) ? ipAddress.trim() : null;
+    const cleanFp = (browserFingerprint && browserFingerprint.trim() !== '') ? browserFingerprint.trim() : null;
+    const cleanDev = (deviceId && deviceId.trim() !== '') ? deviceId.trim() : null;
+
+    let isAbuse = false;
+    if (hasRegisteredBefore) {
+      isAbuse = true;
+    }
+
+    if (supabase) {
+      try {
+        const filters: string[] = [];
+        if (cleanIp) filters.push(`ip_address.eq.${cleanIp}`);
+        if (cleanFp) filters.push(`browser_fingerprint.eq.${cleanFp}`);
+        if (cleanDev) filters.push(`device_id.eq.${cleanDev}`);
+
+        if (filters.length > 0) {
+          const { data: matchedGrants } = await supabase.from('free_trial_grants').select('*').or(filters.join(','));
+          if (matchedGrants && matchedGrants.length > 0) {
+            const otherUserGrant = matchedGrants.find((g: any) => g.user_id && g.user_id !== userId);
+            if (otherUserGrant) {
+              isAbuse = true;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error checking trial abuse in Supabase:', err);
+      }
+    } else {
+      const data = readLocalDB();
+      if (!data.free_trial_grants) data.free_trial_grants = [];
+      const matched = data.free_trial_grants.find((g: FreeTrialGrant) => {
+        if (g.user_id === userId) return false;
+        if (cleanIp && g.ip_address === cleanIp) return true;
+        if (cleanFp && g.browser_fingerprint === cleanFp) return true;
+        if (cleanDev && g.device_id === cleanDev) return true;
+        return false;
+      });
+      if (matched) {
+        isAbuse = true;
+      }
+    }
+
+    const coinsToGrant = isAbuse ? 0.0 : 15.0;
+
+    // Record grant attempt
+    try {
+      const grantRecord: FreeTrialGrant = {
+        id: crypto.randomUUID(),
+        user_id: userId,
+        ip_address: cleanIp || undefined,
+        user_agent: userAgent ? userAgent.substring(0, 500) : undefined,
+        browser_fingerprint: cleanFp || undefined,
+        device_id: cleanDev || undefined,
+        platform,
+        coins_granted: coinsToGrant,
+        created_at: new Date().toISOString()
+      };
+
+      if (supabase) {
+        await supabase.from('free_trial_grants').insert(grantRecord);
+      } else {
+        const data = readLocalDB();
+        if (!data.free_trial_grants) data.free_trial_grants = [];
+        data.free_trial_grants.push(grantRecord);
+        writeLocalDB(data);
+      }
+    } catch (err) {
+      console.error('Error recording trial grant:', err);
+    }
+
+    return { isAbuse, coins: coinsToGrant };
+  },
+
+  async getUserActiveDevices(userId: string): Promise<UserDevice[]> {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('user_devices')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('is_active', true)
+          .order('last_active_at', { ascending: false });
+        if (!error && data) return data;
+      } catch (err) {
+        console.error('Error fetching user active devices from Supabase:', err);
+      }
+      return [];
+    } else {
+      const data = readLocalDB();
+      return (data.user_devices || [])
+        .filter((d: UserDevice) => d.user_id === userId && d.is_active)
+        .sort((a: UserDevice, b: UserDevice) => new Date(b.last_active_at).getTime() - new Date(a.last_active_at).getTime());
+    }
+  },
+
+  async getUserDeviceCount(userId: string): Promise<number> {
+    const devices = await this.getUserActiveDevices(userId);
+    return devices.length;
+  },
+
+  async registerUserDevice(params: {
+    userId: string;
+    deviceId?: string;
+    sessionToken?: string;
+    userAgent?: string;
+    ipAddress?: string;
+    browserFingerprint?: string;
+    platform?: 'web' | 'mobile';
+    deviceName?: string;
+  }): Promise<{
+    success: boolean;
+    activeCount: number;
+    devicesRevoked: boolean;
+    device: UserDevice;
+    activeDevices: UserDevice[];
+  }> {
+    const { userId, deviceId, sessionToken, userAgent, ipAddress, browserFingerprint, platform, deviceName } = params;
+    const cleanDeviceId = (deviceId && deviceId.trim()) || `dev_${Math.random().toString(36).substring(2, 14)}`;
+    const resolvedName = deviceName || (platform === 'mobile' ? 'تطبيق الهاتف (EGS AI Mobile)' : 'متصفح الويب (EGS AI Web)');
+    const resolvedType: 'web' | 'mobile' | 'tablet' | 'desktop' = platform === 'mobile' ? 'mobile' : 'web';
+    const nowIso = new Date().toISOString();
+
+    let existingActiveDevices: UserDevice[] = [];
+    let devicesRevoked = false;
+
+    if (supabase) {
+      try {
+        const { data: activeRows } = await supabase
+          .from('user_devices')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('is_active', true);
+        existingActiveDevices = activeRows || [];
+      } catch (err) {
+        console.error('Error fetching active devices from Supabase:', err);
+      }
+    } else {
+      const data = readLocalDB();
+      if (!data.user_devices) data.user_devices = [];
+      existingActiveDevices = data.user_devices.filter((d: UserDevice) => d.user_id === userId && d.is_active);
+    }
+
+    const existingDevice = existingActiveDevices.find(d => d.device_id === cleanDeviceId);
+
+    let targetDevice: UserDevice;
+
+    if (existingDevice) {
+      // Re-activating / refreshing an already active device
+      targetDevice = {
+        ...existingDevice,
+        session_token: sessionToken || existingDevice.session_token,
+        device_name: resolvedName,
+        device_type: resolvedType,
+        browser_fingerprint: browserFingerprint || existingDevice.browser_fingerprint,
+        ip_address: ipAddress || existingDevice.ip_address,
+        user_agent: userAgent ? userAgent.substring(0, 500) : existingDevice.user_agent,
+        is_active: true,
+        last_active_at: nowIso
+      };
+
+      if (supabase) {
+        try {
+          await supabase.from('user_devices').upsert(targetDevice, { onConflict: 'user_id,device_id' });
+        } catch (err) {
+          console.error('Error updating existing user device in Supabase:', err);
+        }
+      } else {
+        const data = readLocalDB();
+        if (!data.user_devices) data.user_devices = [];
+        const idx = data.user_devices.findIndex((d: UserDevice) => d.user_id === userId && d.device_id === cleanDeviceId);
+        if (idx !== -1) {
+          data.user_devices[idx] = targetDevice;
+        } else {
+          data.user_devices.push(targetDevice);
+        }
+        writeLocalDB(data);
+      }
+    } else {
+      // New device! If already at 3 active devices, enforce strict limit:
+      // Revoke all previous devices, so only this 1 new device is logged in (ensuring <= 3).
+      if (existingActiveDevices.length >= 3) {
+        devicesRevoked = true;
+        if (supabase) {
+          try {
+            await supabase
+              .from('user_devices')
+              .update({ is_active: false })
+              .eq('user_id', userId);
+          } catch (err) {
+            console.error('Error revoking previous user devices in Supabase:', err);
+          }
+        } else {
+          const data = readLocalDB();
+          if (!data.user_devices) data.user_devices = [];
+          data.user_devices.forEach((d: UserDevice) => {
+            if (d.user_id === userId) {
+              d.is_active = false;
+            }
+          });
+          writeLocalDB(data);
+        }
+      }
+
+      targetDevice = {
+        id: crypto.randomUUID(),
+        user_id: userId,
+        device_id: cleanDeviceId,
+        session_token: sessionToken,
+        device_name: resolvedName,
+        device_type: resolvedType,
+        browser_fingerprint: browserFingerprint,
+        ip_address: ipAddress,
+        user_agent: userAgent ? userAgent.substring(0, 500) : undefined,
+        is_active: true,
+        last_active_at: nowIso,
+        created_at: nowIso
+      };
+
+      if (supabase) {
+        try {
+          await supabase.from('user_devices').upsert(targetDevice, { onConflict: 'user_id,device_id' });
+        } catch (err) {
+          console.error('Error inserting new user device in Supabase:', err);
+        }
+      } else {
+        const data = readLocalDB();
+        if (!data.user_devices) data.user_devices = [];
+        const idx = data.user_devices.findIndex((d: UserDevice) => d.user_id === userId && d.device_id === cleanDeviceId);
+        if (idx !== -1) {
+          data.user_devices[idx] = targetDevice;
+        } else {
+          data.user_devices.push(targetDevice);
+        }
+        writeLocalDB(data);
+      }
+    }
+
+    const updatedActiveList = await this.getUserActiveDevices(userId);
+    return {
+      success: true,
+      activeCount: updatedActiveList.length,
+      devicesRevoked,
+      device: targetDevice,
+      activeDevices: updatedActiveList
+    };
+  },
+
+  async validateUserSessionDevice(userId: string, sessionToken?: string, deviceId?: string): Promise<{ valid: boolean; reason?: string }> {
+    let devices: UserDevice[] = [];
+    if (supabase) {
+      try {
+        const { data } = await supabase
+          .from('user_devices')
+          .select('*')
+          .eq('user_id', userId);
+        devices = data || [];
+      } catch (err) {
+        console.error('Error validating device session in Supabase:', err);
+        return { valid: true };
+      }
+    } else {
+      const data = readLocalDB();
+      devices = (data.user_devices || []).filter((d: UserDevice) => d.user_id === userId);
+    }
+
+    // If user has no device records yet (existing legacy session), allow gracefully
+    if (devices.length === 0) {
+      return { valid: true };
+    }
+
+    // Check if matching session token or deviceId is revoked
+    const matchedByToken = sessionToken ? devices.find(d => d.session_token === sessionToken) : undefined;
+    const matchedByDevId = deviceId ? devices.find(d => d.device_id === deviceId) : undefined;
+    const matched = matchedByToken || matchedByDevId;
+
+    if (matched) {
+      if (!matched.is_active) {
+        return { valid: false, reason: 'device_session_revoked' };
+      }
+      this.updateDeviceActivity(userId, matched.device_id).catch(() => {});
+      return { valid: true };
+    }
+
+    // If not matched but active count < 3, allow
+    const activeCount = devices.filter(d => d.is_active).length;
+    if (activeCount < 3) {
+      return { valid: true };
+    }
+
+    return { valid: false, reason: 'device_limit_exceeded' };
+  },
+
+  async updateDeviceActivity(userId: string, deviceId: string): Promise<void> {
+    const nowIso = new Date().toISOString();
+    if (supabase) {
+      try {
+        await supabase
+          .from('user_devices')
+          .update({ last_active_at: nowIso })
+          .eq('user_id', userId)
+          .eq('device_id', deviceId);
+      } catch (err) {}
+    } else {
+      const data = readLocalDB();
+      if (data.user_devices) {
+        const dev = data.user_devices.find((d: UserDevice) => d.user_id === userId && d.device_id === deviceId);
+        if (dev) {
+          dev.last_active_at = nowIso;
+          writeLocalDB(data);
+        }
+      }
+    }
+  },
+
+  async deactivateUserDevice(userId: string, deviceId: string): Promise<boolean> {
+    if (supabase) {
+      try {
+        const { error } = await supabase
+          .from('user_devices')
+          .update({ is_active: false })
+          .eq('user_id', userId)
+          .eq('device_id', deviceId);
+        return !error;
+      } catch (err) {
+        return false;
+      }
+    } else {
+      const data = readLocalDB();
+      if (data.user_devices) {
+        const dev = data.user_devices.find((d: UserDevice) => d.user_id === userId && d.device_id === deviceId);
+        if (dev) {
+          dev.is_active = false;
+          writeLocalDB(data);
+          return true;
+        }
+      }
+      return false;
+    }
+  },
+
+  async deactivateAllOtherDevices(userId: string, currentDeviceId: string): Promise<boolean> {
+    if (supabase) {
+      try {
+        const { error } = await supabase
+          .from('user_devices')
+          .update({ is_active: false })
+          .eq('user_id', userId)
+          .neq('device_id', currentDeviceId);
+        return !error;
+      } catch (err) {
+        return false;
+      }
+    } else {
+      const data = readLocalDB();
+      if (data.user_devices) {
+        data.user_devices.forEach((d: UserDevice) => {
+          if (d.user_id === userId && d.device_id !== currentDeviceId) {
+            d.is_active = false;
+          }
+        });
+        writeLocalDB(data);
+        return true;
+      }
+      return false;
+    }
+  },
+
+  async deactivateAllUserDevices(userId: string): Promise<boolean> {
+    if (supabase) {
+      try {
+        const { error } = await supabase
+          .from('user_devices')
+          .update({ is_active: false })
+          .eq('user_id', userId);
+        return !error;
+      } catch (err) {
+        return false;
+      }
+    } else {
+      const data = readLocalDB();
+      if (data.user_devices) {
+        data.user_devices.forEach((d: UserDevice) => {
+          if (d.user_id === userId) {
+            d.is_active = false;
+          }
+        });
+        writeLocalDB(data);
+        return true;
+      }
+      return false;
+    }
   }
 };
+
+// ─── Arabic Normalization & Keyword Matching Helpers ──────────────────────────
+
+export function normalizeArabicForSearch(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/[\u064B-\u065F\u0670]/g, '') // strip Tashkeel (diacritics)
+    .replace(/\u0640/g, '')                 // strip Tatweel (kashida)
+    .replace(/[أإآء]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/ؤ/g, 'و')
+    .replace(/ئ/g, 'ي')
+    .replace(/[ـ\-_]/g, ' ')
+    .replace(/[^\w\u0621-\u064A\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function getArabicKeywordVariants(keyword: string): string[] {
+  const norm = normalizeArabicForSearch(keyword);
+  if (!norm || norm.length <= 2) return norm ? [norm] : [];
+  const variants = new Set<string>([norm]);
+  // Strip common Arabic prefixes if remainder is at least 3 characters
+  const prefixes = ['ال', 'وال', 'فال', 'كال', 'بال', 'لل', 'و', 'ف', 'ب', 'ك'];
+  for (const p of prefixes) {
+    if (norm.startsWith(p) && norm.length - p.length >= 3) {
+      variants.add(norm.slice(p.length));
+    }
+  }
+  return Array.from(variants);
+}
 
 // Helper: Rank chunks based on keywords
 function rankChunks(chunks: CurriculumChunk[], keywords: string[]): CurriculumChunk[] {
@@ -2516,16 +3502,19 @@ function rankChunks(chunks: CurriculumChunk[], keywords: string[]): CurriculumCh
 
   const scored = chunks.map(chunk => {
     let score = 0;
-    const textToSearch = `${chunk.heading} ${chunk.content}`.toLowerCase();
+    const normHeading = normalizeArabicForSearch(chunk.heading);
+    const normContent = normalizeArabicForSearch(chunk.content);
+    const textToSearch = `${normHeading} ${normContent}`;
     
     keywords.forEach(keyword => {
       if (!keyword.trim()) return;
-      const regex = new RegExp(escapeRegExp(keyword.toLowerCase()), 'g');
-      const matches = textToSearch.match(regex);
-      if (matches) {
-        score += matches.length;
-        if (chunk.heading.toLowerCase().includes(keyword.toLowerCase())) {
-          score += 5;
+      const variants = getArabicKeywordVariants(keyword);
+      for (const variant of variants) {
+        if (textToSearch.includes(variant)) {
+          score += 2;
+          if (normHeading.includes(variant)) {
+            score += 5;
+          }
         }
       }
     });
@@ -2547,7 +3536,7 @@ function escapeRegExp(string: string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// v2: Enhanced ranking with separate Arabic and English keyword scoring
+// v2: Enhanced ranking with separate Arabic and English keyword scoring + morphological normalization
 function rankChunksV2(
   chunks: CurriculumChunk[],
   arabicKeywords: string[],
@@ -2558,31 +3547,35 @@ function rankChunksV2(
 
   const scored = chunks.map(chunk => {
     let score = 0;
-    const textToSearch = `${chunk.heading} ${chunk.content}`.toLowerCase();
+    const normHeading = normalizeArabicForSearch(chunk.heading);
+    const normContent = normalizeArabicForSearch(chunk.content);
+    const rawHeadingLower = (chunk.heading || '').toLowerCase();
+    const rawContentLower = (chunk.content || '').toLowerCase();
 
-    // Score Arabic keywords (higher weight since curriculum is primarily Arabic)
+    // Score Arabic keywords with normalization and prefix-stripping
     arabicKeywords.forEach(keyword => {
       if (!keyword.trim()) return;
-      const regex = new RegExp(escapeRegExp(keyword.toLowerCase()), 'g');
-      const matches = textToSearch.match(regex);
-      if (matches) {
-        score += matches.length * 2; // Arabic keywords weighted 2x
-        if (chunk.heading.toLowerCase().includes(keyword.toLowerCase())) {
-          score += 8; // Heading match bonus
+      const variants = getArabicKeywordVariants(keyword);
+      for (const variant of variants) {
+        if (!variant) continue;
+        if (normContent.includes(variant)) {
+          score += 4;
+        }
+        if (normHeading.includes(variant)) {
+          score += 12; // High bonus for heading matches
         }
       }
     });
 
     // Score English keywords (scientific terms)
     englishKeywords.forEach(keyword => {
-      if (!keyword.trim()) return;
-      const regex = new RegExp(escapeRegExp(keyword.toLowerCase()), 'g');
-      const matches = textToSearch.match(regex);
-      if (matches) {
-        score += matches.length;
-        if (chunk.heading.toLowerCase().includes(keyword.toLowerCase())) {
-          score += 4;
-        }
+      const cleanEng = keyword.trim().toLowerCase();
+      if (!cleanEng) return;
+      if (rawContentLower.includes(cleanEng)) {
+        score += 3;
+      }
+      if (rawHeadingLower.includes(cleanEng)) {
+        score += 8;
       }
     });
 

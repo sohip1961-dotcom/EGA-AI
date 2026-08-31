@@ -6,9 +6,13 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: 'EGS AI',
     description: 'منصة EGS AI هي وكيل ومساعد ذكي مدعوم بالذكاء الاصطناعي مخصص لطلاب المدارس الإعدادية والثانوية في مصر لمساعدتك في المذاكرة وحل الأسئلة فوراً وبدقة.',
     start_url: '/',
+    id: '/',
+    scope: '/',
     display: 'standalone',
+    orientation: 'portrait-primary',
     background_color: '#0D0E0B',
     theme_color: '#7DA146',
+    categories: ['education', 'productivity'],
     icons: [
       {
         src: '/icon.png',
@@ -25,3 +29,4 @@ export default function manifest(): MetadataRoute.Manifest {
     ],
   };
 }
+

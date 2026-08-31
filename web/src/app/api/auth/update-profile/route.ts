@@ -52,8 +52,14 @@ export async function POST(req: NextRequest) {
           name: updated.name,
           grade_level: updated.grade_level,
           plan_type: updated.plan_type,
+          subscription_status: updated.subscription_status || (updated.plan_type && updated.plan_type !== 'free' ? 'active' : 'inactive'),
+          subscription_start_date: updated.subscription_start_date,
+          subscription_end_date: updated.subscription_end_date,
+          subscription_plan_id: updated.subscription_plan_id,
           role: updated.role,
-          coins: updated.coins === undefined ? 50.0 : updated.coins
+          coins: updated.coins === undefined ? 15.0 : updated.coins,
+          points: updated.points || 0,
+          study_streak: updated.study_streak || 1
         }
       });
     }
@@ -100,6 +106,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'فشل تحديث كلمة المرور' }, { status: 500 });
       }
       await db.deletePasswordReset(userId);
+
+      // Security: Deactivate other devices upon password change
+      const currentDeviceId = req.headers.get('x-device-id') || undefined;
+      if (currentDeviceId) {
+        await db.deactivateAllOtherDevices(userId, currentDeviceId);
+      }
 
       return NextResponse.json({
         success: true,

@@ -54,6 +54,8 @@ export async function GET(req: NextRequest) {
   }
 }
 
+import { processCurriculumChunks } from '@/lib/curriculum_processor';
+
 // POST update curriculum Markdown content
 export async function POST(req: NextRequest) {
   const authResult = await authorizeAdmin(req);
@@ -73,15 +75,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'المحتوى لا يمكن أن يكون فارغاً' }, { status: 400 });
     }
 
-    // Chunk the Markdown content
-    const chunks = chunkMarkdown(content);
+    // Process hierarchical chunks and generate embeddings
+    const { parents, children, allChunks, embeddedCount, summaryContent } = await processCurriculumChunks(content);
 
-    if (chunks.length === 0) {
+    if (parents.length === 0) {
       return NextResponse.json({ error: 'تعذر تجزئة الملف. يرجى التأكد من احتوائه على نص صالح.' }, { status: 400 });
     }
 
     // Update in DB
-    const success = await db.updateCurriculumContent(id, grade_level, subject_name, chunks);
+    const success = await db.updateCurriculumContent(id, grade_level, subject_name, allChunks);
 
     if (!success) {
       return NextResponse.json({ error: 'فشل تحديث محتوى المنهج' }, { status: 500 });
@@ -89,7 +91,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: 'تم تحديث المنهج الدراسي وإعادة فهرسته بالكامل بنجاح.'
+      message: `تم تحديث المنهج الدراسي وإعادة فهرسته بنجاح: ${parents.length} قسم رئيسي، ${children.length} وحدة بحث، ${embeddedCount} متجه دلالي.`,
+      stats: {
+        parentChunks: parents.length,
+        childChunks: children.length,
+        embeddingsGenerated: embeddedCount,
+        hasSummary: !!summaryContent
+      }
     });
 
   } catch (error: any) {
@@ -99,71 +107,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-// Chunker Logic (matches /api/admin/curriculum/route.ts chunkMarkdown)
-function chunkMarkdown(markdownText: string): { heading: string; content: string }[] {
-  const lines = markdownText.split('\n');
-  const chunks: { heading: string; content: string }[] = [];
-
-  let currentHeading = 'مقدمة المنهج';
-  let currentContentLines: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const match = line.match(/^(#{1,6})\s+(.+)$/);
-
-    if (match) {
-      if (currentContentLines.length > 0) {
-        const content = currentContentLines.join('\n').trim();
-        if (content.length > 10) {
-          chunks.push({ heading: currentHeading, content });
-        }
-        currentContentLines = [];
-      }
-      currentHeading = match[2].trim();
-    } else {
-      currentContentLines.push(line);
-    }
-  }
-
-  if (currentContentLines.length > 0) {
-    const content = currentContentLines.join('\n').trim();
-    if (content.length > 10) {
-      chunks.push({ heading: currentHeading, content });
-    }
-  }
-
-  const finalChunks: { heading: string; content: string }[] = [];
-  for (const chunk of chunks) {
-    if (chunk.content.length <= 1500) {
-      finalChunks.push(chunk);
-    } else {
-      const paragraphs = chunk.content.split(/\n\s*\n/);
-      let subChunkContent = '';
-      let subIndex = 1;
-
-      for (const paragraph of paragraphs) {
-        if (subChunkContent.length + paragraph.length > 1200) {
-          if (subChunkContent.trim()) {
-            finalChunks.push({
-              heading: `${chunk.heading} (جزء ${subIndex++})`,
-              content: subChunkContent.trim()
-            });
-          }
-          subChunkContent = paragraph;
-        } else {
-          subChunkContent += (subChunkContent ? '\n\n' : '') + paragraph;
-        }
-      }
-      if (subChunkContent.trim()) {
-        finalChunks.push({
-          heading: `${chunk.heading} (جزء ${subIndex++})`,
-          content: subChunkContent.trim()
-        });
-      }
-    }
-  }
-
-  return finalChunks;
 }

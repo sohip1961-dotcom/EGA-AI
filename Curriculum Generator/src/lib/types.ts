@@ -64,6 +64,7 @@ export interface JobCheckpoint {
 }
 
 export interface ProcessingSettings {
+  geminiApiKey?: string;
   edenAiApiKey: string;
   deepSeekApiKey: string;
   batchSize: number;

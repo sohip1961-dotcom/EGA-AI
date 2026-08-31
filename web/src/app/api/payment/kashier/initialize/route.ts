@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifySessionToken } from '@/lib/auth_helpers';
 import { KASHIER_PLANS, generateKashierOrderHash, getKashierCredentials } from '@/lib/kashier';
@@ -19,6 +19,21 @@ export async function POST(req: NextRequest) {
     const profile = await db.getProfile(userId);
     if (!profile) {
       return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم' }, { status: 404 });
+    }
+
+    // Prevent duplicate subscriptions while user has an active, unexpired subscription
+    const isSubscribed = profile.subscription_status === 'active' && 
+      profile.plan_type && 
+      profile.plan_type !== 'free' &&
+      (!profile.subscription_end_date || new Date(profile.subscription_end_date).getTime() > Date.now());
+
+    if (isSubscribed) {
+      const endDateFormatted = profile.subscription_end_date 
+        ? new Date(profile.subscription_end_date).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' })
+        : 'نهاية الفترة الحالية';
+      return NextResponse.json({
+        error: `لديك اشتراك سارٍ ونشط بالفعل حتى ${endDateFormatted}. لا يمكنك الاشتراك في باقة جديدة حتى انتهاء فترة اشتراكك الحالية.`
+      }, { status: 400 });
     }
 
     const body = await req.json();

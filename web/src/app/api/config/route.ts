@@ -3,19 +3,36 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifySessionToken } from '@/lib/auth_helpers';
 
+const DEFAULT_GRADE_LEVELS = ['1_middle', '2_middle', '3_middle', '1_high', '2_high'];
+const DEFAULT_TRACKS = ['medicine_life_sciences', 'engineering_cs', 'business', 'arts_literature'];
+
 // GET public system settings
 export async function GET(req: NextRequest) {
   try {
     const websiteLink = await db.getSystemSetting('website_link');
     
     let activeGradesRaw = await db.getSystemSetting('active_grade_levels');
-    let activeGradeLevels = ['1_middle', '2_middle', '3_middle', '1_high', '2_high', '3_high'];
+    let activeGradeLevels = DEFAULT_GRADE_LEVELS;
     if (activeGradesRaw) {
       try {
-        activeGradeLevels = JSON.parse(activeGradesRaw);
+        const parsed = JSON.parse(activeGradesRaw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          activeGradeLevels = parsed.filter(g => g !== '3_high');
+        }
       } catch (e) {}
     }
     
+    let activeTracksRaw = await db.getSystemSetting('active_tracks');
+    let activeTracks = DEFAULT_TRACKS;
+    if (activeTracksRaw) {
+      try {
+        const parsed = JSON.parse(activeTracksRaw);
+        if (Array.isArray(parsed)) {
+          activeTracks = parsed;
+        }
+      } catch (e) {}
+    }
+
     let activeCurrsRaw = await db.getSystemSetting('active_curriculum_ids');
     let activeCurriculumIds: string[] = [];
     if (activeCurrsRaw) {
@@ -51,6 +68,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       website_link: websiteLink || 'http://localhost:3000',
       active_grade_levels: activeGradeLevels,
+      active_tracks: activeTracks,
       active_curriculum_ids: activeCurriculumIds,
       all_curriculums: allCurriculums,
       guest_messages_count: guestMessagesCount,
@@ -62,16 +80,25 @@ export async function GET(req: NextRequest) {
           email: profile.email,
           name: profile.name,
           grade_level: profile.grade_level,
+          track_id: profile.track_id || null,
+          elective_subject: profile.elective_subject || null,
           plan_type: profile.plan_type,
+          subscription_status: profile.subscription_status || (profile.plan_type && profile.plan_type !== 'free' ? 'active' : 'inactive'),
+          subscription_start_date: profile.subscription_start_date,
+          subscription_end_date: profile.subscription_end_date,
+          subscription_plan_id: profile.subscription_plan_id,
           role: profile.role,
-          coins: profile.coins === undefined ? 50.0 : profile.coins
+          coins: profile.coins === undefined ? 15.0 : profile.coins,
+          points: profile.points || 0,
+          study_streak: profile.study_streak || 1
         }
       } : {})
     });
   } catch (error) {
     return NextResponse.json({
       website_link: 'http://localhost:3000',
-      active_grade_levels: ['1_middle', '2_middle', '3_middle', '1_high', '2_high', '3_high'],
+      active_grade_levels: DEFAULT_GRADE_LEVELS,
+      active_tracks: DEFAULT_TRACKS,
       active_curriculum_ids: [],
       all_curriculums: [],
       guest_messages_count: 0
@@ -107,7 +134,12 @@ export async function POST(req: NextRequest) {
     }
     
     if (body.active_grade_levels !== undefined) {
-      await db.setSystemSetting('active_grade_levels', JSON.stringify(body.active_grade_levels));
+      const filtered = Array.isArray(body.active_grade_levels) ? body.active_grade_levels.filter((g: string) => g !== '3_high') : body.active_grade_levels;
+      await db.setSystemSetting('active_grade_levels', JSON.stringify(filtered));
+    }
+
+    if (body.active_tracks !== undefined) {
+      await db.setSystemSetting('active_tracks', JSON.stringify(body.active_tracks));
     }
     
     if (body.active_curriculum_ids !== undefined) {

@@ -17,6 +17,16 @@ export async function GET(req: Request) {
   try {
     let targetPath = filePath;
 
+    // Validate path to prevent directory traversal
+    if (targetPath) {
+      const resolved = path.resolve(targetPath);
+      const allowedDir = path.resolve(process.cwd());
+      if (!resolved.startsWith(allowedDir)) {
+        return NextResponse.json({ error: "غير مصرح بتحميل هذا الملف" }, { status: 403 });
+      }
+      targetPath = resolved;
+    }
+
     if (!targetPath && fileId && globalThis.globalQueueProcessor) {
       const item = globalThis.globalQueueProcessor.getQueue().find((f) => f.id === fileId);
       if (item && item.outputFilePath) {

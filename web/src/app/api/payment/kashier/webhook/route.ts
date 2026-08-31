@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyKashierWebhookSignature } from '@/lib/kashier';
 
@@ -16,12 +16,15 @@ export async function POST(req: NextRequest) {
 
     const signature = req.headers.get('x-kashier-signature') || req.headers.get('signature') || body.signature || body.hash || '';
     
-    // Check signature if provided
-    if (signature) {
-      const isValid = verifyKashierWebhookSignature(rawBody, signature);
-      if (!isValid) {
-        console.warn('Kashier Webhook signature mismatch.');
-      }
+    // Strict cryptographic signature validation
+    if (!signature) {
+      return NextResponse.json({ error: 'Missing webhook signature header' }, { status: 401 });
+    }
+
+    const isValid = verifyKashierWebhookSignature(rawBody, signature);
+    if (!isValid) {
+      console.warn('Kashier Webhook signature verification failed.');
+      return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 401 });
     }
 
     // Extract transaction payload

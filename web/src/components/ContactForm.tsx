@@ -86,7 +86,7 @@ export default function ContactForm({
             padding: '24px',
             borderRadius: 'var(--radius-md)',
             background: 'var(--primary-light)',
-            border: '1px solid rgba(125,161,70,0.3)',
+            border: '1px solid var(--border-primary)',
             color: 'var(--primary-color)',
             textAlign: 'center',
             display: 'flex',

@@ -35,11 +35,12 @@ export default function TermsOfUsePage() {
             </p>
           </Section>
 
-          <Section title="2. الحساب والتسجيل">
+          <Section title="2. الحساب والتسجيل والنقاط التجريبية">
             <ul style={listStyle}>
-              <li>يجب تقديم بيانات صحيحة (رقم هاتف، اسم، صف دراسي) عند إنشاء الحساب.</li>
+              <li>يجب تقديم بيانات صحيحة (بريد إلكتروني، اسم، صف دراسي) عند إنشاء الحساب.</li>
               <li>أنت مسؤول عن الحفاظ على سرية كلمة المرور الخاصة بك وعن أي نشاط يتم من خلال حسابك.</li>
-              <li>يُمنع إنشاء أكثر من حساب بغرض التحايل على حدود الاستخدام المجاني أو نظام النقاط.</li>
+              <li><strong>نظام النقاط التجريبية:</strong> يُمنح الطالب <strong>15 نقطة تجريبية</strong> صالحة للاستخدام لمرة واحدة فقط وغير قابلة للتجديد اليومي عند إنشاء الحساب لأول مرة.</li>
+              <li><strong>سياسة منع الاحتيال وتعدد الحسابات:</strong> يحفظ النظام عنوان IP ومعرّف المتصفح/الجهاز تقنياً لمنع استغلال النقاط المجانية. في حال قيام الطالب بإنشاء حساب آخر للحصول على نقاط مجانية، يتم تصفير رصيد الحساب الجديد (0 نقاط) وحرمانه من أية نقاط تجريبية.</li>
             </ul>
           </Section>
 
@@ -53,12 +54,12 @@ export default function TermsOfUsePage() {
 
           <Section title="4. باقات الاشتراك والأسعار">
             <p>
-              تتيح المنصة باقات اشتراك مدفوعة لتوفير رصيد إضافي وإمكانية استخدام النماذج المتقدمة (Pro) وميزة التفكير المستفيض. الأسعار المعلنة تشمل كافة الرسوم وتُحتسب بالجنيه المصري (EGP):
+              تتيح المنصة باقات اشتراك مدفوعة لتوفير رصيد نقاط يومي متجدد وإمكانية استخدام النماذج المتقدمة (Pro) وميزة التفكير المستفيض. الأسعار المعلنة تشمل كافة الرسوم وتُحتسب بالجنيه المصري (EGP):
             </p>
             <ul style={listStyle}>
-              <li><strong>الاشتراك الشهري (باقة Pro):</strong> بقيمة <strong>50 جنيه مصري</strong> شهرياً.</li>
-              <li><strong>اشتراك شهرين:</strong> بقيمة <strong>100 جنيه مصري</strong> لمدة شهرين.</li>
-              <li><strong>اشتراك ثلاثة أشهر:</strong> بقيمة <strong>250 جنيه مصري</strong> لمدة 3 أشهر.</li>
+              <li><strong>باقة شهر (1 Month):</strong> بقيمة <strong>60 جنيه مصري</strong> شهرياً (تمنح الطالب <strong>80 نقطة يومياً</strong> تتجدد تلقائياً كل 24 ساعة).</li>
+              <li><strong>باقة شهرين (2 Months):</strong> بقيمة <strong>100 جنيه مصري</strong> لمدة شهرين (تمنح الطالب <strong>90 نقطة يومياً</strong> تتجدد تلقائياً كل 24 ساعة).</li>
+              <li><strong>باقة 3 أشهر (3 Months):</strong> بقيمة <strong>140 جنيه مصري</strong> لمدة 3 أشهر (تمنح الطالب <strong>120 نقطة يومياً</strong> تتجدد تلقائياً كل 24 ساعة).</li>
             </ul>
           </Section>
 
@@ -120,6 +121,8 @@ export default function TermsOfUsePage() {
           <Link href="/terms#refund" style={{ color: 'var(--primary-color)', fontWeight: 600, textDecoration: 'none' }}>سياسة الإرجاع والاسترجاع</Link>
           <span style={{ color: 'var(--border-color)' }}>•</span>
           <Link href="/contact" style={{ color: 'var(--primary-color)', fontWeight: 600, textDecoration: 'none' }}>نموذج التواصل والدعم</Link>
+          <span style={{ color: 'var(--border-color)' }}>•</span>
+          <Link href="/delete-account" style={{ color: 'var(--primary-color)', fontWeight: 600, textDecoration: 'none' }}>طلب حذف الحساب</Link>
         </div>
       </div>
     </div>

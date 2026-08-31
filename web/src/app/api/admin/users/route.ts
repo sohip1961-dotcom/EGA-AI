@@ -32,21 +32,53 @@ export async function GET(req: NextRequest) {
   try {
     const search = req.nextUrl.searchParams.get('search') || undefined;
     const users = await db.getUsers(search);
-    return NextResponse.json({ success: true, users });
+
+    const usersWithDevices = await Promise.all(
+      users.map(async (u) => {
+        const devices = await db.getUserActiveDevices(u.id);
+        return {
+          ...u,
+          active_devices_count: devices.length,
+          devices: devices.map(d => ({
+            id: d.id,
+            device_name: d.device_name,
+            device_type: d.device_type,
+            last_active_at: d.last_active_at,
+            ip_address: d.ip_address
+          }))
+        };
+      })
+    );
+
+    return NextResponse.json({ success: true, users: usersWithDevices });
   } catch (error: any) {
     console.error('Get users error:', error);
     return NextResponse.json({ error: 'حدث خطأ أثناء تحميل قائمة المستخدمين.' }, { status: 500 });
   }
 }
 
-// PATCH update a user's unlimited_credit flag (Admin only)
+// PATCH update a user's unlimited_credit flag or reset devices (Admin only)
 export async function PATCH(req: NextRequest) {
   const authResult = await authorizeAdmin(req);
   if (authResult instanceof NextResponse) return authResult;
 
   try {
-    const { id, unlimited_credit } = await req.json();
-    if (!id || typeof unlimited_credit !== 'boolean') {
+    const body = await req.json();
+    const { id, unlimited_credit, action } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: 'معرف المستخدم مطلوب' }, { status: 400 });
+    }
+
+    if (action === 'reset_devices') {
+      await db.deactivateAllUserDevices(id);
+      return NextResponse.json({
+        success: true,
+        message: 'تم إعادة ضبط جميع أجهزة المستخدم وتسجيل الخروج منها بنجاح.'
+      });
+    }
+
+    if (typeof unlimited_credit !== 'boolean') {
       return NextResponse.json({ error: 'معرف المستخدم وقيمة الرصيد غير المحدود مطلوبان' }, { status: 400 });
     }
 

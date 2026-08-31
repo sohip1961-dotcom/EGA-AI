@@ -21,8 +21,8 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'معرف الكارت والسؤال والإجابة مطلوبة' }, { status: 400 });
     }
 
-    const ok = await db.updateFlashcard(id, question, answer);
-    if (!ok) return NextResponse.json({ error: 'فشل تحديث الكارت' }, { status: 400 });
+    const ok = await db.updateFlashcard(id, userId, question, answer);
+    if (!ok) return NextResponse.json({ error: 'فشل تحديث الكارت أو غير مصرح' }, { status: 400 });
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: 'حدث خطأ أثناء التحديث' }, { status: 500 });
@@ -47,8 +47,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'معرف الكارت مطلوب' }, { status: 400 });
     }
 
-    const ok = await db.deleteFlashcard(id);
-    if (!ok) return NextResponse.json({ error: 'فشل حذف الكارت' }, { status: 400 });
+    const ok = await db.deleteFlashcard(id, userId);
+    if (!ok) return NextResponse.json({ error: 'فشل حذف الكارت أو غير مصرح' }, { status: 400 });
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: 'حدث خطأ أثناء الحذف' }, { status: 500 });

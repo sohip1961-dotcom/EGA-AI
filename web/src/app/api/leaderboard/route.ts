@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const filter = url.searchParams.get('grade_level') || 'all'; // 'all' or 'my'
     const limitParam = url.searchParams.get('limit');
-    const limit = limitParam ? parseInt(limitParam, 10) : 20;
+    const limit = limitParam ? Math.min(parseInt(limitParam, 10), 10) : 10;
 
     let gradeFilter: string | undefined = undefined;
     if (filter === 'my') {
@@ -32,7 +32,13 @@ export async function GET(req: NextRequest) {
     }
 
     const leaderboard = await db.getLeaderboard(gradeFilter, limit);
-    return NextResponse.json({ success: true, leaderboard });
+    const userRank = await db.getUserLeaderboardRank(userId, gradeFilter);
+
+    return NextResponse.json({ 
+      success: true, 
+      leaderboard,
+      user_rank: userRank
+    });
   } catch (error: any) {
     console.error('Leaderboard GET error:', error);
     return NextResponse.json({ error: 'حدث خطأ أثناء تحميل لوحة المتصدرين' }, { status: 500 });

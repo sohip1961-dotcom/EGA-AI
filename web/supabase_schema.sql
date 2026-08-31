@@ -20,11 +20,17 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     phone TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     grade_level TEXT NOT NULL, -- '1_middle', '2_middle', '3_middle', '1_high', '2_high', '3_high'
-    plan_type TEXT NOT NULL DEFAULT 'free', -- 'free', 'pro', 'max'
+    plan_type TEXT NOT NULL DEFAULT 'free', -- 'free', 'pro_1m', 'pro_2m', 'pro_3m', 'pro', 'max'
+    subscription_status TEXT NOT NULL DEFAULT 'inactive', -- 'active', 'inactive', 'expired'
+    subscription_start_date TIMESTAMP WITH TIME ZONE,
+    subscription_end_date TIMESTAMP WITH TIME ZONE,
+    subscription_plan_id TEXT,
     role TEXT NOT NULL DEFAULT 'student', -- 'student', 'admin'
     password_hash TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    coins NUMERIC NOT NULL DEFAULT 50.0,
+    coins NUMERIC NOT NULL DEFAULT 15.0,
+    points NUMERIC NOT NULL DEFAULT 0,
+    study_streak INT NOT NULL DEFAULT 1,
     last_active_date DATE NOT NULL DEFAULT CURRENT_DATE,
     unlimited_credit BOOLEAN NOT NULL DEFAULT false,
     terms_accepted_at TIMESTAMP WITH TIME ZONE
@@ -55,6 +61,7 @@ CREATE TABLE IF NOT EXISTS public.curriculums (
     grade_level TEXT NOT NULL,
     subject_name TEXT NOT NULL,
     file_name TEXT NOT NULL,
+    units JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(grade_level, subject_name)
 );
@@ -279,6 +286,8 @@ CREATE TABLE IF NOT EXISTS public.chat_sessions (
     title TEXT NOT NULL,
     subject_name TEXT NOT NULL,
     grade_level TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'detailed',
+    engagement_points_awarded BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -287,6 +296,7 @@ ALTER TABLE public.chat_history ADD COLUMN IF NOT EXISTS session_id UUID REFEREN
 
 -- 11. Performance Index for Session Queries
 CREATE INDEX IF NOT EXISTS chat_history_session_id_idx ON public.chat_history(session_id);
+CREATE INDEX IF NOT EXISTS chat_sessions_engagement_idx ON public.chat_sessions(id, engagement_points_awarded);
 
 
 -- 12. Exams Table
@@ -311,8 +321,12 @@ CREATE TABLE IF NOT EXISTS public.exam_submissions (
     answers JSONB NOT NULL,
     score NUMERIC NOT NULL,
     evaluation TEXT NOT NULL,
+    points_awarded NUMERIC NOT NULL DEFAULT 0,
+    is_first_attempt BOOLEAN NOT NULL DEFAULT false,
     submitted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS exam_submissions_first_attempt_idx ON public.exam_submissions(exam_id, user_id, is_first_attempt);
 
 -- 14. Reports Table (AI response reporting)
 CREATE TABLE IF NOT EXISTS public.reports (
@@ -358,3 +372,114 @@ CREATE TABLE IF NOT EXISTS public.app_versions (
 );
 
 CREATE INDEX IF NOT EXISTS app_versions_platform_active_idx ON public.app_versions(platform, active);
+
+-- 17. Free Trial Grants (IP, Browser Fingerprint, Device ID Anti-Abuse Tracking)
+CREATE TABLE IF NOT EXISTS public.free_trial_grants (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    ip_address TEXT,
+    user_agent TEXT,
+    browser_fingerprint TEXT,
+    device_id TEXT,
+    platform TEXT NOT NULL DEFAULT 'web', -- 'web' | 'mobile'
+    coins_granted NUMERIC NOT NULL DEFAULT 15.0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_trial_grants_ip ON public.free_trial_grants(ip_address);
+CREATE INDEX IF NOT EXISTS idx_trial_grants_fingerprint ON public.free_trial_grants(browser_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_trial_grants_device ON public.free_trial_grants(device_id);
+CREATE INDEX IF NOT EXISTS idx_trial_grants_user ON public.free_trial_grants(user_id);
+
+-- 18. User Devices (Multi-Device Limitation: Max 3 Devices per account)
+CREATE TABLE IF NOT EXISTS public.user_devices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    device_id TEXT NOT NULL,
+    session_token TEXT,
+    device_name TEXT NOT NULL DEFAULT 'جهاز غير معروف',
+    device_type TEXT NOT NULL DEFAULT 'web', -- 'web', 'mobile', 'tablet', 'desktop'
+    browser_fingerprint TEXT,
+    ip_address TEXT,
+    user_agent TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT unique_user_device UNIQUE(user_id, device_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_devices_user_id ON public.user_devices(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_devices_lookup ON public.user_devices(user_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_user_devices_token ON public.user_devices(session_token);
+CREATE INDEX IF NOT EXISTS idx_user_devices_last_active ON public.user_devices(last_active_at DESC);
+
+-- 19. Leaderboard RPC Function & Points Indexes
+CREATE INDEX IF NOT EXISTS profiles_points_idx ON public.profiles(points DESC);
+CREATE INDEX IF NOT EXISTS profiles_study_streak_idx ON public.profiles(study_streak DESC);
+
+CREATE OR REPLACE FUNCTION public.get_leaderboard(
+    p_grade_level TEXT DEFAULT NULL,
+    p_limit INT DEFAULT 20
+)
+RETURNS TABLE (
+    user_id UUID,
+    name TEXT,
+    grade_level TEXT,
+    coins NUMERIC,
+    points NUMERIC,
+    study_streak INT,
+    average_accuracy NUMERIC,
+    rank_number BIGINT
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH student_stats AS (
+        SELECT 
+            p.id AS s_user_id,
+            p.name AS s_name,
+            p.grade_level AS s_grade_level,
+            p.coins AS s_coins,
+            COALESCE(p.points, 0) AS s_points,
+            COALESCE(p.study_streak, 1) AS s_study_streak,
+            COALESCE(
+                (SELECT AVG(es.score) 
+                 FROM public.exam_submissions es 
+                 WHERE es.user_id = p.id), 
+                0.0
+            ) AS s_avg_accuracy
+        FROM 
+            public.profiles p
+        WHERE 
+            p.role = 'student'
+            AND (p_grade_level IS NULL OR p.grade_level = p_grade_level)
+            AND LOWER(COALESCE(p.email, '')) NOT LIKE '%test%'
+            AND LOWER(COALESCE(p.email, '')) NOT LIKE '%trial%'
+            AND LOWER(COALESCE(p.name, '')) NOT LIKE '%test%'
+            AND LOWER(COALESCE(p.name, '')) NOT LIKE '%trial%'
+            AND COALESCE(p.name, '') NOT LIKE '%اختباري%'
+            AND COALESCE(p.name, '') NOT LIKE '%تجريبي%'
+    )
+    SELECT 
+        s_user_id,
+        s_name,
+        s_grade_level,
+        s_coins,
+        s_points,
+        s_study_streak,
+        ROUND(s_avg_accuracy, 2) AS average_accuracy,
+        ROW_NUMBER() OVER (
+            ORDER BY 
+                s_points DESC,
+                s_study_streak DESC, 
+                s_avg_accuracy DESC
+        ) AS rank_number
+    FROM 
+        student_stats
+    ORDER BY 
+        rank_number ASC
+    LIMIT 
+        p_limit;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+

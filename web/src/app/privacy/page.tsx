@@ -33,7 +33,7 @@ export default function PrivacyPolicyPage() {
               <li><strong>محتوى الاستخدام:</strong> الأسئلة التي ترسلها للمساعد الذكي، سجل المحادثات، والامتحانات التي تنشئها أو تجيب عليها، وذلك لتقديم الخدمة وتحسين تجربتك التعليمية.</li>
               <li><strong>بيانات المعاملات المالية (الموقع):</strong> عند الشراء عبر الموقع الإلكتروني، تُعالج بيانات بطاقتك أو محفظتك الإلكترونية مباشرة عبر بوابة كاشير (Kashier) المعتمدة دون حفظ بيانات بطاقتك البنكية الكاملة على خوادمنا.</li>
               <li><strong>بيانات المعاملات المالية (التطبيق):</strong> عند الشراء عبر تطبيق الهاتف المحمول، يتم تنفيذ الدفع عبر نظام Google Play Billing وتخضع لسياسات خصوصية متجر Google Play.</li>
-              <li><strong>بيانات تقنية أساسية:</strong> معرّف الجهاز (لتفعيل تجربة الزائر قبل التسجيل)، وبيانات تقنية مثل توقيت الاستخدام وعدد الرسائل لأغراض أمنية وإحصائية.</li>
+              <li><strong>بيانات تقنية وحماية أمنية:</strong> عنوان IP، بصمة المتصفح (Browser Identifier)، ومعرّف الجهاز (Device ID)، وتوقيت الاستخدام وذلك لأغراض الأمان ومنع الاحتيال وحماية نظام النقاط التجريبية ومنع إنشاء حسابات متعددة غير مصرح بها.</li>
             </ul>
           </Section>
 
@@ -80,7 +80,7 @@ export default function PrivacyPolicyPage() {
           <Section title="7. حقوقك واختياراتك">
             <ul style={listStyle}>
               <li>يمكنك تعديل اسمك وكلمة مرورك وصفك الدراسي في أي وقت من صفحة الملف الشخصي.</li>
-              <li>يمكنك التواصل معنا لطلب حذف حسابك وكافة بياناتك المرتبطة به نهائياً.</li>
+              <li>يمكنك طلب حذف حسابك وكافة بياناتك واشتراكاتك نهائياً وفورياً وبشكل ذاتي عبر <Link href="/delete-account" style={{ color: 'var(--primary-color)', fontWeight: 700 }}>صفحة طلب حذف الحساب نهائياً</Link>.</li>
               <li>يمكنك تقديم طلبات الاسترجاع وفقاً لسياسة الإلغاء الشارحة الموضحة في شروط الاستخدام.</li>
             </ul>
           </Section>
@@ -93,7 +93,7 @@ export default function PrivacyPolicyPage() {
 
           <Section title="9. التواصل معنا لمسائل الخصوصية">
             <p>
-              لأي استفسار بخصوص هذه السياسة، أو لطلب حذف حسابك وبياناتك الشخصية، يمكنك التواصل معنا مباشرة عبر:
+              لأي استفسار بخصوص هذه السياسة، أو لطلب حذف حسابك وبياناتك الشخصية، يمكنك استخدام <Link href="/delete-account" style={{ color: 'var(--primary-color)', fontWeight: 700 }}>صفحة حذف الحساب المباشرة</Link> أو التواصل معنا مباشرة عبر:
             </p>
             <ul style={listStyle}>
               <li><strong>الهاتف / واتساب:</strong> <code>01037220587</code></li>
@@ -111,6 +111,8 @@ export default function PrivacyPolicyPage() {
           <Link href="/terms#refund" style={{ color: 'var(--primary-color)', fontWeight: 600, textDecoration: 'none' }}>سياسة الإرجاع والاسترجاع</Link>
           <span style={{ color: 'var(--border-color)' }}>•</span>
           <Link href="/contact" style={{ color: 'var(--primary-color)', fontWeight: 600, textDecoration: 'none' }}>نموذج التواصل والدعم</Link>
+          <span style={{ color: 'var(--border-color)' }}>•</span>
+          <Link href="/delete-account" style={{ color: 'var(--primary-color)', fontWeight: 600, textDecoration: 'none' }}>طلب حذف الحساب</Link>
         </div>
       </div>
     </div>

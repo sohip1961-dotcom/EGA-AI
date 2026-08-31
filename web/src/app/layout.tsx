@@ -27,6 +27,16 @@ export const metadata: Metadata = {
   alternates: {
     canonical: '/',
   },
+  manifest: '/manifest.webmanifest',
+  icons: {
+    icon: '/icon.png',
+    apple: '/icon.png',
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'EGS AI',
+  },
   openGraph: {
     title: 'EGS AI | مساعدك الذكي في المنهج الدراسي المصري',
     description: 'منصة EGS AI هي وكيل ومساعد ذكي مدعوم بالذكاء الاصطناعي مخصص لطلاب المدارس الإعدادية والثانوية في مصر، مرتبط بالمنهج الدراسي لمساعدتك في المذاكرة وحل الأسئلة فوراً وبدقة.',
@@ -108,6 +118,33 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
+                // Suppress and isolate third-party browser extension errors from triggering Next.js dev overlay
+                if (typeof window !== 'undefined') {
+                  const isExtensionError = (filename, error, reason) => {
+                    const src = (filename || '') + ' ' + ((error && error.stack) || '') + ' ' + ((reason && reason.stack) || '');
+                    return src.includes('chrome-extension://') || 
+                           src.includes('moz-extension://') || 
+                           src.includes('safari-extension://') || 
+                           src.includes('extension://') ||
+                           src.includes('almalgbpmcfpdaopimbdchdliminoign');
+                  };
+
+                  window.addEventListener('error', function(event) {
+                    if (isExtensionError(event.filename, event.error, null)) {
+                      event.stopImmediatePropagation();
+                      event.preventDefault();
+                      return true;
+                    }
+                  }, true);
+
+                  window.addEventListener('unhandledrejection', function(event) {
+                    if (isExtensionError(null, null, event.reason)) {
+                      event.stopImmediatePropagation();
+                      event.preventDefault();
+                    }
+                  }, true);
+                }
+
                 const attrs = ['bis_skin_checked', 'cz-shortcut-listen'];
                 const removeAttrs = (el) => {
                   if (!el || !el.removeAttribute) return;
@@ -139,10 +176,32 @@ export default function RootLayout({
                   subtree: true,
                   attributeFilter: attrs
                 });
+
+                // Register PWA Service Worker
+                if ('serviceWorker' in navigator) {
+                  window.addEventListener('load', function() {
+                    navigator.serviceWorker.register('/sw.js').catch(function() {
+                      // Non-critical background registration fallback
+                    });
+                  });
+                }
+
+                // Capture early PWA beforeinstallprompt event before React hydration
+                window.__egsPwaPrompt = null;
+                window.addEventListener('beforeinstallprompt', function(e) {
+                  e.preventDefault();
+                  window.__egsPwaPrompt = e;
+                  if (typeof window.__onPwaPromptReady === 'function') {
+                    window.__onPwaPromptReady(e);
+                  }
+                });
               })();
             `
           }}
         />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-touch-fullscreen" content="yes" />
+        <link rel="apple-touch-icon" href="/icon.png" />
       </head>
       <body suppressHydrationWarning>{children}</body>
     </html>

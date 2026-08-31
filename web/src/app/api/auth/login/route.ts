@@ -1,11 +1,22 @@
 export const runtime = 'edge';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { verifyPassword, hashPasswordSecure, generateSessionToken } from '@/lib/auth_helpers';
+import { verifyPassword, hashPasswordSecure, generateSessionToken, parseDeviceMetadata } from '@/lib/auth_helpers';
+import { checkRateLimit, getClientIp } from '@/lib/rate_limiter';
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, password } = await req.json();
+    const ip = getClientIp(req);
+    const rateLimit = checkRateLimit(`login_${ip}`, 5, 60);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: `تم تجاوز الحد المسموح من محاولات الدخول. يرجى المحاولة بعد ${rateLimit.resetSeconds} ثانية.` },
+        { status: 429 }
+      );
+    }
+
+    const body = await req.json();
+    const { email, password, device_id, browser_fingerprint, platform: clientPlatform } = body;
 
     if (!email || !password) {
       return NextResponse.json(
@@ -38,17 +49,48 @@ export async function POST(req: NextRequest) {
     // Generate Session Token
     const token = generateSessionToken(profile.id);
 
+    // Device Tracking & Multi-Device Limit Enforcement (Max 3 Devices)
+    const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+                      req.headers.get('cf-connecting-ip') ||
+                      req.headers.get('x-real-ip') ||
+                      'unknown';
+    const userAgent = req.headers.get('user-agent') || 'unknown';
+    const clientDeviceId = device_id || req.headers.get('x-device-id') || undefined;
+    const clientFingerprint = browser_fingerprint || req.headers.get('x-browser-fingerprint') || undefined;
+    const platform = clientPlatform || ((clientDeviceId && clientDeviceId.startsWith('mobile_')) ? 'mobile' : 'web');
+    const { deviceName } = parseDeviceMetadata(userAgent, clientDeviceId, platform);
+
+    const deviceResult = await db.registerUserDevice({
+      userId: profile.id,
+      deviceId: clientDeviceId,
+      sessionToken: token,
+      userAgent,
+      ipAddress: (ipAddress !== 'unknown' && ipAddress.length > 3) ? ipAddress : undefined,
+      browserFingerprint: clientFingerprint,
+      platform,
+      deviceName
+    });
+
     return NextResponse.json({
       success: true,
       token,
+      device_id: deviceResult.device.device_id,
+      active_devices_count: deviceResult.activeCount,
+      devices_revoked: deviceResult.devicesRevoked,
       user: {
         id: profile.id,
         email: profile.email,
         name: profile.name,
         grade_level: profile.grade_level,
         plan_type: profile.plan_type,
+        subscription_status: profile.subscription_status || (profile.plan_type && profile.plan_type !== 'free' ? 'active' : 'inactive'),
+        subscription_start_date: profile.subscription_start_date,
+        subscription_end_date: profile.subscription_end_date,
+        subscription_plan_id: profile.subscription_plan_id,
         role: profile.role,
-        coins: profile.coins === undefined ? 50.0 : profile.coins
+        coins: profile.coins === undefined ? 15.0 : profile.coins,
+        points: profile.points || 0,
+        study_streak: profile.study_streak || 1
       }
     });
 

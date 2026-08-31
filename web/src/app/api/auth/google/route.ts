@@ -1,7 +1,7 @@
 export const runtime = 'edge';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { generateSessionToken } from '@/lib/auth_helpers';
+import { generateSessionToken, parseDeviceMetadata } from '@/lib/auth_helpers';
 
 // Cryptographically verify Google ID Token signature and claims
 async function verifyGoogleIdToken(token: string, clientId: string): Promise<any> {
@@ -100,7 +100,7 @@ async function verifyGoogleIdToken(token: string, clientId: string): Promise<any
 
 export async function POST(req: NextRequest) {
   try {
-    const { credential, grade_level } = await req.json();
+    const { credential, grade_level, track_id, elective_subject, browser_fingerprint, device_id, has_registered_before } = await req.json();
 
     if (!credential) {
       return NextResponse.json({ error: 'رمز الدخول (Credential) من Google مطلوب' }, { status: 400 });
@@ -141,17 +141,40 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Create new user profile
+      // Anti-Abuse Tracking (IP, User-Agent, Browser Fingerprint, Device ID)
+      const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+                        req.headers.get('cf-connecting-ip') ||
+                        req.headers.get('x-real-ip') ||
+                        'unknown';
+      const userAgent = req.headers.get('user-agent') || 'unknown';
+      const clientDeviceId = device_id || req.headers.get('x-device-id') || undefined;
+      const clientFingerprint = browser_fingerprint || req.headers.get('x-browser-fingerprint') || undefined;
+      const platform = (clientDeviceId && clientDeviceId.startsWith('mobile_')) ? 'mobile' : 'web';
+
       const userId = crypto.randomUUID();
+
+      const trialResult = await db.checkAndRecordTrialGrant({
+        userId,
+        ipAddress,
+        userAgent,
+        browserFingerprint: clientFingerprint,
+        deviceId: clientDeviceId,
+        platform,
+        hasRegisteredBefore: !!has_registered_before
+      });
+
+      // Create new user profile
       profile = await db.createProfile({
         id: userId,
         email,
         name,
         grade_level,
+        track_id: track_id || null,
+        elective_subject: elective_subject || null,
         plan_type: 'free',
         role: 'student',
         password_hash: '', // Google login does not use a password
-        coins: 50.0,
+        coins: trialResult.coins,
         terms_accepted_at: new Date().toISOString()
       });
     }
@@ -159,17 +182,50 @@ export async function POST(req: NextRequest) {
     // Generate Session Token
     const token = generateSessionToken(profile.id);
 
+    // Device Tracking & Multi-Device Limit Enforcement (Max 3 Devices)
+    const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+                      req.headers.get('cf-connecting-ip') ||
+                      req.headers.get('x-real-ip') ||
+                      'unknown';
+    const userAgent = req.headers.get('user-agent') || 'unknown';
+    const clientDeviceId = device_id || req.headers.get('x-device-id') || undefined;
+    const clientFingerprint = browser_fingerprint || req.headers.get('x-browser-fingerprint') || undefined;
+    const platform = (clientDeviceId && clientDeviceId.startsWith('mobile_')) ? 'mobile' : 'web';
+    const { deviceName } = parseDeviceMetadata(userAgent, clientDeviceId, platform);
+
+    const deviceResult = await db.registerUserDevice({
+      userId: profile.id,
+      deviceId: clientDeviceId,
+      sessionToken: token,
+      userAgent,
+      ipAddress: (ipAddress !== 'unknown' && ipAddress.length > 3) ? ipAddress : undefined,
+      browserFingerprint: clientFingerprint,
+      platform,
+      deviceName
+    });
+
     return NextResponse.json({
       success: true,
       token,
+      device_id: deviceResult.device.device_id,
+      active_devices_count: deviceResult.activeCount,
+      devices_revoked: deviceResult.devicesRevoked,
       user: {
         id: profile.id,
         email: profile.email,
         name: profile.name,
         grade_level: profile.grade_level,
+        track_id: profile.track_id || null,
+        elective_subject: profile.elective_subject || null,
         plan_type: profile.plan_type,
+        subscription_status: profile.subscription_status || (profile.plan_type && profile.plan_type !== 'free' ? 'active' : 'inactive'),
+        subscription_start_date: profile.subscription_start_date || null,
+        subscription_end_date: profile.subscription_end_date || null,
+        subscription_plan_id: profile.subscription_plan_id || null,
         role: profile.role,
-        coins: profile.coins === undefined ? 50.0 : profile.coins
+        coins: profile.coins === undefined ? 15.0 : profile.coins,
+        points: profile.points || 0,
+        study_streak: profile.study_streak || 1
       }
     });
 

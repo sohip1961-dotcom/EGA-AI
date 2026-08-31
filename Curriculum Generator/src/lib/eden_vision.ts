@@ -1,136 +1,237 @@
-export interface EdenVisionOptions {
-  apiKey?: string;
+export interface VisionExtractionOptions {
+  geminiApiKey?: string;
+  edenAiApiKey?: string;
   maxRetries?: number;
   onNetworkWait?: (attempt: number, maxRetries: number, delayMs: number) => void;
 }
 
 const DEFAULT_EDENAI_KEY = process.env.EDENAI_API_KEY || "";
+const DEFAULT_GEMINI_KEY = process.env.GEMINI_API_KEY || "";
+
+async function extractWithGeminiVisionDirect(
+  imageBuffer: Buffer,
+  apiKey: string
+): Promise<string> {
+  const cleanKey = apiKey.trim();
+  const base64Image = imageBuffer.toString("base64");
+
+  const models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+  let lastError = "";
+
+  for (const model of models) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: "Read this textbook page in its entirety. Transcribe all explanation text, definitions, scientific concepts, formulas, equations, headings, and instructional details with extreme precision in the exact original language of the page (Arabic/English/etc.) without omitting or abbreviating any educational explanation. Do not transcribe questions or exercises; focus entirely on the full lesson explanation."
+                },
+                {
+                  inlineData: {
+                    mimeType: "image/jpeg",
+                    data: base64Image
+                  }
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 4096
+          }
+        }),
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId));
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        if (text.trim().length > 0) {
+          return text.trim();
+        }
+      } else {
+        const err = await res.text();
+        lastError = `Gemini (${model}) ${res.status}: ${err}`;
+      }
+    } catch (e: any) {
+      lastError = e.message;
+    }
+  }
+
+  throw new Error(`فشل استخراج النصوص عبر Gemini Vision: ${lastError}`);
+}
 
 export async function extractWithEdenAI(
   extractedText: string,
   imageBuffer: Buffer | null,
-  options: EdenVisionOptions
+  options: VisionExtractionOptions
 ): Promise<string> {
-  const rawKey = options.apiKey || process.env.EDENAI_API_KEY || DEFAULT_EDENAI_KEY;
-  const cleanKey = rawKey.replace(/^Bearer\s+/i, "").trim();
+  const geminiKey = (options.geminiApiKey || process.env.GEMINI_API_KEY || DEFAULT_GEMINI_KEY).trim();
+  const rawEdenKey = options.edenAiApiKey || process.env.EDENAI_API_KEY || DEFAULT_EDENAI_KEY;
+  const cleanEdenKey = rawEdenKey.replace(/^Bearer\s+/i, "").trim();
 
-  const maxRetries = options.maxRetries ?? 8;
+  const maxRetries = options.maxRetries ?? 5;
   let attempt = 0;
 
   while (attempt < maxRetries) {
     attempt++;
     try {
       if (imageBuffer && imageBuffer.length > 0) {
-        // Step 1: EdenAI Document OCR API (Primary)
-        try {
-          const fileBlob = new Blob([new Uint8Array(imageBuffer)], { type: "image/jpeg" });
-          const formData = new FormData();
-          formData.append("providers", "google");
-          formData.append("fallback_providers", "amazon,microsoft");
-          formData.append("file", fileBlob, "page.jpg");
-          formData.append("language", "ar");
-
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 60000);
-
-          const ocrResponse = await fetch("https://api.edenai.run/v2/ocr/ocr", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${cleanKey}`,
-            },
-            body: formData,
-            signal: controller.signal,
-          }).finally(() => clearTimeout(timeoutId));
-
-          if (ocrResponse.ok) {
-            const ocrData = await ocrResponse.json();
-            const ocrText =
-              ocrData?.google?.text ||
-              ocrData?.amazon?.text ||
-              ocrData?.microsoft?.text ||
-              "";
-
-            if (ocrText && ocrText.trim().length > 0) {
-              return ocrText.trim();
+        // Step 1: Direct Google Gemini Vision (if key available)
+        if (geminiKey) {
+          try {
+            const geminiText = await extractWithGeminiVisionDirect(imageBuffer, geminiKey);
+            if (geminiText && geminiText.trim().length > 0) {
+              return geminiText.trim();
             }
+          } catch (geminiErr: any) {
+            console.warn("Direct Gemini Vision attempt note:", geminiErr.message);
           }
-        } catch (ocrErr: any) {
-          console.warn("EdenAI OCR endpoint note:", ocrErr.message);
         }
 
-        // Step 2: Fallback to EdenAI VQA API (Detailed Vision analysis)
-        try {
-          const fileBlob = new Blob([new Uint8Array(imageBuffer)], { type: "image/jpeg" });
-          const formData = new FormData();
-          formData.append("providers", "google");
-          formData.append("fallback_providers", "openai");
-          formData.append("file", fileBlob, "page.jpg");
-          formData.append(
-            "question",
-            "Read this textbook page in its entirety. Transcribe all text, explanations, formulas, equations, headings, and instructional details with extreme precision in the exact original language of the page (Arabic/English/etc.) without omitting any educational information."
-          );
+        // Step 2: EdenAI Document OCR API
+        if (cleanEdenKey) {
+          let ocrStatus = 0;
+          let ocrErrorDetail = "";
 
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 60000);
+          try {
+            const fileBlob = new Blob([new Uint8Array(imageBuffer)], { type: "image/jpeg" });
+            const formData = new FormData();
+            formData.append("providers", "google");
+            formData.append("fallback_providers", "amazon,microsoft");
+            formData.append("file", fileBlob, "page.jpg");
+            formData.append("language", "ar");
 
-          const vqaResponse = await fetch("https://api.edenai.run/v2/image/question_answer", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${cleanKey}`,
-            },
-            body: formData,
-            signal: controller.signal,
-          }).finally(() => clearTimeout(timeoutId));
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-          if (vqaResponse.ok) {
-            const vqaData = await vqaResponse.json();
-            const googleAnswers = vqaData?.google?.answers;
-            const openaiAnswers = vqaData?.openai?.answers;
+            const ocrResponse = await fetch("https://api.edenai.run/v2/ocr/ocr", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${cleanEdenKey}`,
+              },
+              body: formData,
+              signal: controller.signal,
+            }).finally(() => clearTimeout(timeoutId));
 
-            const description =
-              (googleAnswers && googleAnswers.length > 0 ? googleAnswers[0] : null) ||
-              (openaiAnswers && openaiAnswers.length > 0 ? openaiAnswers[0] : null) ||
-              vqaData?.google?.answer ||
-              vqaData?.openai?.answer ||
-              "";
+            ocrStatus = ocrResponse.status;
 
-            if (description && description.trim().length > 0 && !description.includes("عذرًا")) {
-              return description.trim();
+            if (ocrResponse.ok) {
+              const ocrData = await ocrResponse.json();
+              const ocrText =
+                ocrData?.google?.text ||
+                ocrData?.amazon?.text ||
+                ocrData?.microsoft?.text ||
+                "";
+
+              if (ocrText && ocrText.trim().length > 0) {
+                return ocrText.trim();
+              }
+            } else {
+              ocrErrorDetail = await ocrResponse.text();
+            }
+          } catch (ocrErr: any) {
+            ocrErrorDetail = ocrErr.message;
+          }
+
+          // Check if EdenAI failed due to credit exhaustion or auth
+          if (ocrStatus === 402 || ocrErrorDetail.includes("No more credits")) {
+            throw new Error("رصيد EdenAI غير كافٍ (402 No more credits) - يرجى شحن رصيد EdenAI أو إضافة مفتاح Google Gemini في الإعدادات");
+          }
+          if (ocrStatus === 401) {
+            throw new Error("مفتاح EdenAI غير صالح أو غير معتمد (401 Unauthorized)");
+          }
+
+          // Step 3: EdenAI VQA API fallback
+          try {
+            const fileBlob = new Blob([new Uint8Array(imageBuffer)], { type: "image/jpeg" });
+            const formData = new FormData();
+            formData.append("providers", "google");
+            formData.append("fallback_providers", "openai");
+            formData.append("file", fileBlob, "page.jpg");
+            formData.append(
+              "question",
+              "Read this textbook page in its entirety. Transcribe all explanation text, definitions, scientific concepts, formulas, equations, headings, and instructional details with extreme precision in the exact original language of the page (Arabic/English/etc.) without omitting or abbreviating any educational explanation. Do not transcribe questions or exercises; focus entirely on the full lesson explanation."
+            );
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+            const vqaResponse = await fetch("https://api.edenai.run/v2/image/question_answer", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${cleanEdenKey}`,
+              },
+              body: formData,
+              signal: controller.signal,
+            }).finally(() => clearTimeout(timeoutId));
+
+            if (vqaResponse.ok) {
+              const vqaData = await vqaResponse.json();
+              const googleAnswers = vqaData?.google?.answers;
+              const openaiAnswers = vqaData?.openai?.answers;
+
+              const description =
+                (googleAnswers && googleAnswers.length > 0 ? googleAnswers[0] : null) ||
+                (openaiAnswers && openaiAnswers.length > 0 ? openaiAnswers[0] : null) ||
+                vqaData?.google?.answer ||
+                vqaData?.openai?.answer ||
+                "";
+
+              if (description && description.trim().length > 0 && !description.includes("عذرًا")) {
+                return description.trim();
+              }
+            } else if (vqaResponse.status === 402) {
+              throw new Error("رصيد EdenAI غير كافٍ (402 No more credits) - يرجى شحن الرصيد أو استخدام مفتاح Google Gemini");
+            }
+          } catch (vqaErr: any) {
+            if (vqaErr.message?.includes("402") || vqaErr.message?.includes("No more credits")) {
+              throw vqaErr;
             }
           }
-        } catch (vqaErr: any) {
-          console.warn("EdenAI VQA endpoint note:", vqaErr.message);
         }
       }
 
-      // Step 3: Fallback to text extracted directly from PDF structure
-      if (extractedText && extractedText.trim().length > 0) {
+      // Step 4: Digital text from PDF layer
+      if (extractedText && extractedText.trim().length > 20) {
         return extractedText.trim();
       }
 
-      // If page is blank or cover page without text, return empty string
-      return "";
+      // If no image and no text, page is blank
+      if (!imageBuffer || imageBuffer.length === 0) {
+        return extractedText ? extractedText.trim() : "";
+      }
+
+      // If image exists but all OCR providers failed or keys missing
+      if (!geminiKey && !cleanEdenKey) {
+        throw new Error("لم يتم إدخال مفتاح API صالح للرؤية البصرية (يرجى إدخال مفتاح EdenAI أو Google Gemini في الإعدادات)");
+      }
+
+      throw new Error("تعذر استخراج نصوص الصفحة من الصورة - يرجى التحقق من صلاحية ورصيد مفاتيح الـ API");
     } catch (error: any) {
-      const isNetworkError =
-        error.name === "AbortError" ||
-        error.code === "UND_ERR_CONNECT_TIMEOUT" ||
-        error.code === "ECONNRESET" ||
-        error.code === "ETIMEDOUT" ||
-        error.code === "ENOTFOUND" ||
-        error.message?.includes("fetch failed") ||
-        error.message?.includes("Timeout");
+      const isCritical =
+        error.message?.includes("402") ||
+        error.message?.includes("No more credits") ||
+        error.message?.includes("401") ||
+        error.message?.includes("لم يتم إدخال مفتاح");
+
+      if (isCritical) {
+        throw error;
+      }
 
       const delayMs = Math.min(2000 * Math.pow(1.8, attempt - 1), 30000);
 
       if (options.onNetworkWait) {
         options.onNetworkWait(attempt, maxRetries, delayMs);
       }
-
-      console.warn(
-        `EdenAI attempt ${attempt}/${maxRetries} (${
-          isNetworkError ? "انقطاع أو بطء في الشبكة" : error.message
-        }) - إعادة المحاولة بعد ${Math.round(delayMs / 1000)} ثوانٍ...`
-      );
 
       if (attempt >= maxRetries) {
         if (extractedText && extractedText.trim().length > 0) {

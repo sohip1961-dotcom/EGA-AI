@@ -3,14 +3,31 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { hashPasswordSecure, generateOtp, OTP_TTL_MS } from '@/lib/auth_helpers';
 import { sendOtpEmail } from '@/lib/email';
+import { checkRateLimit, getClientIp } from '@/lib/rate_limiter';
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, name, grade_level, password, terms_accepted } = await req.json();
+    const ip = getClientIp(req);
+    const rateLimit = checkRateLimit(`register_${ip}`, 5, 600);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: 'تم تجاوز الحد المسموح لطلبات التسجيل. يرجى الانتظار قليلاً قبل المحاولة مجدداً.' },
+        { status: 429 }
+      );
+    }
+
+    const { email, name, grade_level, password, terms_accepted, track_id, elective_subject } = await req.json();
 
     if (!email || !name || !grade_level || !password) {
       return NextResponse.json(
         { error: 'جميع الحقول مطلوبة (الاسم، البريد الإلكتروني، السنة الدراسية، كلمة المرور)' },
+        { status: 400 }
+      );
+    }
+
+    if (grade_level === '2_high' && !track_id) {
+      return NextResponse.json(
+        { error: 'يرجى اختيار المسار الدراسي لطلاب البكالوريا' },
         { status: 400 }
       );
     }
@@ -50,7 +67,18 @@ export async function POST(req: NextRequest) {
     }
 
     const expiresAt = new Date(Date.now() + OTP_TTL_MS).toISOString();
-    await db.createPendingRegistration(email, name, grade_level, passwordHash, otpCode, new Date().toISOString(), undefined, expiresAt);
+    await db.createPendingRegistration(
+      email,
+      name,
+      grade_level,
+      passwordHash,
+      otpCode,
+      new Date().toISOString(),
+      undefined,
+      expiresAt,
+      track_id || null,
+      elective_subject || null
+    );
 
     return NextResponse.json({
       success: true,

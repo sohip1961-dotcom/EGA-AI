@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyKashierCallbackSignature } from '@/lib/kashier';
 
@@ -28,7 +28,8 @@ async function handleCallback(req: NextRequest) {
   const paymentMethod = params.paymentMethod || params.method || null;
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://egsaiedu.com';
-  const isSuccess = paymentStatus === 'SUCCESS' || paymentStatus === 'CAPTURED' || paymentStatus === 'APPROVED' || paymentStatus === 'PAID';
+  const hasValidSignature = verifyKashierCallbackSignature(params);
+  const isSuccess = (paymentStatus === 'SUCCESS' || paymentStatus === 'CAPTURED' || paymentStatus === 'APPROVED' || paymentStatus === 'PAID') && hasValidSignature;
 
   if (orderId) {
     const transaction = await db.getPaymentTransactionByOrderId(orderId);

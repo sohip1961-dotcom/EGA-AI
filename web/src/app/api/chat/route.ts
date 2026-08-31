@@ -2,7 +2,7 @@ export const runtime = 'edge';
 import { NextRequest, NextResponse } from 'next/server';
 import { db, CurriculumChunk, ChatMode, applyRRF } from '@/lib/db';
 import { verifySessionToken } from '@/lib/auth_helpers';
-import { generateChatResponseStream, validateResponseAgainstContext, generateStrictRewriteStream } from '@/lib/deepseek';
+import { generateChatResponseStream } from '@/lib/deepseek';
 import {
   analyzeQueryIntelligence,
   generateEmbedding,
@@ -15,16 +15,19 @@ import {
 
 const VALID_MODES: ChatMode[] = ['socratic', 'detailed', 'summary'];
 
-function parseMessage(msg: string): { cleanText: string; imageDesc?: string } {
+function parseMessage(msg: string): { cleanText: string; imageDesc?: string; imageBase64?: string; imageMime?: string } {
   let cleanText = msg || '';
   let imageDesc: string | undefined;
+  let imageBase64: string | undefined;
+  let imageMime: string | undefined;
 
-  // Extract and strip image prefix if present
   if (cleanText.startsWith('[IMAGE_MESSAGE:')) {
     const closingBracketIndex = cleanText.indexOf(']');
     if (closingBracketIndex !== -1) {
-      const prefix = cleanText.substring(15, closingBracketIndex); // mimeType;base64Data;encodedDescription
+      const prefix = cleanText.substring(15, closingBracketIndex);
       const parts = prefix.split(';');
+      imageMime = parts[0] || 'image/jpeg';
+      imageBase64 = parts[1] || '';
       if (parts[2]) {
         try {
           imageDesc = decodeURIComponent(parts[2]);
@@ -36,7 +39,57 @@ function parseMessage(msg: string): { cleanText: string; imageDesc?: string } {
     }
   }
 
-  return { cleanText, imageDesc };
+  return { cleanText, imageDesc, imageBase64, imageMime };
+}
+
+async function analyzeImageWithEdenAI(base64: string, mimeType: string): Promise<string> {
+  const EDENAI_API_KEY = process.env.EDENAI_API_KEY || '';
+  if (!EDENAI_API_KEY || !base64) return '';
+
+  try {
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: mimeType || 'image/jpeg' });
+
+    const formData = new FormData();
+    formData.append('providers', 'google');
+    formData.append('fallback_providers', 'openai');
+    formData.append('file', blob, `image.${(mimeType || 'image/jpeg').split('/')[1] || 'jpg'}`);
+    formData.append(
+      'question',
+      'اقرأ هذه الصورة بالتفصيل واكتب وصفاً شاملاً ومفصلاً لها باللغة العربية، بما في ذلك أي نصوص أو أسئلة أو مسائل أو معادلات رياضية أو فيزيائية أو كيميائية أو جداول أو رسوم توضيحية بداخلها بدقة بالغة واكتب النصوص والمسائل كما هي حرفياً.'
+    );
+
+    const response = await fetch('https://api.edenai.run/v2/image/question_answer', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${EDENAI_API_KEY}`
+      },
+      body: formData
+    });
+
+    if (!response.ok) {
+      console.error('EdenAI VQA in chat error:', response.status);
+      return '';
+    }
+
+    const data = await response.json();
+    const googleAnswers = data?.google?.answers;
+    const openaiAnswers = data?.openai?.answers;
+
+    return (googleAnswers && googleAnswers.length > 0 ? googleAnswers[0] : null) || 
+           (openaiAnswers && openaiAnswers.length > 0 ? openaiAnswers[0] : null) || 
+           data?.google?.answer || 
+           data?.openai?.answer || 
+           '';
+  } catch (err) {
+    console.error('Error analyzing image in chat:', err);
+    return '';
+  }
 }
 
 function buildPromptText(cleanText: string, imageDesc?: string): string {
@@ -45,13 +98,6 @@ function buildPromptText(cleanText: string, imageDesc?: string): string {
     text = `[وصف الصورة المرفقة من الطالب: ${imageDesc}]\n\nالسؤال: ${text}`;
   }
   return text;
-}
-
-function buildContextString(chunks: CurriculumChunk[]): string {
-  if (chunks.length === 0) return '';
-  return chunks
-    .map((c, i) => `--- القسم ${i + 1}: [${c.heading}] ---\n${c.content}`)
-    .join('\n\n');
 }
 
 function buildHierarchicalContextString(parentChunks: CurriculumChunk[], childChunks: CurriculumChunk[]): string {
@@ -87,7 +133,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Auth: Bearer token (registered) or x-device-id (guest)
     const authHeader = req.headers.get('Authorization');
     const deviceIdHeader = req.headers.get('x-device-id');
 
@@ -96,11 +141,24 @@ export async function POST(req: NextRequest) {
     let profile: any = null;
     let targetGrade = '';
     let plan = 'free';
-    let coins = 50.0;
+    let coins = 0.0;
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
       userId = verifySessionToken(token);
+      if (userId) {
+        const sessionCheck = await db.validateUserSessionDevice(userId, token, deviceId || undefined);
+        if (!sessionCheck.valid) {
+          return NextResponse.json(
+            {
+              error: 'device_session_revoked',
+              code: 'device_session_revoked',
+              message: 'تم تسجيل الخروج لأن هذا الحساب تم تسجيل الدخول إليه من جهاز آخر أو تجاوز الحد المسموح للأجهزة (3 أجهزة).'
+            },
+            { status: 401 }
+          );
+        }
+      }
     }
 
     if (!userId) {
@@ -119,18 +177,18 @@ export async function POST(req: NextRequest) {
     }
 
     plan = profile.plan_type || 'free';
-    coins = profile.coins === undefined ? 50.0 : profile.coins;
+    coins = profile.coins === undefined ? 0.0 : profile.coins;
     targetGrade = profile.grade_level?.trim();
 
-    // Pro model + Thinking features unlocked for registered accounts.
-
-    // Check coins (unlimited for admins / unlimited_credit accounts)
     const hasUnlimitedCredit = profile.role === 'admin' || !!profile.unlimited_credit;
     if (!hasUnlimitedCredit && coins <= 0) {
+      const isSubscribed = plan && plan !== 'free' && profile.subscription_status === 'active';
       return NextResponse.json({
         error: 'limit_reached',
         plan: plan,
-        message: 'لقد استنفدت رصيد النقاط المتاح لك لهذا اليوم. سيتجدد رصيدك تلقائياً غداً.'
+        message: isSubscribed
+          ? 'لقد استنفدت رصيد النقاط المتاح لك لهذا اليوم. سيتجدد رصيدك تلقائياً غداً.'
+          : 'لقد استنفدت رصيدك التجريبي المجاني. اشترك الآن في إحدى باقات Pro لمتابعة المذاكرة والتفوق!'
       }, { status: 429 });
     }
 
@@ -159,7 +217,6 @@ export async function POST(req: NextRequest) {
         const newSession = await db.createChatSession(title, subject_name, targetGrade, userId, undefined, chatMode);
         activeSessionId = newSession.id;
       } else {
-        // Keep the stored mode in sync so reopening the conversation restores it
         const existingSession = await db.getChatSession(activeSessionId);
         if (existingSession && (existingSession.mode || 'detailed') !== chatMode) {
           await db.updateChatSessionMode(activeSessionId, chatMode);
@@ -169,7 +226,6 @@ export async function POST(req: NextRequest) {
       activeSessionId = session_id || 'guest-session';
     }
 
-    // Check if curriculum is active/published
     let isCurriculumActive = false;
     try {
       const activeCurrsRaw = await db.getSystemSetting('active_curriculum_ids');
@@ -183,12 +239,8 @@ export async function POST(req: NextRequest) {
       isCurriculumActive = true;
     }
 
-    const { cleanText: promptText, imageDesc } = parseMessage(message);
-
-    // ─── v2 Parallel RAG Pipeline ─────────────────────────────────────────────
-    // Default context for no curriculum case
-    let context = 'لا يوجد ملف منهج دراسي مرفوع حالياً لهذه المادة والسنة الدراسية. يجب عليك تنبيه الطالب بأن هذه المعلومة خارج المنهج المقرر في بداية إجابتك.';
-    const searchStepsLog: Array<{ step: string; icon: string; message: string }> = [];
+    const { cleanText, imageDesc: initialImageDesc, imageBase64, imageMime } = parseMessage(message);
+    let promptText = buildPromptText(cleanText, initialImageDesc);
 
     // Save user message before streaming
     if (userId) {
@@ -198,50 +250,63 @@ export async function POST(req: NextRequest) {
       await db.incrementDeviceGuestCount(deviceId);
     }
 
-    // Fetch message history for context
+    // Fetch recent message history
     let recentHistory: any[] = [];
     if (userId) {
       const rawHistory = await db.getChatHistory(undefined, undefined, activeSessionId);
       recentHistory = rawHistory
         .slice(-6)
         .map(h => {
-          const { cleanText, imageDesc: histDesc } = parseMessage(h.message);
+          const { cleanText: hText, imageDesc: histDesc } = parseMessage(h.message);
           return {
             sender: h.sender,
-            message: buildPromptText(cleanText, histDesc)
+            message: buildPromptText(hText, histDesc)
           };
         });
     } else if (history) {
       recentHistory = history.map((h: any) => {
-        const { cleanText, imageDesc: histDesc } = parseMessage(h.message || '');
+        const { cleanText: hText, imageDesc: histDesc } = parseMessage(h.message || '');
         return {
           sender: h.sender,
-          message: buildPromptText(cleanText, histDesc)
+          message: buildPromptText(hText, histDesc)
         };
       });
     }
-
-    // We build the RAG context BEFORE starting the AI stream
-    // This is done by building the stream controller that first emits search steps,
-    // then starts the DeepSeek stream with the real context.
 
     const encoder = new TextEncoder();
 
     const stream = new ReadableStream({
       async start(controller) {
         function emitSearchStep(step: string, icon: string, msg: string) {
-          searchStepsLog.push({ step, icon, message: msg });
           controller.enqueue(encoder.encode(
             `data: ${JSON.stringify({ type: 'search_step', step, icon, message: msg })}\n\n`
           ));
         }
 
         try {
+          // ─── IN-STREAM IMAGE ANALYSIS (if attached) ─────────────────────
+          if (imageBase64) {
+            emitSearchStep('image_analysis', '🔍', 'تحليل الصورة');
+            let desc = initialImageDesc;
+            if (!desc) {
+              desc = await analyzeImageWithEdenAI(imageBase64, imageMime || 'image/jpeg');
+              if (userId) {
+                try {
+                  await db.deductCoins(userId, null, 0.5);
+                } catch (deductErr) {
+                  console.error('Coin deduction error:', deductErr);
+                }
+              }
+            }
+            if (desc) {
+              promptText = buildPromptText(cleanText, desc);
+            }
+          }
+
           // ─── PHASE 1: Build RAG Context ─────────────────────────────────
           let ragContext = '';
 
           if (isCurriculumActive) {
-            // Step 1: ONE Gemini call for full intelligence (query analysis + HyDE)
             emitSearchStep('analyzing', '🧠', 'أحلل سؤالك...');
 
             let intelligence: QueryIntelligence = {
@@ -258,7 +323,6 @@ export async function POST(req: NextRequest) {
               console.error('Query intelligence failed, using fallback:', intellErr);
             }
 
-            // Dynamic Curriculum Router
             let activeGrade = targetGrade;
             let activeSubject = subject_name;
 
@@ -270,13 +334,12 @@ export async function POST(req: NextRequest) {
               if (routerCurr) {
                 activeGrade = routerGrade;
                 activeSubject = routerSubject;
-                emitSearchStep('routing', '🗺️', `تم توجيه البحث تلقائياً إلى منهج: ${activeSubject} (${activeGrade === '3_high' ? 'الصف الثالث الثانوي' : activeGrade})`);
+                emitSearchStep('routing', '🗺️', `تم توجيه البحث تلقائياً إلى منهج: ${activeSubject}`);
               }
             }
 
             emitSearchStep('searching', '🔍', intelligence.searchAnnouncement);
 
-            // Step 2: PARALLEL — Embed HyDE + BM25 search simultaneously
             const [hydeEmbedding, bm25Chunks] = await Promise.all([
               generateEmbedding(intelligence.hydePassage).catch(e => {
                 console.error('HyDE embedding failed:', e);
@@ -285,7 +348,6 @@ export async function POST(req: NextRequest) {
               db.bm25SearchCurriculum(activeGrade, activeSubject, intelligence.arabicKeywords, intelligence.englishKeywords)
             ]);
 
-            // Step 3: Vector search with HyDE embedding
             let vectorChunks: CurriculumChunk[] = [];
             if (hydeEmbedding.length > 0) {
               try {
@@ -295,7 +357,7 @@ export async function POST(req: NextRequest) {
               }
             }
 
-            // Step 4: RRF fusion (k=60) with metadata boosting for unit/chapter
+            // RRF fusion (k=60) with metadata boosting
             const scores = new Map<string, { chunk: CurriculumChunk; score: number }>();
             
             vectorChunks.forEach((chunk, rank) => {
@@ -329,7 +391,6 @@ export async function POST(req: NextRequest) {
               .map(({ chunk }) => chunk)
               .slice(0, 8);
 
-            // Step 5: Expand child chunks → fetch their parent chunks (full sections for context)
             let contextChunks: CurriculumChunk[] = [];
             const parentIds = [...new Set(
               fusedChildChunks
@@ -341,12 +402,10 @@ export async function POST(req: NextRequest) {
               contextChunks = await db.getParentChunks(parentIds);
             }
 
-            // If no children (old data without hierarchy), use BM25 results directly
             if (contextChunks.length === 0 && fusedChildChunks.length > 0) {
               contextChunks = fusedChildChunks;
             }
 
-            // Step 6: Query-type routing
             if (intelligence.queryType === 'overview') {
               emitSearchStep('summary', '📚', 'سأستعرض محتوى المنهج الكامل...');
               const [summary, outline] = await Promise.all([
@@ -362,11 +421,9 @@ export async function POST(req: NextRequest) {
               ragContext += buildHierarchicalContextString(contextChunks.slice(0, 4), fusedChildChunks);
 
             } else if (intelligence.queryType === 'direct' && contextChunks.length >= 3) {
-              // Direct query with good results: skip gap analysis entirely
               ragContext = buildHierarchicalContextString(contextChunks.slice(0, 8), fusedChildChunks);
 
             } else {
-              // Inferential/problem_solving or thin results: conditional gap analysis
               ragContext = buildHierarchicalContextString(contextChunks.slice(0, 8), fusedChildChunks);
 
               if (contextChunks.length < 3) {
@@ -382,7 +439,6 @@ export async function POST(req: NextRequest) {
                         const extraChunks = await db.bm25SearchCurriculum(
                           activeGrade, activeSubject, [topic], [topic]
                         );
-                        // Add new results, deduplicate
                         const existingIds = new Set(contextChunks.map(c => c.id));
                         const newChunks = extraChunks.filter(c => !existingIds.has(c.id));
                         contextChunks.push(...newChunks.slice(0, 3));
@@ -407,31 +463,29 @@ export async function POST(req: NextRequest) {
               }
             }
 
-            // Final search result announcement
             const foundCount = contextChunks.length;
             emitSearchStep('found', '✅', `وجدت ${foundCount} ${foundCount === 1 ? 'قسماً' : 'أقسام'} ذات صلة من المنهج`);
 
             if (!ragContext.trim()) {
               ragContext = 'لا يوجد ملف منهج دراسي مرفوع حالياً لهذه المادة والسنة الدراسية. يجب عليك تنبيه الطالب بأن هذه المعلومة خارج المنهج المقرر في بداية إجابتك.';
             }
-            context = ragContext;
           }
 
-          const finalPromptText = buildPromptText(promptText, imageDesc);
+          const finalContext = ragContext || 'لا يوجد ملف منهج دراسي مرفوع حالياً لهذه المادة والسنة الدراسية. يجب عليك تنبيه الطالب بأن هذه المعلومة خارج المنهج المقرر في بداية إجابتك.';
+          const finalPromptText = promptText;
 
-          // ─── PHASE 2: Generate Answer with DeepSeek (streaming) ───────────
-          // Re-fetch DeepSeek stream with the actual RAG context
-          const deepseekRes2 = await generateChatResponseStream(
+          // ─── PHASE 2: Real-time Streaming Generation with DeepSeek ─────────
+          const deepseekRes = await generateChatResponseStream(
             finalPromptText,
-            context,
+            finalContext,
             recentHistory,
             selectedModel === 'pro' ? 'deepseek-v4-pro' : 'deepseek-v4-flash',
             isThinkingEnabled,
             chatMode
           );
 
-          if (!deepseekRes2.ok) {
-            const errorText = await deepseekRes2.text();
+          if (!deepseekRes.ok) {
+            const errorText = await deepseekRes.text();
             console.error('DeepSeek stream error:', errorText);
             controller.enqueue(encoder.encode(
               `data: ${JSON.stringify({ type: 'error', message: 'فشل الاتصال بمزود الذكاء الاصطناعي.' })}\n\n`
@@ -440,17 +494,16 @@ export async function POST(req: NextRequest) {
             return;
           }
 
-          const reader = deepseekRes2.body?.getReader();
+          const reader = deepseekRes.body?.getReader();
           const decoder = new TextDecoder('utf-8');
           if (!reader) { controller.close(); return; }
 
           let fullThought = '';
           let fullContent = '';
           const thoughtStartTime = Date.now();
-          let thoughtDuration = 0;
-          let streamBuffer = '';
           let promptTokens = 0;
           let completionTokens = 0;
+          let streamBuffer = '';
 
           while (true) {
             const { done, value } = await reader.read();
@@ -481,120 +534,27 @@ export async function POST(req: NextRequest) {
 
                   if (delta.reasoning_content) {
                     fullThought += delta.reasoning_content;
+                    controller.enqueue(encoder.encode(
+                      `data: ${JSON.stringify({ type: 'thought', content: delta.reasoning_content })}\n\n`
+                    ));
                   } else if (delta.content) {
                     fullContent += delta.content;
+                    controller.enqueue(encoder.encode(
+                      `data: ${JSON.stringify({ type: 'content', content: delta.content })}\n\n`
+                    ));
                   }
-                } catch (e) {
-                  // Ignore partial JSON parse errors
-                }
+                } catch (e) {}
               }
             }
           }
 
-          // Fact verification step
-          emitSearchStep('verifying', '🛡️', 'أتحقق من دقة وموثوقية الإجابة...');
-          const validation = await validateResponseAgainstContext(fullContent, context);
-
-          let finalThought = fullThought;
-          let finalContent = fullContent;
-          let isRewritten = false;
-
-          if (!validation.isValid) {
-            emitSearchStep('rewriting', '⚠️', 'أعيد صياغة الإجابة لتتطابق تماماً مع كتابك المدرسي...');
-            const rewriteRes = await generateStrictRewriteStream(
-              fullContent,
-              context,
-              recentHistory,
-              selectedModel === 'pro' ? 'deepseek-v4-pro' : 'deepseek-v4-flash',
-              isThinkingEnabled,
-              chatMode
-            );
-
-            if (rewriteRes.ok) {
-              isRewritten = true;
-              const rewriteReader = rewriteRes.body?.getReader();
-              if (rewriteReader) {
-                let rewriteBuffer = '';
-                finalThought = '';
-                finalContent = '';
-
-                while (true) {
-                  const { done, value } = await rewriteReader.read();
-                  if (done) break;
-
-                  rewriteBuffer += decoder.decode(value, { stream: true });
-                  const lines = rewriteBuffer.split('\n');
-                  rewriteBuffer = lines.pop() || '';
-
-                  for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (!trimmed) continue;
-
-                    if (trimmed.startsWith('data: ')) {
-                      const dataStr = trimmed.slice(6);
-                      if (dataStr === '[DONE]') break;
-
-                      try {
-                        const parsed = JSON.parse(dataStr);
-                        if (parsed.usage) {
-                          promptTokens = parsed.usage.prompt_tokens || 0;
-                          completionTokens = parsed.usage.completion_tokens || 0;
-                        }
-
-                        const delta = parsed.choices?.[0]?.delta;
-                        if (delta) {
-                          if (delta.reasoning_content) {
-                            finalThought += delta.reasoning_content;
-                            controller.enqueue(encoder.encode(
-                              `data: ${JSON.stringify({ type: 'thought', content: delta.reasoning_content })}\n\n`
-                            ));
-                          } else if (delta.content) {
-                            finalContent += delta.content;
-                            controller.enqueue(encoder.encode(
-                              `data: ${JSON.stringify({ type: 'content', content: delta.content })}\n\n`
-                            ));
-                          }
-                        }
-                      } catch (e) {}
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          if (!isRewritten) {
-            // Stream the valid response from the buffer with typewriter speed delay
-            if (finalThought) {
-              const chunkSize = 25;
-              for (let i = 0; i < finalThought.length; i += chunkSize) {
-                const chunk = finalThought.slice(i, i + chunkSize);
-                controller.enqueue(encoder.encode(
-                  `data: ${JSON.stringify({ type: 'thought', content: chunk })}\n\n`
-                ));
-                await new Promise(resolve => setTimeout(resolve, 5));
-              }
-            }
-
-            if (finalContent) {
-              const chunkSize = 40;
-              for (let i = 0; i < finalContent.length; i += chunkSize) {
-                const chunk = finalContent.slice(i, i + chunkSize);
-                controller.enqueue(encoder.encode(
-                  `data: ${JSON.stringify({ type: 'content', content: chunk })}\n\n`
-                ));
-                await new Promise(resolve => setTimeout(resolve, 8));
-              }
-            }
-          }
-
-          thoughtDuration = (Date.now() - thoughtStartTime) / 1000;
+          const thoughtDuration = (Date.now() - thoughtStartTime) / 1000;
           const finalDuration = thoughtDuration > 0 ? thoughtDuration : 0;
-          const combinedMessage = finalThought
-            ? `<thought duration="${Math.round(finalDuration)}">${finalThought}</thought>${finalContent}`
-            : finalContent;
+          const combinedMessage = fullThought
+            ? `<thought duration="${Math.round(finalDuration)}">${fullThought}</thought>${fullContent}`
+            : fullContent;
 
-          // Coin cost calculation
+          // Compute usage & coins
           let egpCost = 0;
           if (selectedModel === 'pro') {
             egpCost = (promptTokens / 1000000) * 150 + (completionTokens / 1000000) * 200;
@@ -616,15 +576,15 @@ export async function POST(req: NextRequest) {
             try {
               const session = await db.getChatSession(activeSessionId);
               if (session && !session.engagement_points_awarded) {
-                const isEngaged = await classifyEngagement(message, combinedMessage);
+                const isEngaged = await classifyEngagement(promptText, fullContent);
                 if (isEngaged) {
                   pointsAwarded = 3;
                   totalPoints = await db.addPoints(userId, 3);
                   await db.updateChatSessionEngagement(activeSessionId);
                 }
               }
-            } catch (pErr) {
-              console.error('Error classifying engagement points:', pErr);
+            } catch (err) {
+              console.error('Error evaluating engagement points in chat:', err);
             }
           }
 
@@ -632,20 +592,21 @@ export async function POST(req: NextRequest) {
             `data: ${JSON.stringify({
               type: 'done',
               session_id: activeSessionId,
-              duration: Math.round(finalDuration),
-              coins_used: Number(coinsCost.toFixed(4)),
-              remaining_coins: Number(remainingCoins.toFixed(2)),
+              duration: finalDuration,
+              coins_used: coinsCost,
+              remaining_coins: remainingCoins,
               points_awarded: pointsAwarded,
               total_points: totalPoints
             })}\n\n`
           ));
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
 
-        } catch (err) {
-          console.error('Error during RAG stream:', err);
+        } catch (err: any) {
+          console.error('Chat stream exception:', err);
           controller.enqueue(encoder.encode(
-            `data: ${JSON.stringify({ type: 'error', message: 'حدث خطأ أثناء بث الإجابة.' })}\n\n`
+            `data: ${JSON.stringify({ type: 'error', message: 'حدث خطأ غير متوقع أثناء معالجة الرد.' })}\n\n`
           ));
-        } finally {
           controller.close();
         }
       }
@@ -653,16 +614,17 @@ export async function POST(req: NextRequest) {
 
     return new Response(stream, {
       headers: {
-        'Content-Type': 'text/event-stream',
+        'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
         'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no'
       }
     });
 
   } catch (error: any) {
-    console.error('Chat API Error:', error);
+    console.error('Chat endpoint error:', error);
     return NextResponse.json(
-      { error: 'حدث خطأ غير متوقع أثناء معالجة رسالتك. يرجى المحاولة لاحقاً.' },
+      { error: 'حدث خطأ أثناء معالجة الطلب.' },
       { status: 500 }
     );
   }

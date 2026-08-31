@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'معرف مجموعة الكروت مطلوب' }, { status: 400 });
     }
 
-    const cards = await db.getFlashcardsDue(deckId);
+    const cards = await db.getFlashcardsDue(deckId, userId);
     return NextResponse.json({ success: true, cards });
   } catch (error: any) {
     console.error('GET Flashcards Due Error:', error);
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'معرف الكارت والتقييم (من 1 إلى 5) مطلوبان' }, { status: 400 });
     }
 
-    const updatedCard = await db.reviewFlashcard(card_id, rating);
+    const updatedCard = await db.reviewFlashcard(card_id, rating, userId);
     return NextResponse.json({ success: true, card: updatedCard });
   } catch (error: any) {
     console.error('Review Flashcard Error:', error);

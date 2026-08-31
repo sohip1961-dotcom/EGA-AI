@@ -16,10 +16,14 @@ Thumbs.db
 tmp/
 temp/
 
-# Environment files
+# Environment and Secrets
 .env
 .env.local
 *.env*
+*.jks
+*.keystore
+key.properties
 
 # Vercel
 .vercel/
+

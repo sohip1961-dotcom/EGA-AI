@@ -61,13 +61,13 @@ function parseGradingResult(content: string): { score: number; evaluation: strin
     const parsed = JSON.parse(cleaned);
     const rawScore = Number(parsed.score);
     const score = isNaN(rawScore) ? 50 : Math.min(100, Math.max(0, Math.round(rawScore)));
-    const evaluation = parsed.evaluation || 'تم تصحيح الامتحان وتقييم إجاباتك بنجاح.';
+    const evaluation = parsed.evaluation || 'تم تقييم إجاباتك بنجاح من المعلم الذكي.';
     return { score, evaluation };
   } catch (err) {
     const scoreMatch = cleaned.match(/"score"\s*:\s*(\d+)/i);
     const score = scoreMatch ? parseInt(scoreMatch[1], 10) : 50;
 
-    let evaluation = 'تم تقييم إجاباتك على الامتحان بنجاح.';
+    let evaluation = 'تم تقييم إجاباتك بنجاح من المعلم الذكي.';
     const evalMatch = cleaned.match(/"evaluation"\s*:\s*"([\s\S]*?)"\s*[\},]/);
     if (evalMatch && evalMatch[1]) {
       evaluation = evalMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
@@ -87,12 +87,12 @@ export async function POST(req: NextRequest) {
     const { exam_id, answers } = body;
 
     if (!exam_id || !answers) {
-      return NextResponse.json({ error: 'معرف الامتحان والإجابات مطلوبة' }, { status: 400 });
+      return NextResponse.json({ error: 'معرف الاختبار والإجابات مطلوبان' }, { status: 400 });
     }
 
     const exam = await db.getExam(exam_id);
     if (!exam) {
-      return NextResponse.json({ error: 'لم يتم العثور على الامتحان المطلوب' }, { status: 404 });
+      return NextResponse.json({ error: 'لم يتم العثور على هذا الاختبار' }, { status: 404 });
     }
 
     let userId: string | null = null;
@@ -102,44 +102,50 @@ export async function POST(req: NextRequest) {
     }
 
     if (!userId) {
-      return NextResponse.json({ error: 'يجب تسجيل الدخول لتصحيح الامتحان' }, { status: 401 });
+      return NextResponse.json({ error: 'تسجيل الدخول مطلوب لتسليم الاختبار' }, { status: 401 });
     }
 
     const profile = await db.getProfile(userId);
     if (!profile) {
-      return NextResponse.json({ error: 'لم يتم العثور على ملف المستخدم' }, { status: 404 });
+      return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم' }, { status: 404 });
     }
 
-    const coins = profile.coins === undefined ? 50.0 : profile.coins;
+    const coins = profile.coins === undefined ? 0.0 : profile.coins;
     const hasUnlimitedCredit = profile.role === 'admin' || !!profile.unlimited_credit;
     if (!hasUnlimitedCredit && coins <= 0) {
-      return NextResponse.json({ error: 'ليس لديك رصيد كافٍ من النقاط لتصحيح الامتحان.' }, { status: 402 });
+      return NextResponse.json({ error: 'لقد استنفدت رصيدك من النقاط. يرجى تجديد اشتراكك لمتابعة الاختبارات.' }, { status: 402 });
     }
 
-    const systemPrompt = `أنت معلم خبير ومصحح امتحانات للمناهج المصرية.
-مهمتك هي تقييم إجابات الطالب على هذا الامتحان وإعطائه درجة نهائية من 100 وتقييم تفصيلي باللغة العربية.
+    const systemPrompt = `You are the Official Academic Exam Grader for the Egyptian National Curriculum.
+Evaluate the student answers accurately against the answer key. Provide a total score out of 100 and encouraging, pedagogical Egyptian Arabic feedback.
 
-تفاصيل الامتحان:
-- العنوان: ${exam.title}
-- المادة: ${exam.subject_name}
-- الصف: ${exam.grade_level}
+================================================================================
+CRITICAL LANGUAGE & OUTPUT MANDATE:
+- The "evaluation" feedback MUST be written in friendly, polite Egyptian Arabic from "EGS AI" teacher persona.
+- Output strict JSON ONLY (no markdown fences, no conversational prose).
+================================================================================
 
-أسئلة الامتحان والإجابات الصحيحة النموذجية:
+Exam Metadata:
+- Title: ${exam.title}
+- Subject: ${exam.subject_name}
+- Grade: ${exam.grade_level}
+
+Exam Questions & Answer Key:
 ${JSON.stringify(exam.questions, null, 2)}
 
-إجابات الطالب المرفوعة:
+Student Submitted Answers:
 ${JSON.stringify(answers, null, 2)}
 
-قواعد التصحيح والتقييم:
-1. الأسئلة الاختيارية وصح/خطأ: قيّمها بدقة وقارنها بالإجابات النموذجية.
-2. الأسئلة المقالية: قيّم إجابة الطالب بمرونة بناءً على فهمه للمفهوم العلمي أو التاريخي أو اللغوي، ولا تشترط مطابقة الكلمات تماماً بل الفهم الصحيح.
-3. احسب النتيجة الإجمالية كنسبة مئوية صحيحة (بين 0 و 100).
-4. اكتب تقييماً تفصيلياً (evaluation) باللغة العربية بأسلوب المعلم المشجع والذكي "EGS AI"، يوضح النقاط الصحيحة والأخطاء وتصحيحها وكيفية التحسن.
+Grading Guidelines:
+1. Multiple Choice / True-False: Strict exact match against correct_answer.
+2. Essay Questions: Fair partial credit based on core scientific keywords and conceptual understanding.
+3. Compute aggregate percentage score (0 to 100).
+4. Provide structured Arabic evaluation ("evaluation") celebrating correct answers and explaining misconceptions constructively.
 
-أرجع المخرج بتنسيق JSON نظيف تماماً وخالٍ من أي ماركداون كودبلوك أو نصوص إضافية، مطابقاً للهيكل التالي:
+JSON Output Schema:
 {
   "score": 85,
-  "evaluation": "تفاصيل التقييم والتصحيح بالكامل هنا بأسلوب تربوي رائع..."
+  "evaluation": "تقييم تحفيزي شامل بالعربية يوضح نقاط القوة وكيفية معالجة الأخطاء..."
 }`;
 
     const { content, coinsCost } = await evaluateExamWithAI(systemPrompt, exam_id);
@@ -153,6 +159,8 @@ ${JSON.stringify(answers, null, 2)}
     const finalScore = gradingResult.score;
 
     let pointsAwarded = 0;
+    let totalPoints: number | undefined = undefined;
+
     if (isFirstAttempt) {
       if (finalScore === 100) pointsAwarded = 5;
       else if (finalScore > 90) pointsAwarded = 3;
@@ -161,7 +169,7 @@ ${JSON.stringify(answers, null, 2)}
       else pointsAwarded = 0;
 
       if (pointsAwarded > 0 && userId) {
-        await db.addPoints(userId, pointsAwarded);
+        totalPoints = await db.addPoints(userId, pointsAwarded);
       }
     }
 
@@ -177,16 +185,6 @@ ${JSON.stringify(answers, null, 2)}
       is_first_attempt: isFirstAttempt
     });
 
-    // Gamification reward: add coins on good scores
-    let coinsRewarded = 0;
-    if (finalScore >= 90) coinsRewarded = 10;
-    else if (finalScore >= 80) coinsRewarded = 5;
-    else if (finalScore >= 50) coinsRewarded = 2;
-
-    if (coinsRewarded > 0 && userId) {
-      await db.addCoins(userId, coinsRewarded);
-    }
-
     const questionsReview = (exam.questions || []).map((q: any) => ({
       id: q.id,
       question: q.question,
@@ -197,13 +195,18 @@ ${JSON.stringify(answers, null, 2)}
       explanation: q.explanation
     }));
 
-    return NextResponse.json({ 
-      ...submission, 
-      questions_review: questionsReview,
-      coins_rewarded: coinsRewarded
+    return NextResponse.json({
+      success: true,
+      submission,
+      score: finalScore,
+      evaluation: gradingResult.evaluation,
+      points_awarded: pointsAwarded,
+      total_points: totalPoints,
+      questions_review: questionsReview
     });
+
   } catch (error: any) {
-    console.error('Submit Exam Error:', error);
-    return NextResponse.json({ error: error.message ? `حدث خطأ أثناء تصحيح وحفظ الامتحان: ${error.message}` : 'حدث خطأ أثناء تصحيح وحفظ الامتحان' }, { status: 500 });
+    console.error('Exam submit error:', error);
+    return NextResponse.json({ error: 'حدث خطأ غير متوقع أثناء تصحيح الاختبار.' }, { status: 500 });
   }
 }

@@ -2,6 +2,7 @@ export const runtime = 'edge';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifySessionToken } from '@/lib/auth_helpers';
+import { getCurriculumContextForLesson } from '@/lib/curriculum_structure';
 import { callGeminiFlash } from '@/lib/gemini';
 
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
@@ -78,54 +79,26 @@ export async function POST(req: NextRequest) {
     }
 
     if (!userId) {
-      return NextResponse.json({ error: 'يجب تسجيل الدخول لإنشاء امتحان' }, { status: 401 });
+      return NextResponse.json({ error: 'تسجيل الدخول مطلوب لإنشاء الاختبارات' }, { status: 401 });
     }
 
     const profile = await db.getProfile(userId);
     if (!profile) {
-      return NextResponse.json({ error: 'لم يتم العثور على ملف المستخدم' }, { status: 404 });
+      return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم' }, { status: 404 });
     }
 
-    const coins = profile.coins === undefined ? 50.0 : profile.coins;
+    const coins = profile.coins === undefined ? 0.0 : profile.coins;
     const hasUnlimitedCredit = profile.role === 'admin' || !!profile.unlimited_credit;
     if (!hasUnlimitedCredit && coins <= 0) {
-      return NextResponse.json({ error: 'ليس لديك رصيد كافٍ من النقاط لإنشاء الامتحان.' }, { status: 402 });
+      return NextResponse.json({ error: 'لقد استنفدت رصيدك من النقاط. يرجى تجديد اشتراكك لمتابعة الاختبارات.' }, { status: 402 });
     }
 
-    // Retrieve some curriculum text for context
-    let curriculumText = "";
-    const curriculums = await db.getCurriculums();
-    const targetCurr = curriculums.find(c => c.grade_level === grade_level && c.subject_name === subject_name);
-    
-    if (targetCurr) {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-      const isSupabaseEnabled = supabaseUrl !== '' && supabaseServiceKey !== '';
-      
-      if (isSupabaseEnabled) {
-        const { createClient } = require('@supabase/supabase-js');
-        const supabase = createClient(supabaseUrl, supabaseServiceKey);
-        const { data: chunks } = await supabase
-          .from('curriculum_chunks')
-          .select('content')
-          .eq('curriculum_id', targetCurr.id)
-          .limit(6);
-        if (chunks) {
-          curriculumText = chunks.map((c: any) => c.content).join('\n\n');
-        }
-      } else {
-        if (process.env.NEXT_RUNTIME !== 'edge') {
-          const fs = require('fs');
-          const DB_FILE = './db_data.json';
-          if (fs.existsSync(DB_FILE)) {
-            const raw = fs.readFileSync(DB_FILE, 'utf8');
-            const parsed = JSON.parse(raw);
-            const chunks = (parsed.curriculum_chunks || []).filter((cc: any) => cc.curriculum_id === targetCurr.id).slice(0, 6);
-            curriculumText = chunks.map((c: any) => c.content).join('\n\n');
-          }
-        }
-      }
-    }
+    // Retrieve targeted curriculum text for the selected topic/lesson
+    const curriculumText = await getCurriculumContextForLesson(grade_level, subject_name, topic || '');
+
+    const adherenceInstruction = (topic && topic !== 'المنهج بالكامل' && topic !== 'مراجعة المنهج بالكامل')
+      ? `\nFOCUS TOPIC CONSTRAINT: All questions MUST focus specifically on this lesson/topic: "${topic}". Do not ask questions from unrelated chapters.`
+      : '';
 
     let questionInstructions = "";
     if (mode === 'custom_types') {
@@ -134,88 +107,105 @@ export async function POST(req: NextRequest) {
       const essays = essay_count ? parseInt(essay_count, 10) : 0;
       const total = mcqs + tfs + essays;
       
-      questionInstructions = `أنشئ امتحاناً مكوناً من ${total} أسئلة كالتالي:
-${mcqs > 0 ? `- عدد ${mcqs} سؤال/أسئلة اختيار من متعدد (multiple_choice) ولديه 4 خيارات (options).\n` : ''}${tfs > 0 ? `- عدد ${tfs} سؤال/أسئلة صح وخطأ (true_false) والـ correct_answer يجب أن تكون إما "true" أو "false" نصياً.\n` : ''}${essays > 0 ? `- عدد ${essays} سؤال/أسئلة مقالية قصيرة (essay) تقيس الفهم، والـ correct_answer هو الخطوط العريضة للإجابة الصحيحة.\n` : ''}`;
+      questionInstructions = `Exam Question Counts: Exactly ${total} questions:
+${mcqs > 0 ? `- Exactly ${mcqs} multiple-choice questions (multiple_choice) with 4 options in Arabic.\n` : ''}${tfs > 0 ? `- Exactly ${tfs} true/false questions (true_false) where correct_answer is strictly "true" or "false".\n` : ''}${essays > 0 ? `- Exactly ${essays} short essay questions (essay) where correct_answer is the concise model answer in Arabic.\n` : ''}`;
     } else if (mode === 'total_only') {
       const total = total_count ? parseInt(total_count, 10) : 5;
-      questionInstructions = `أنشئ امتحاناً مكوناً من بالضبط ${total} أسئلة. نوّع في الأسئلة بين الاختيار من متعدد (multiple_choice)، الصح والخطأ (true_false)، والأسئلة المقالية (essay) حسب ما تراه مناسباً للموضوع.`;
+      questionInstructions = `Exam Question Counts: Exactly ${total} questions balanced across multiple_choice, true_false, and essay.`;
     } else {
-      questionInstructions = `أنشئ امتحاناً شاملاً ومميزاً في الموضوع. تنوع بشكل تلقائي وممتاز بين أسئلة الاختيار من متعدد (multiple_choice)، أسئلة صح وخطأ (true_false)، وأسئلة مقالية (essay) بما يغطي الموضوع (من 4 إلى 6 أسئلة إجمالاً).`;
+      questionInstructions = `Exam Question Counts: Automatically generate a balanced, comprehensive exam (typically 4 to 6 questions) across multiple_choice, true_false, and essay.`;
     }
 
-    const systemPrompt = `أنت معلم خبير ذكي ومبتكر للمناهج المصرية للمرحلتين الإعدادية والثانوية.
-مهمتك هي إنشاء امتحان قياسي ومميز لتلاميذ الصف الدراسي المحدد والمادة المحددة.
+    const systemPrompt = `You are the Principal Exam Generator for the Egyptian National Curriculum (Middle & High School).
+Generate a balanced, rigorous exam adhering strictly to Egyptian curriculum standards.
 
-تفاصيل الامتحان المطلوبة:
-- المادة: ${subject_name}
-- الصف: ${grade_level}
-- موضوع/نطاق الامتحان: ${topic || 'منهج المادة العام'}
+================================================================================
+CRITICAL LANGUAGE & OUTPUT MANDATE:
+- ALL USER-FACING TEXT (questions, options, explanations, model answers, titles) MUST BE IN PURE, CLEAR ARABIC.
+- Format all mathematical, physical, and chemical formulas in standard LaTeX ($$ or $).
+- Return strict JSON ONLY (no markdown fences, no conversational prose).
+================================================================================
 
-سياق المنهج الدراسي المتاح لمساعدتك:
+Target Curriculum Context:
 """
-${curriculumText || 'لا يتوفر سياق مباشر للمنهج، أنشئ أسئلة عامة نموذجية تناسب المنهج المصري لهذا الصف الدراسي.'}
+${curriculumText ? curriculumText.slice(0, 10000) : 'General Egyptian Curriculum for ' + subject_name}
 """
-
-قواعد وهيكل الأسئلة:
+${adherenceInstruction}
 ${questionInstructions}
 
-يجب أن تقوم بإرجاع النص المخرّج بتنسيق JSON نظيف تماماً وخالٍ من أي تعليقات أو علامات كود ماركداون (لا تضع \`\`\`json ولا تضع أي نصوص قبل أو بعد الجيسون). يجب أن يطابق تماماً الهيكل التالي:
+JSON Output Schema:
 {
-  "title": "اسم الامتحان التقييمي للموضوع",
+  "title": "عنوان الاختبار المقترح بالعربية (مثال: اختبار على تفاعلات الإحلال)",
   "subject_name": "${subject_name}",
   "grade_level": "${grade_level}",
   "questions": [
     {
       "id": "q1",
       "type": "multiple_choice",
-      "question": "نص السؤال هنا؟",
-      "options": ["خيار 1", "خيار 2", "خيار 3", "خيار 4"],
-      "correct_answer": "خيار 1",
-      "explanation": "التوضيح التفصيلي هنا"
+      "question": "نص السؤال الأول؟",
+      "options": ["الخيار أ", "الخيار ب", "الخيار ج", "الخيار د"],
+      "correct_answer": "الخيار أ",
+      "explanation": "شرح توضيحي للإجابة النموذجية"
     },
     {
       "id": "q2",
       "type": "true_false",
-      "question": "نص السؤال هنا؟",
+      "question": "نص السؤال؟",
       "correct_answer": "true",
-      "explanation": "شرح الإجابة"
+      "explanation": "الشرح والتوضيح"
     },
     {
       "id": "q3",
       "type": "essay",
       "question": "نص السؤال المقالي؟",
-      "correct_answer": "النقاط الأساسية للإجابة النموذجية المعتمدة في الامتحان",
-      "explanation": "توضيح إضافي"
+      "correct_answer": "الإجابة النموذجية المختصرة",
+      "explanation": "عناصر الإجابة الكاملة"
     }
   ]
 }`;
 
-    const { content, coinsCost } = await generateExamWithAI(systemPrompt, grade_level, subject_name);
-    const examData = parseGeneratedExam(content);
+    const { content: rawAiResponse, coinsCost } = await generateExamWithAI(systemPrompt, grade_level, subject_name);
 
-    await db.deductCoins(userId, null, coinsCost);
+    let parsedExam: any;
+    try {
+      parsedExam = parseGeneratedExam(rawAiResponse);
+    } catch (parseError) {
+      console.error('Failed to parse AI exam response:', rawAiResponse, parseError);
+      return NextResponse.json({ error: 'حدث خطأ في معالجة وتنسيق أسئلة الاختبار من الذكاء الاصطناعي.' }, { status: 500 });
+    }
 
-    // Save to Database
-    const newExam = await db.createExam({
-      title: examData.title || `امتحان ذكي في ${subject_name}`,
-      subject_name,
-      grade_level,
-      questions: examData.questions,
-      session_id: session_id || undefined,
+    if (!parsedExam || !Array.isArray(parsedExam.questions) || parsedExam.questions.length === 0) {
+      return NextResponse.json({ error: 'لم يتم إنشاء أي أسئلة صالحة للاختبار.' }, { status: 500 });
+    }
+
+    const savedExam = await db.createExam({
+      title: parsedExam.title || `اختبار ${subject_name}`,
+      questions: parsedExam.questions,
+      subject_name: subject_name,
+      grade_level: grade_level,
+      session_id: session_id,
       user_id: userId,
       device_id: deviceId || undefined
     });
 
-    // Withhold model answers and explanations until submission
-    return NextResponse.json({
-      ...newExam,
-      questions: (newExam.questions || []).map((q: any) => {
-        const { correct_answer, explanation, ...rest } = q;
-        return rest;
-      })
+    await db.deductCoins(userId, deviceId, coinsCost);
+
+    // Strip answers from response
+    const questionsWithoutAnswers = (savedExam.questions || []).map((q: any) => {
+      const { correct_answer, explanation, ...rest } = q;
+      return rest;
     });
+
+    return NextResponse.json({
+      success: true,
+      exam: {
+        ...savedExam,
+        questions: questionsWithoutAnswers
+      }
+    });
+
   } catch (error: any) {
-    console.error('Generate Exam Error:', error);
-    return NextResponse.json({ error: 'حدث خطأ أثناء توليد وحفظ الامتحان' }, { status: 500 });
+    console.error('Exam generation error:', error);
+    return NextResponse.json({ error: 'حدث خطأ غير متوقع أثناء إنشاء الاختبار.' }, { status: 500 });
   }
 }
