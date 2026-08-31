@@ -2,7 +2,7 @@
 
 > **Purpose of this file:** Single source of truth for the entire project. It is written so that an AI agent (or a new developer) can understand the whole product, architecture, data model, API surface, UI, and known issues **without reading the codebase first**. Read this file and `CODING_GUIDELINES.md` (same folder) before making any change.
 >
-> **Last updated:** 2026-08-31 (Streamlined competition & leaderboard navigation on mobile and desktop: capped leaderboard strictly to Top 10, added out-of-top-10 student ranking banner at the top of the page, universal Top 3 Podium on desktop & mobile, clickable header trophy, home screen quick competition banner, and thumb-reachable "المسابقة" bottom nav tab).
+> **Last updated:** 2026-08-31 (Enhanced Registration & Unregistered Student Interface: Replaced isolated blank login screen with complete educational tutor workspace showing AI question composer dock with full details, interactive curriculum subject browser, and prominent centered Registration/Login hero banner `.guest-auth-banner` while preventing unauthenticated question submissions).
 >
 > **MANDATORY MAINTENANCE RULE:** upon completing ANY task that adds, modifies, or removes anything in this project (feature, API route, schema, screen, protocol tag, env var, setting, dependency, known issue), update the corresponding section(s) of this file and the "Last updated" date **in the same session**, so this document always matches the codebase. See CODING_GUIDELINES.md rule 8. A task is not complete until this file reflects it.
 
@@ -287,7 +287,7 @@ RPC function: `hybrid_search_curriculum(p_curriculum_id, p_query_embedding VECTO
 `id UUID PK`, `exam_id UUID FK CASCADE`, `user_id UUID FK CASCADE`, `device_id TEXT NULL`, `answers JSONB NOT NULL` (`{questionId: answer}`), `score NUMERIC NOT NULL` (0–100), `evaluation TEXT NOT NULL` (Arabic AI feedback), `points_awarded NUMERIC NOT NULL DEFAULT 0`, `is_first_attempt BOOLEAN NOT NULL DEFAULT false`, `submitted_at`.
 
 ### 6.11 `reports`
-`id UUID PK`, `user_id UUID FK SET NULL`, `device_id TEXT`, `message_id TEXT`, `session_id UUID FK SET NULL`, `reported_content TEXT NOT NULL`, `user_query TEXT`, `reason TEXT NOT NULL`, `status TEXT NOT NULL DEFAULT 'pending'` (`pending`/`reviewed`/`dismissed`), `created_at`. Indexes on status, created_at.
+`id UUID PK`, `user_id UUID FK SET NULL`, `device_id TEXT`, `message_id TEXT`, `session_id UUID FK SET NULL`, `reported_content TEXT NOT NULL`, `user_query TEXT`, `reason TEXT NOT NULL`, `status TEXT NOT NULL DEFAULT 'pending'` (`pending`/`action_taken`/`reviewed`/`dismissed`), `action_taken TEXT NULL`, `admin_notes TEXT NULL`, `created_at`. Indexes on status, created_at.
 
 ### 6.12 `notifications`
 `id UUID PK`, `title TEXT`, `body TEXT`, `type TEXT DEFAULT 'info'` (`info`/`success`/`warning`/`maintenance`), `target TEXT DEFAULT 'web'`, `active BOOLEAN DEFAULT true` (indexed), `created_at`.
@@ -337,7 +337,22 @@ Constraints & Indexes:
 - **`UNIQUE(user_id, device_id)`**
 - Indexes on `(user_id, is_active)`, `device_id`, `session_token`, and `(user_id, last_active_at DESC)`.
 
-### 6.17 Local-dev fallback
+### 6.17 `contact_messages` (added by `supabase_migration_customer_service.sql`)
+| Column | Type | Default / Constraint |
+|---|---|---|
+| id | UUID | PK `gen_random_uuid()` |
+| name | TEXT | NOT NULL |
+| contact_info | TEXT | NOT NULL (phone or email) |
+| category | TEXT | NOT NULL DEFAULT `'استفسار عام'` |
+| message | TEXT | NOT NULL |
+| user_id | UUID | nullable, FK → `profiles(id)` ON DELETE SET NULL |
+| status | TEXT | NOT NULL DEFAULT `'pending'` (`pending`, `replied`, `resolved`, `dismissed`) |
+| admin_notes | TEXT | nullable |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() |
+
+Indexes on `status`, `created_at DESC`, `user_id`.
+
+### 6.18 Local-dev fallback
 `web/src/lib/db.ts` uses `./db_data.json` when Supabase env vars are absent AND not on edge runtime. It mirrors the tables above and seeds a hardcoded admin. On edge without Supabase, all reads return empty — **Supabase is mandatory in deployment**.
 
 ---
@@ -390,6 +405,7 @@ All routes under `web/src/app/api/`. Conventions:
 | `/api/config` | POST (Admin) | Persist `website_link` / `active_grade_levels` / `active_tracks` / `active_curriculum_ids` to `system_settings`. |
 | `/api/notifications` | GET (public) | `?target=web`; active rows matching target. |
 | `/api/report` | POST (Bearer or device-id) | `{reported_content (req, ≤8000), user_query (≤2000), reason (≤500), message_id (≤200), session_id?}` → `reports` row. |
+| `/api/contact` | POST (Public / Optional Bearer) | `{name, contact_info, category?, message}`. Validates fields, associates authenticated `user_id` if present, saves message to `contact_messages` with status `'pending'`. |
 | `/api/log` | POST (Bearer or device-id) | Client telemetry echoed to server console (`[BROWSER LOG]:`), capped 4000 chars. Not persisted. |
 
 ### 7.5 Active Recall & Gamification
@@ -412,7 +428,9 @@ All routes under `web/src/app/api/`. Conventions:
 |---|---|---|
 | `/api/admin/dashboard` | GET | Stats: totalUsers (students), usersByGrade, highestUsageUser (by coins consumed, fallback msg count), highestUsageGrade. Loads all profiles + all chat_history into memory (scaling risk). |
 | `/api/admin/users` | GET `?search=` / PATCH `{id, unlimited_credit?, action?}` / DELETE `{id}` | Search via ilike on name/phone/email; responses include `active_devices_count` and active `devices` list; PATCH supports `action === 'reset_devices'` to immediately revoke all user devices; self-delete blocked; hashes excluded from responses. |
-| `/api/admin/reports` | GET `?status=` / PATCH `{id,status}` / DELETE | Moderation. |
+| `/api/admin/customer-service` | GET `?action=student_detail&userId=` / POST | Admin Customer Service Hub: (1) `action: 'student_detail'` returns detailed student profile, subscription start/end dates, elapsed hours, coin balance, devices count, and exact cancellation eligibility status with reason; (2) `action: 'cancel_subscription'` verifies the strict 3-day (72h) / 0-coin-spent condition, cancels subscription to `'free'`, resets timestamps, and marks payment transactions as `'refunded'`; (3) `action: 'recalculate_coins'` recalculates and sets today's coins to the active plan cap; (4) `action: 'add_coins'` adds arbitrary coins directly to student account; (5) `action: 'delete_student'` permanently purges student account and all cascades; (6) `action: 'update_report_action'` records admin resolution note and updates status. |
+| `/api/admin/support-messages` | GET `?status=&category=` / PATCH `{id, status, admin_notes?}` / DELETE `{id}` | Support Ticket Desk: lists contact form submissions, updates ticket status (`pending`, `replied`, `resolved`, `dismissed`) and internal notes, or deletes tickets. |
+| `/api/admin/reports` | GET `?status=` / PATCH `{id, status, action_taken?, admin_notes?}` / DELETE | AI Complaints Moderation: filters by status (`pending`, `action_taken`, `reviewed`, `dismissed`), saves action taken note, updates status, or permanently deletes report. |
 | `/api/admin/notifications` | GET / POST / PATCH `{id,active}` / DELETE | Title ≤200, body ≤2000, type/target whitelisted. |
 | `/api/admin/curriculum` | GET / POST / PATCH `{id, subject_name}` / DELETE `{id}` | POST supports two modes: (1) Multipart upload (`file`, `grade_level`, `subject_name`, `track_id?`, `is_elective?`) or attaching to existing placeholder (`curriculum_id`, `file`), running hierarchical parent-child chunking & vector embedding; (2) JSON/multipart placeholder creation (`is_placeholder: true`, `grade_level`, `subject_name`, `track_id?`, `is_elective?`) without a file. |
 | `/api/admin/curriculum/detail` | GET `?id=` / POST `{id, grade_level, subject_name, content}` | GET reassembles Markdown from chunks; POST re-chunks and generates batch embeddings using the unified hierarchical v2 pipeline (`processCurriculumChunks`), preserving full parent-child hierarchy in the database. |
@@ -553,7 +571,7 @@ Single client component `web/src/app/page.tsx`. Static routes for `/terms`, `/pr
 
 ### 12.3 Views
 1. **Sidebar** (right, RTL): logo header (Beta pill removed), new chat, search, subscriptions page (`باقات الاشتراك` for free users, `اشتراكي الحالي` for active subscribers), exams, flashcards (المدرب الذكي), competition & leaderboard (المسابقة ولوحة المتصدرين), profile, admin (role-gated), contact us (تواصل معنا), app download & installation link (`تحميل وتثبيت التطبيق` routing to `/download`), delete account link (حذف الحساب), session list (subject chip, hover delete, grade-mismatch block; opening a session restores its interaction mode), theme switcher (light/dark/system), user card (plan badge, coins, points, logout) or login CTA. Desktop 320px collapsible; mobile 280px fixed overlay + backdrop.
-2. **Chat & Study Hub (Mobile-Ergonomic):** header (Interactive Trophy points pill `"نقاط الترتيب"` routing directly to competition rankings with 1 tap, interactive coins pill displaying daily balance and routing to profile for active subscribers / upgrade sheet for free users, subscriptions header CTA hidden for active subscribers, notification bell dropdown, avatar); guest gate card; empty state (compact animated logo, student greeting, dedicated Home Screen Quick Access Competition Banner `.competition-home-banner` showing live student points and current rank, horizontal swipeable compact subject chips rail `.subject-cards-grid` with 20px icons, and streamlined 2-column study mode grid with 22px icons keeping the centered AI composer dock visible above-the-fold without scroll cutoff on all mobile screens); non-intrusive mobile PWA install banner (shown only on mobile browsers when not running in standalone mode and not dismissed); message list with smart floating scroll-to-bottom FAB (`.scroll-bottom-fab`) with pulse glow when new content arrives; composer dock.
+2. **Chat & Study Hub (Mobile-Ergonomic):** header (Interactive Trophy points pill `"نقاط الترتيب"` routing directly to competition rankings with 1 tap, interactive coins pill displaying daily balance and routing to profile for active subscribers / upgrade sheet for free users, subscriptions header CTA hidden for active subscribers, notification bell dropdown, avatar); empty state (compact animated logo, student greeting, dedicated Home Screen Quick Access Competition Banner `.competition-home-banner` for logged-in students, prominent centered Registration/Login hero banner `.guest-auth-banner` for unregistered visitors, horizontal swipeable compact subject chips rail `.subject-cards-grid` with 20px icons, and streamlined 2-column study mode grid with 22px icons keeping the centered AI composer dock visible above-the-fold with all its features and details rendered but gated against unauthenticated submission on all screen sizes); non-intrusive mobile PWA install banner (shown only on mobile browsers when not running in standalone mode and not dismissed); message list with smart floating scroll-to-bottom FAB (`.scroll-bottom-fab`) with pulse glow when new content arrives; composer dock.
 3. **Composer (Ergonomic Dock) & In-Stream Image Submission:** Primary row with auto-grow textarea (16px base font preventing iOS zoom, Enter send / Shift+Enter newline, cap 160px), 38x38px image attach button (≤5 MB → editor modal → instant preview attachment with 0 blocking pre-reading delay), and 38x38px circular send button. When submitted with an attached image, sends immediately and displays `"تحليل الصورة"` (`image_analysis` search step) while server-side VQA extracts problems and feeds into curriculum RAG + DeepSeek stream. For free accounts with depleted coins, displays a motivational paywall banner above the input dock celebrating their daily progress and offering 1-click Kashier subscription checkout (hidden for active subscribers whose daily coins replenish automatically). Beneath is the horizontal swipeable feature toolbar (`.composer-features-toolbar` with gradient edge fade masks) containing: Mode/Template pill (opens interactive teaching explanation modal on desktop / bottom sheet on mobile), Deep Thinking toggle pill (`.active-glow`), AI Model selector pill (Flash vs. Pro with `.active-gold`), Subject picker pill (opens subject picker modal/sheet), and Grade pill for guests.
 4. **Exams:** creator modal (dual mode: "اختيار من المنهج" with modern student-friendly picker supporting 1-click whole-curriculum selection, instant search, lightweight unit accordions with 1-tap whole-unit selection, streamlined lesson rows with concept subtitles, and docked scope summary; "موضوع مخصص" for custom topics; modes auto/total_only ≤15/custom_types MCQ+TF+essay counts); grid of available exams + submission history (score colors: ≥80 green, ≥50 orange, else red; mobile responsive single-column layout); taking view (all questions required before submit; **no timer exists**; on mobile includes sticky bottom action dock `.exam-taking-sticky-bar` with answered question progress and instant submission CTA; bottom navigation automatically hides during active exam answering for full immersion); results view (conic-gradient score ring, AI evaluation as markdown, per-question corrections from `questions_review`).
 5. **Flashcards (المدرب الذكي):** Dual-view study system with "جميع الكروت" (All Cards Grid/List view displaying all pooled cards with answer reveal toggles, deck filter pills, and Leitner box level badges) and "مراجعة تفاعلية" (3D interactive focus flip stack with progress bar, previous/next card navigation controls, touch-ergonomic Leitner 1-5 rating buttons, and summary completion screen), inline card edit/delete, deck rename/delete, and AI + Manual creation modal (featuring the same streamlined student-friendly Unit & Lesson Picker with whole-curriculum, whole-unit, and specific lesson selection with live search and concept subtitles for AI card generation; container styled with `.mobile-main-with-nav` for safe bottom clearance).
@@ -628,11 +646,19 @@ These are hard product requirements (see `CODING_GUIDELINES.md` rule 2):
 
 ## 15. Admin Panel
 
-Web only (`activeTab==='admin'`, `role==='admin'`). Four sections:
+Web only (`activeTab==='admin'`, `role==='admin'`). Six primary sections:
 1. **Overview (المناهج والإحصائيات):** stats cards (total students, per-grade counts, highest-usage user, most active grade); grade activation checkboxes; Baccalaureate Specialization Tracks activation toggles (Medicine & Life Sciences, Engineering & CS, Business, Arts & Literature); curriculum upload with mode switch (File upload vs Placeholder subject without file, with track selector and elective flag for `2_high`); website_link setting; curriculum table (inline rename, publish toggle, placeholder badges with "رفع الملف الآن" modal file-attachment button, manual units & lessons index editor modal "الوحدات والدروس" with multi-line sequential textarea input and live numbered auto-ordering, full Markdown editor modal "تعديل المحتوى", delete).
-2. **Users (المستخدمون):** search, unlimited-credit toggle, delete (non-admin only).
-3. **Notifications (الإشعارات):** create (title/body/type/target), activate/deactivate, delete.
-4. **Reports (البلاغات):** filter by status, mark reviewed/dismiss, delete.
+2. **Customer Service (خدمة العملاء والدعم الفني):** Divided into 3 dedicated sub-pages:
+   - **AI Response Complaints (شكاوى ردود الذكاء الاصطناعي):** Displays all student complaints regarding AI answers, user queries, flagged AI output, and student reasons; supports status filtering (`pending`, `action_taken`, `reviewed`, `dismissed`) and a dedicated modal for documenting official admin resolution actions (`action_taken`) with quick-suggestion chips (curriculum revision, scientific validation, etc.).
+   - **Student Page & Operations (صفحة وعمليات الطلاب):** Searchable student directory (name, email, phone, grade) linked to a detailed student profile and operations hub:
+     * **Action 1 (Subscription Cancellation & Refund):** Enforces strict policy — allowed within 3 days (72 hours) of subscription activation *provided* the user has consumed 0 coins from the package. Displays real-time eligibility badge, remaining hours, and safe confirmation modal that cancels subscription, reverts to free plan, and marks transaction as refunded.
+     * **Action 2 (Recalculate & Add Coins):** Sub-action A recalculates and sets daily coins due today according to active plan cap (80/90/120); Sub-action B adds direct coins to user account with quick preset pills (+25, +50, +100, +200) or custom numeric input.
+     * **Action 3 (Permanently Delete Student Account):** Danger zone operation that permanently purges student profile, chat history, exams, submissions, flashcards, devices, and subscriptions with safe confirmation modal.
+   - **Technical Support (صفحة الدعم الفني):** Central inbox for messages submitted via the public `/contact` form; category and status filtering; direct 1-click communication triggers (Direct Phone Call `tel:`, WhatsApp chat `https://wa.me/`, Email `mailto:`); admin resolution notes logging modal and status updates (`pending`, `replied`, `resolved`, `dismissed`).
+3. **Users (المستخدمون):** search, active connected devices count & device session reset, unlimited-credit toggle, delete (non-admin only).
+4. **Notifications (الإشعارات):** create (title/body/type/target), activate/deactivate, delete.
+5. **Reports (البلاغات):** legacy reports listing, filter by status, mark reviewed/dismiss, delete.
+6. **Versions (إصدارات التطبيق):** publish version updates, mandatory upgrade flags, release notes.
 
 ---
 
@@ -674,9 +700,9 @@ Web only (`activeTab==='admin'`, `role==='admin'`). Four sections:
 
 - **SQL default admin:** id `a3e0f065-9856-424d-8dc8-b4b3cf0b89cf`, phone `01147814652`, name `مدير النظام`, role admin, plan max, coins 1000, unlimited_credit.
 - **External Testing / Payment Gateway Test Account:** id `f0000000-0000-4000-a000-000000000001`, email `test@egsaiedu.com`, password `TestAccount2026!`, phone `01000000000`, name `حساب اختباري (Test Account)`, grade `1_high`, role `admin`, plan `max`, `unlimited_credit: true`, `coins: 10000`. Present in production Supabase database and `db_data.json`.
-- **Local-dev seeds (`db_data.json` / `db.ts` init):** admin `admin@egsaiedu.com` (id `admin-id-1234567890`) and test student `صهيب حسين` / `student@egsaiedu.com` (grade `1_high`).
+- **Local-dev seeds (`db_data.json` / `db.ts` init):** admin `admin@egsaiedu.com` (id `admin-id-1234567890`) and test account `test@egsaiedu.com` (id `f0000000-0000-4000-a000-000000000001`).
 - `system_settings.website_link = http://localhost:3000`.
-- **Uploaded Curricula (20 active curricula across 1_middle, 2_middle, 3_middle, & 1_high):** All 20 national curricula across grades `1_middle`, `2_middle`, `3_middle`, and `1_high` are populated with 78 structured units (modules) and 319 lessons, 768-dim vector embeddings, and active IDs in `system_settings.active_curriculum_ids`.
+- **Uploaded Curricula (28 curricula across 1_middle, 2_middle, 3_middle, 1_high, & 2_high):** All national curricula are populated with structured units and lessons, 768-dim vector embeddings, and active IDs in `system_settings.active_curriculum_ids`.
 
 ---
 

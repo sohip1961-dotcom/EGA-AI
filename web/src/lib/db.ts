@@ -64,7 +64,21 @@ export interface Report {
   reported_content: string;
   user_query?: string;
   reason: string;
-  status: 'pending' | 'reviewed' | 'dismissed';
+  status: 'pending' | 'reviewed' | 'dismissed' | 'action_taken';
+  action_taken?: string | null;
+  admin_notes?: string | null;
+  created_at: string;
+}
+
+export interface ContactMessage {
+  id: string;
+  user_id?: string | null;
+  name: string;
+  contact_info: string;
+  category: string;
+  message: string;
+  status: 'pending' | 'replied' | 'resolved' | 'dismissed';
+  admin_notes?: string | null;
   created_at: string;
 }
 
@@ -330,7 +344,8 @@ function readLocalDB() {
       flashcards: [],
       payment_transactions: [],
       free_trial_grants: [],
-      user_devices: []
+      user_devices: [],
+      contact_messages: []
     };
   }
   const fs = require('fs');
@@ -340,6 +355,11 @@ function readLocalDB() {
     const raw = fs.readFileSync(DB_FILE, 'utf8');
     const parsed = JSON.parse(raw);
     let changed = false;
+
+    if (!parsed.contact_messages) {
+      parsed.contact_messages = [];
+      changed = true;
+    }
 
     if (!parsed.payment_transactions) {
       parsed.payment_transactions = [];
@@ -2195,15 +2215,26 @@ export const db = {
     }
   },
 
-  async updateReportStatus(id: string, status: 'pending' | 'reviewed' | 'dismissed'): Promise<boolean> {
+  async updateReportStatus(
+    id: string,
+    status: 'pending' | 'reviewed' | 'dismissed' | 'action_taken',
+    action_taken?: string,
+    admin_notes?: string
+  ): Promise<boolean> {
+    const updateObj: Record<string, any> = { status };
+    if (action_taken !== undefined) updateObj.action_taken = action_taken;
+    if (admin_notes !== undefined) updateObj.admin_notes = admin_notes;
+
     if (supabase) {
-      const { error } = await supabase.from('reports').update({ status }).eq('id', id);
+      const { error } = await supabase.from('reports').update(updateObj).eq('id', id);
       return !error;
     } else {
       const data = readLocalDB();
       const report = (data.reports || []).find((r: Report) => r.id === id);
       if (!report) return false;
       report.status = status;
+      if (action_taken !== undefined) report.action_taken = action_taken;
+      if (admin_notes !== undefined) report.admin_notes = admin_notes;
       writeLocalDB(data);
       return true;
     }
@@ -2219,6 +2250,233 @@ export const db = {
       writeLocalDB(data);
       return true;
     }
+  },
+
+  // ─── Contact / Technical Support Messages ───────────────────────────────────
+  async createContactMessage(msg: Omit<ContactMessage, 'id' | 'created_at' | 'status'>): Promise<ContactMessage> {
+    const newMsg: ContactMessage = {
+      ...msg,
+      id: crypto.randomUUID(),
+      status: 'pending',
+      created_at: new Date().toISOString()
+    };
+
+    if (supabase) {
+      const { data, error } = await supabase.from('contact_messages').insert(newMsg).select().single();
+      if (error) {
+        console.error('Supabase createContactMessage error:', error);
+        throw error;
+      }
+      return data;
+    } else {
+      const data = readLocalDB();
+      if (!data.contact_messages) data.contact_messages = [];
+      data.contact_messages.push(newMsg);
+      writeLocalDB(data);
+      return newMsg;
+    }
+  },
+
+  async getContactMessages(status?: string, category?: string): Promise<ContactMessage[]> {
+    if (supabase) {
+      let query = supabase.from('contact_messages').select('*').order('created_at', { ascending: false });
+      if (status && status !== 'all') query = query.eq('status', status);
+      if (category && category !== 'all') query = query.eq('category', category);
+      const { data, error } = await query;
+      if (error) {
+        console.error('Supabase getContactMessages error:', error);
+        return [];
+      }
+      return data || [];
+    } else {
+      const data = readLocalDB();
+      let list = (data.contact_messages || []) as ContactMessage[];
+      if (status && status !== 'all') list = list.filter(m => m.status === status);
+      if (category && category !== 'all') list = list.filter(m => m.category === category);
+      return [...list].sort((a, b) => b.created_at.localeCompare(a.created_at));
+    }
+  },
+
+  async updateContactMessageStatus(
+    id: string,
+    status: 'pending' | 'replied' | 'resolved' | 'dismissed',
+    admin_notes?: string
+  ): Promise<boolean> {
+    const updateObj: Record<string, any> = { status };
+    if (admin_notes !== undefined) updateObj.admin_notes = admin_notes;
+
+    if (supabase) {
+      const { error } = await supabase.from('contact_messages').update(updateObj).eq('id', id);
+      return !error;
+    } else {
+      const data = readLocalDB();
+      const msg = (data.contact_messages || []).find((m: ContactMessage) => m.id === id);
+      if (!msg) return false;
+      msg.status = status;
+      if (admin_notes !== undefined) msg.admin_notes = admin_notes;
+      writeLocalDB(data);
+      return true;
+    }
+  },
+
+  async deleteContactMessage(id: string): Promise<boolean> {
+    if (supabase) {
+      const { error } = await supabase.from('contact_messages').delete().eq('id', id);
+      return !error;
+    } else {
+      const data = readLocalDB();
+      data.contact_messages = (data.contact_messages || []).filter((m: ContactMessage) => m.id !== id);
+      writeLocalDB(data);
+      return true;
+    }
+  },
+
+  // ─── Customer Service: Subscription Cancellation & Recalculation ───────────
+  async cancelUserSubscription(userId: string): Promise<{ success: boolean; error?: string; message?: string }> {
+    const profile = await this.getProfile(userId);
+    if (!profile) {
+      return { success: false, error: 'المستخدم غير موجود.' };
+    }
+
+    if (profile.subscription_status !== 'active' || profile.plan_type === 'free') {
+      return { success: false, error: 'الطالب لا يملك اشتراكاً مدفوعاً نشطاً حالياً ليتم إلغاؤه.' };
+    }
+
+    // 1. Check 3 days (72 hours) window
+    if (profile.subscription_start_date) {
+      const startDate = new Date(profile.subscription_start_date).getTime();
+      const now = Date.now();
+      const elapsedHours = (now - startDate) / (1000 * 60 * 60);
+      if (elapsedHours > 72) {
+        const days = Math.floor(elapsedHours / 24);
+        const hours = Math.floor(elapsedHours % 24);
+        return {
+          success: false,
+          error: `غير مؤهل للإلغاء: لقد مضى ${days > 0 ? `${days} يوم و ` : ''}${hours} ساعة على تاريخ بدء الاشتراك. يشترط للإلغاء والاسترداد ألا يتجاوز الاشتراك 3 أيام (72 ساعة).`
+        };
+      }
+    }
+
+    // 2. Check 0 coins spent rule
+    const planCap = DAILY_COIN_CAPS[profile.plan_type] ?? 80.0;
+    const currentCoins = profile.coins === undefined ? 0 : profile.coins;
+    if (currentCoins < planCap) {
+      return {
+        success: false,
+        error: `غير مؤهل للإلغاء: تم استهلاك نقاط من رصيد باقة الاشتراك (الرصيد المتبقي ${currentCoins.toFixed(1)} من أصل ${planCap} نقطة). يشترط للإلغاء والاسترداد عدم استهلاك أي نقاط من الباقة.`
+      };
+    }
+
+    // Check if any chat usage occurred during the subscription period
+    if (profile.subscription_start_date) {
+      if (supabase) {
+        const { data: usageRows } = await supabase
+          .from('chat_history')
+          .select('coins_cost')
+          .eq('user_id', userId)
+          .gte('created_at', profile.subscription_start_date)
+          .gt('coins_cost', 0);
+        if (usageRows && usageRows.length > 0) {
+          return {
+            success: false,
+            error: 'غير مؤهل للإلغاء: تم تسجيل عمليات محادثة واستهلاك نقاط خلال فترة الاشتراك الحالية.'
+          };
+        }
+      } else {
+        const data = readLocalDB();
+        const start = new Date(profile.subscription_start_date).getTime();
+        const hasUsage = (data.chat_history || []).some(
+          (h: any) => h.user_id === userId && new Date(h.created_at).getTime() >= start && (h.coins_cost || 0) > 0
+        );
+        if (hasUsage) {
+          return {
+            success: false,
+            error: 'غير مؤهل للإلغاء: تم تسجيل عمليات محادثة واستهلاك نقاط خلال فترة الاشتراك الحالية.'
+          };
+        }
+      }
+    }
+
+    // Cancellation execution: Reset plan to free, subscription_status to inactive
+    const updatePayload = {
+      subscription_status: 'inactive',
+      plan_type: 'free',
+      subscription_plan_id: null,
+      subscription_end_date: null,
+      coins: 0.0
+    };
+
+    if (supabase) {
+      await supabase.from('profiles').update(updatePayload).eq('id', userId);
+      try {
+        await supabase
+          .from('payment_transactions')
+          .update({ status: 'refunded', updated_at: new Date().toISOString() })
+          .eq('user_id', userId)
+          .in('status', ['success', 'pending']);
+      } catch (e) {
+        console.warn('Payment transaction refund update notice:', e);
+      }
+    } else {
+      const data = readLocalDB();
+      const p = (data.profiles || []).find((x: Profile) => x.id === userId);
+      if (p) {
+        p.subscription_status = 'inactive';
+        p.plan_type = 'free';
+        p.subscription_plan_id = undefined;
+        p.subscription_end_date = undefined;
+        p.coins = 0.0;
+      }
+      if (data.payment_transactions) {
+        data.payment_transactions.forEach((tx: any) => {
+          if (tx.user_id === userId && (tx.status === 'success' || tx.status === 'pending')) {
+            tx.status = 'refunded';
+            tx.updated_at = new Date().toISOString();
+          }
+        });
+      }
+      writeLocalDB(data);
+    }
+
+    return {
+      success: true,
+      message: 'تم إلغاء باقة الاشتراك بنجاح واسترداد الخطة وتحويل حساب الطالب إلى الخطة المجانية.'
+    };
+  },
+
+  async recalculateUserCoins(userId: string): Promise<{ success: boolean; coins: number; message: string }> {
+    const profile = await this.getProfile(userId);
+    if (!profile) {
+      return { success: false, coins: 0, message: 'المستخدم غير موجود.' };
+    }
+
+    const today = getCairoDateString();
+    const isActiveSub = profile.subscription_status === 'active' && profile.plan_type !== 'free';
+    const planCap = DAILY_COIN_CAPS[profile.plan_type] ?? (isActiveSub ? 80.0 : 0.0);
+    const newCoins = isActiveSub ? toPreciseCoins(planCap) : toPreciseCoins(15.0);
+
+    profile.coins = newCoins;
+    profile.last_active_date = today;
+
+    if (supabase) {
+      await supabase.from('profiles').update({ coins: newCoins, last_active_date: today }).eq('id', userId);
+    } else {
+      const data = readLocalDB();
+      const p = (data.profiles || []).find((x: Profile) => x.id === userId);
+      if (p) {
+        p.coins = newCoins;
+        p.last_active_date = today;
+        writeLocalDB(data);
+      }
+    }
+
+    return {
+      success: true,
+      coins: newCoins,
+      message: isActiveSub
+        ? `تمت إعادة احتساب وتعيين نقاط اليوم المستحقة لباقة (${profile.plan_type}) بنجاح إلى ${newCoins} نقطة.`
+        : `تمت إعادة ضبط رصيد النقاط التجريبي للطالب إلى ${newCoins} نقطة.`
+    };
   },
 
   // ─── Notifications ─────────────────────────────────────────────────────────
@@ -2409,6 +2667,7 @@ export const db = {
         await supabase.from('chat_history').delete().eq('user_id', id);
         await supabase.from('exams').delete().eq('user_id', id);
         await supabase.from('reports').delete().eq('user_id', id);
+        await supabase.from('contact_messages').delete().eq('user_id', id);
         await supabase.from('payment_transactions').delete().eq('user_id', id);
         await supabase.from('account_deletions').delete().eq('user_id', id);
       } catch (e) {
@@ -2424,6 +2683,7 @@ export const db = {
       if (data.exams) data.exams = data.exams.filter((e: any) => e.user_id !== id);
       if (data.exam_submissions) data.exam_submissions = data.exam_submissions.filter((es: any) => es.user_id !== id);
       if (data.reports) data.reports = data.reports.filter((r: any) => r.user_id !== id);
+      if (data.contact_messages) data.contact_messages = data.contact_messages.filter((cm: any) => cm.user_id !== id);
       if (data.password_resets) data.password_resets = data.password_resets.filter((pr: any) => pr.user_id !== id);
       if (data.account_deletions) data.account_deletions = data.account_deletions.filter((ad: any) => ad.user_id !== id);
       if (data.flashcard_decks) data.flashcard_decks = data.flashcard_decks.filter((fd: any) => fd.user_id !== id);

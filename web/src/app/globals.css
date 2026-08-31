@@ -2173,6 +2173,36 @@ html[data-theme='light'] .playing-card-deck-layer {
   box-shadow: 0 4px 16px rgba(229, 169, 60, 0.15);
 }
 
+/* Home Screen Guest Registration CTA Banner */
+.guest-auth-banner {
+  width: 100%;
+  background: linear-gradient(135deg, rgba(193, 39, 45, 0.09) 0%, rgba(229, 169, 60, 0.08) 50%, var(--card-bg) 100%);
+  border: 1.5px solid var(--border-primary);
+  border-radius: 18px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  box-shadow: var(--shadow-sm);
+  direction: rtl;
+  transition: var(--transition);
+}
+
+.guest-auth-banner:hover {
+  border-color: var(--primary-color);
+  box-shadow: var(--shadow-glow);
+}
+
+@media (max-width: 768px) {
+  .guest-auth-banner {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 14px 14px;
+    gap: 12px;
+  }
+}
+
 /* Timer Warning animation */
 .timer-pulse {
   animation: timerPulse 1s infinite alternate;
@@ -2683,12 +2713,11 @@ html[data-theme='light'] .playing-card-deck-layer {
 .curriculum-unit-header {
   width: 100%;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   padding: 10px 12px;
   background: var(--card-bg);
   transition: background 0.15s ease;
-  gap: 8px;
+  gap: 6px;
   box-sizing: border-box;
   cursor: pointer;
 }

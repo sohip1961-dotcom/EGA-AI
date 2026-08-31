@@ -77,7 +77,14 @@ import {
   Download,
   Share,
   PlusSquare,
-  Target
+  Target,
+  Headphones,
+  MessageCircle,
+  UserX,
+  AlertTriangle,
+  XCircle,
+  ExternalLink,
+  HelpCircle
 } from 'lucide-react';
 
 interface SearchStep {
@@ -1481,7 +1488,7 @@ const CurriculumLessonPicker: React.FC<CurriculumLessonPickerProps> = ({
 
   const toggleUnit = (unitId: string) => {
     setExpandedUnits(prev => {
-      const isCurrentlyOpen = prev[unitId] !== false;
+      const isCurrentlyOpen = Boolean(prev[unitId]);
       return { ...prev, [unitId]: !isCurrentlyOpen };
     });
   };
@@ -1697,7 +1704,7 @@ const CurriculumLessonPicker: React.FC<CurriculumLessonPickerProps> = ({
                 ) : (
                   filteredUnits.map((unit: any, uIdx: number) => {
                     const isSearching = normalizedQuery.length > 0;
-                    const isExpanded = isSearching || expandedUnits[unit.id] !== false;
+                    const isExpanded = isSearching || Boolean(expandedUnits[unit.id]);
                     const isUnitFullySelected = isWholeUnitSelected(unit);
                     const hasSelectedLesson = Boolean(selectedLesson && selectedLesson.type === 'lesson' && unit.lessons?.some((l: any) => l.id === selectedLesson.id));
 
@@ -1707,27 +1714,77 @@ const CurriculumLessonPicker: React.FC<CurriculumLessonPickerProps> = ({
 
                     return (
                       <div key={unit.id || uIdx} className={cardClass}>
-                        {/* Unit Header Row */}
+                        {/* Unit Header (Foldable card header with full-width wrapping title) */}
                         <div
                           onClick={() => toggleUnit(unit.id)}
                           className="curriculum-unit-header"
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-                            <div style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', display: 'flex', alignItems: 'center', color: 'var(--text-muted)' }}>
+                          {/* Top Row: Unit Badge + Full Title + Expand Chevron */}
+                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px', width: '100%' }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', minWidth: 0, flex: 1 }}>
+                              <span style={{
+                                fontSize: '0.72rem',
+                                background: isUnitFullySelected ? 'var(--primary-color)' : hasSelectedLesson ? 'var(--primary-light)' : 'var(--bg-elevated)',
+                                color: isUnitFullySelected ? 'var(--text-on-primary)' : hasSelectedLesson ? 'var(--primary-color)' : 'var(--text-secondary)',
+                                border: `1px solid ${isUnitFullySelected || hasSelectedLesson ? 'var(--primary-color)' : 'var(--border-color)'}`,
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                fontWeight: 800,
+                                flexShrink: 0,
+                                marginTop: '1px'
+                              }}>
+                                الوحدة {unit.unitNumber || (uIdx + 1)}
+                              </span>
+                              <span style={{
+                                fontSize: '0.88rem',
+                                fontWeight: 800,
+                                color: isUnitFullySelected ? 'var(--primary-color)' : 'var(--text-main)',
+                                lineHeight: 1.45,
+                                flex: 1,
+                                minWidth: 0,
+                                wordBreak: 'normal',
+                                overflowWrap: 'break-word',
+                                textAlign: 'right'
+                              }}>
+                                {unit.title}
+                              </span>
+                            </div>
+
+                            <div style={{
+                              transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                              transition: 'transform 0.2s ease',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: 'var(--text-muted)',
+                              flexShrink: 0,
+                              width: '24px',
+                              height: '24px',
+                              borderRadius: '6px',
+                              background: 'var(--bg-elevated)'
+                            }}>
                               <ChevronDown size={15} />
                             </div>
-                            <span style={{ fontSize: '0.72rem', background: isUnitFullySelected ? 'var(--primary-color)' : hasSelectedLesson ? 'var(--primary-light)' : 'var(--bg-elevated)', color: isUnitFullySelected ? 'var(--text-on-primary)' : hasSelectedLesson ? 'var(--primary-color)' : 'var(--text-secondary)', border: `1px solid ${isUnitFullySelected || hasSelectedLesson ? 'var(--primary-color)' : 'var(--border-color)'}`, padding: '2px 7px', borderRadius: '5px', fontWeight: 800, flexShrink: 0 }}>
-                              الوحدة {unit.unitNumber || (uIdx + 1)}
-                            </span>
-                            <span style={{ fontSize: '0.86rem', fontWeight: 800, color: isUnitFullySelected ? 'var(--primary-color)' : 'var(--text-main)', flex: 1, minWidth: 0, wordBreak: 'break-word', lineHeight: 1.35 }}>
-                              {unit.title}
-                            </span>
                           </div>
 
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                              {unit.lessons?.length || 0} دروس
-                            </span>
+                          {/* Bottom Row: Lesson Count & Start Page + Unit Select Action */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', paddingTop: '6px', borderTop: '1px dashed var(--border-color)', marginTop: '2px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                                {unit.lessons?.length || 0} {unit.lessons?.length === 1 ? 'درس' : 'دروس'}
+                              </span>
+                              {unit.startPage && (
+                                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', padding: '1px 5px', borderRadius: '4px' }}>
+                                  ص. {unit.startPage}
+                                </span>
+                              )}
+                              {hasSelectedLesson && (
+                                <span style={{ fontSize: '0.68rem', background: 'var(--primary-light)', color: 'var(--primary-color)', padding: '1px 5px', borderRadius: '4px', fontWeight: 800 }}>
+                                  محدد درس
+                                </span>
+                              )}
+                            </div>
+
                             <button
                               type="button"
                               onClick={(e) => handleSelectUnit(unit, uIdx, e)}
@@ -1737,10 +1794,10 @@ const CurriculumLessonPicker: React.FC<CurriculumLessonPickerProps> = ({
                               {isUnitFullySelected ? (
                                 <>
                                   <Check size={11} strokeWidth={3} />
-                                  <span>محددة</span>
+                                  <span>محددة بالكامل</span>
                                 </>
                               ) : (
-                                <span>تحديد الوحدة</span>
+                                <span>تحديد الوحدة كاملة</span>
                               )}
                             </button>
                           </div>
@@ -2617,7 +2674,35 @@ export default function App() {
   const [showNotifCenter, setShowNotifCenter] = useState(false);
 
   // Admin State
-  const [adminSection, setAdminSection] = useState<'overview' | 'users' | 'notifications' | 'reports' | 'versions'>('overview');
+  const [adminSection, setAdminSection] = useState<'overview' | 'customer_service' | 'users' | 'notifications' | 'reports' | 'versions'>('overview');
+  const [customerServiceTab, setCustomerServiceTab] = useState<'ai_complaints' | 'student_management' | 'support_messages'>('ai_complaints');
+
+  // Customer Service: AI Complaints State
+  const [csAiComplaints, setCsAiComplaints] = useState<any[]>([]);
+  const [csAiComplaintsLoading, setCsAiComplaintsLoading] = useState(false);
+  const [csAiComplaintsFilter, setCsAiComplaintsFilter] = useState<'all' | 'pending' | 'action_taken' | 'reviewed' | 'dismissed'>('all');
+  const [csAiActionModal, setCsAiActionModal] = useState<{ report: any; actionTaken: string; status: string } | null>(null);
+  const [csAiActionSaving, setCsAiActionSaving] = useState(false);
+
+  // Customer Service: Student Management State
+  const [csStudents, setCsStudents] = useState<any[]>([]);
+  const [csStudentSearch, setCsStudentSearch] = useState('');
+  const [csStudentsLoading, setCsStudentsLoading] = useState(false);
+  const [selectedCsStudent, setSelectedCsStudent] = useState<any | null>(null);
+  const [selectedCsStudentLoading, setSelectedCsStudentLoading] = useState(false);
+  const [csCoinsToAdd, setCsCoinsToAdd] = useState<string>('50');
+  const [csActionLoading, setCsActionLoading] = useState(false);
+  const [csActionFeedback, setCsActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [csDeleteConfirmModal, setCsDeleteConfirmModal] = useState(false);
+  const [csCancelSubModal, setCsCancelSubModal] = useState(false);
+
+  // Customer Service: Technical Support Messages State
+  const [csSupportMessages, setCsSupportMessages] = useState<any[]>([]);
+  const [csSupportMessagesLoading, setCsSupportMessagesLoading] = useState(false);
+  const [csSupportStatusFilter, setCsSupportStatusFilter] = useState<string>('all');
+  const [csSupportCategoryFilter, setCsSupportCategoryFilter] = useState<string>('all');
+  const [csSupportNotesModal, setCsSupportNotesModal] = useState<{ message: any; notes: string; status: string } | null>(null);
+  const [csSupportSaving, setCsSupportSaving] = useState(false);
   const [curriculums, setCurriculums] = useState<Curriculum[]>([]);
   const [uploadGrade, setUploadGrade] = useState('1_high');
   const [uploadSubject, setUploadSubject] = useState('');
@@ -3262,6 +3347,11 @@ export default function App() {
                 title: 'امتحان تقييمي',
                 desc: 'توليد اختبار ذكي بالذكاء الاصطناعي مع التصحيح الفوري',
                 action: () => {
+                  if (!user) {
+                    setAuthTab('register');
+                    setShowAuthModal(true);
+                    return;
+                  }
                   const targetGrade = user ? user.grade_level : chatGrade;
                   const activeSubjs = getActiveSubjectsForGrade(targetGrade);
                   const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
@@ -3284,6 +3374,11 @@ export default function App() {
                 title: 'المدرب الذكي والكروت',
                 desc: 'مراجعة المفاهيم بطريقة التكرار المتباعد الذكية',
                 action: () => {
+                  if (!user) {
+                    setAuthTab('register');
+                    setShowAuthModal(true);
+                    return;
+                  }
                   const targetGrade = user ? user.grade_level : chatGrade;
                   const activeSubjs = getActiveSubjectsForGrade(targetGrade);
                   const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
@@ -3454,7 +3549,8 @@ export default function App() {
     const handleModelSelect = (model: 'flash' | 'pro') => {
       // Pro model unlocked for registered users
       if (model === 'pro' && !user) {
-        alert('يرجى تسجيل الدخول لاستخدام نموذج المحترفين (Pro).');
+        setAuthTab('register');
+        setShowAuthModal(true);
       } else {
         setSelectedModel(model);
       }
@@ -3614,7 +3710,14 @@ export default function App() {
             <button
               type="button"
               disabled={isDisabled}
-              onClick={() => imageInputRef.current?.click()}
+              onClick={() => {
+                if (!user) {
+                  setAuthTab('register');
+                  setShowAuthModal(true);
+                  return;
+                }
+                imageInputRef.current?.click();
+              }}
               style={{
                 width: '38px',
                 height: '38px',
@@ -3695,7 +3798,6 @@ export default function App() {
           </div>
 
           {/* Quick-Controls Scrollable Feature Toolbar */}
-          {/* Quick-Controls Scrollable Feature Toolbar */}
           <div className="composer-features-toolbar">
             
             {/* Feature 1: Mode / Template Selector */}
@@ -3715,7 +3817,8 @@ export default function App() {
               type="button"
               onClick={() => {
                 if (!user) {
-                  alert('يرجى تسجيل الدخول لاستخدام ميزة التفكير العميق.');
+                  setAuthTab('register');
+                  setShowAuthModal(true);
                 } else {
                   setThinkingEnabled(!thinkingEnabled);
                 }
@@ -3918,7 +4021,9 @@ export default function App() {
                   key={m.key}
                   onClick={() => {
                     if (m.key === 'pro' && !user) {
-                      alert('يرجى تسجيل الدخول لاستخدام نموذج المحترفين (Pro).');
+                      setAuthTab('register');
+                      setShowAuthModal(true);
+                      setShowModelSheet(false);
                     } else {
                       setSelectedModel(m.key as any);
                       setShowModelSheet(false);
@@ -4895,6 +5000,14 @@ export default function App() {
   // Chat Operation
   const handleSendMessage = async (e?: React.FormEvent, customText?: string) => {
     if (e) e.preventDefault();
+
+    // Guest registration prompt gate: Unregistered students cannot submit questions
+    if (!user) {
+      setAuthTab('register');
+      setShowAuthModal(true);
+      return;
+    }
+
     const messageToSend = customText || inputMessage;
     if ((!messageToSend.trim() && !pendingImage) || chatLoading) return;
 
@@ -5541,6 +5654,277 @@ export default function App() {
       alert(e.message || 'فشلت إعادة تسمية المنهج');
     }
   };
+
+  // ─── Admin: Customer Service System ────────────────────────────────────────
+  const loadCsAiComplaints = async () => {
+    setCsAiComplaintsLoading(true);
+    try {
+      const url = `/api/admin/reports${csAiComplaintsFilter !== 'all' ? `?status=${csAiComplaintsFilter}` : ''}`;
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCsAiComplaints(data.reports || []);
+      }
+    } catch (e) {
+      console.error('Error loading AI complaints:', e);
+    } finally {
+      setCsAiComplaintsLoading(false);
+    }
+  };
+
+  const handleSaveAiComplaintAction = async (reportId: string, actionTaken: string, status: string) => {
+    if (!actionTaken.trim()) return;
+    setCsAiActionSaving(true);
+    try {
+      const res = await fetch('/api/admin/customer-service', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          action: 'update_report_action',
+          reportId,
+          action_taken: actionTaken.trim(),
+          status: status || 'action_taken'
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setCsAiActionModal(null);
+      loadCsAiComplaints();
+    } catch (e: any) {
+      alert(e.message || 'فشل تسجيل الإجراء المتخذ');
+    } finally {
+      setCsAiActionSaving(false);
+    }
+  };
+
+  const handleDeleteAiComplaint = async (reportId: string) => {
+    if (!confirm('هل أنت متأكد من حذف هذه الشكوى نهائياً؟')) return;
+    try {
+      const res = await fetch('/api/admin/reports', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ id: reportId })
+      });
+      if (!res.ok) throw new Error('فشل حذف الشكوى');
+      loadCsAiComplaints();
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
+
+  const loadCsStudents = async () => {
+    setCsStudentsLoading(true);
+    try {
+      const res = await fetch(`/api/admin/users${csStudentSearch ? `?search=${encodeURIComponent(csStudentSearch)}` : ''}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCsStudents(data.users || []);
+        if (selectedCsStudent) {
+          const updated = (data.users || []).find((u: any) => u.id === selectedCsStudent.id);
+          if (updated) selectCsStudent(updated.id);
+        }
+      }
+    } catch (e) {
+      console.error('Error loading CS students:', e);
+    } finally {
+      setCsStudentsLoading(false);
+    }
+  };
+
+  const selectCsStudent = async (studentId: string) => {
+    setSelectedCsStudentLoading(true);
+    setCsActionFeedback(null);
+    try {
+      const res = await fetch(`/api/admin/customer-service?action=student_detail&userId=${studentId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success && data.student) {
+        setSelectedCsStudent(data.student);
+      }
+    } catch (e) {
+      console.error('Error fetching student details:', e);
+    } finally {
+      setSelectedCsStudentLoading(false);
+    }
+  };
+
+  const handleCsCancelSubscription = async () => {
+    if (!selectedCsStudent) return;
+    setCsActionLoading(true);
+    setCsActionFeedback(null);
+    try {
+      const res = await fetch('/api/admin/customer-service', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          action: 'cancel_subscription',
+          userId: selectedCsStudent.id
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setCsActionFeedback({ type: 'success', message: data.message || 'تم إلغاء الاشتراك بنجاح واسترداد الباقة.' });
+      setCsCancelSubModal(false);
+      selectCsStudent(selectedCsStudent.id);
+      loadCsStudents();
+    } catch (e: any) {
+      setCsActionFeedback({ type: 'error', message: e.message || 'فشل إلغاء الاشتراك.' });
+    } finally {
+      setCsActionLoading(false);
+    }
+  };
+
+  const handleCsRecalculateCoins = async () => {
+    if (!selectedCsStudent) return;
+    setCsActionLoading(true);
+    setCsActionFeedback(null);
+    try {
+      const res = await fetch('/api/admin/customer-service', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          action: 'recalculate_coins',
+          userId: selectedCsStudent.id
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setCsActionFeedback({ type: 'success', message: data.message || 'تمت إعادة احتساب نقاط اليوم بنجاح.' });
+      selectCsStudent(selectedCsStudent.id);
+      loadCsStudents();
+    } catch (e: any) {
+      setCsActionFeedback({ type: 'error', message: e.message || 'فشلت إعادة احتساب النقاط.' });
+    } finally {
+      setCsActionLoading(false);
+    }
+  };
+
+  const handleCsAddCoins = async (amountToAdd?: number) => {
+    if (!selectedCsStudent) return;
+    const amount = amountToAdd !== undefined ? amountToAdd : parseFloat(csCoinsToAdd);
+    if (isNaN(amount) || amount <= 0) {
+      alert('يرجى إدخال عدد نقاط صحيح أكبر من الصفر.');
+      return;
+    }
+
+    setCsActionLoading(true);
+    setCsActionFeedback(null);
+    try {
+      const res = await fetch('/api/admin/customer-service', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          action: 'add_coins',
+          userId: selectedCsStudent.id,
+          amount
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setCsActionFeedback({ type: 'success', message: data.message || `تمت إضافة ${amount} نقطة بنجاح.` });
+      selectCsStudent(selectedCsStudent.id);
+      loadCsStudents();
+    } catch (e: any) {
+      setCsActionFeedback({ type: 'error', message: e.message || 'فشلت إضافة النقاط.' });
+    } finally {
+      setCsActionLoading(false);
+    }
+  };
+
+  const handleCsDeleteStudent = async () => {
+    if (!selectedCsStudent) return;
+    setCsActionLoading(true);
+    setCsActionFeedback(null);
+    try {
+      const res = await fetch('/api/admin/customer-service', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          action: 'delete_student',
+          userId: selectedCsStudent.id
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setCsDeleteConfirmModal(false);
+      setSelectedCsStudent(null);
+      loadCsStudents();
+      alert('تم حذف حساب الطالب وجميع بياناته بنجاح.');
+    } catch (e: any) {
+      alert(e.message || 'فشل حذف حساب الطالب.');
+    } finally {
+      setCsActionLoading(false);
+    }
+  };
+
+  const loadCsSupportMessages = async () => {
+    setCsSupportMessagesLoading(true);
+    try {
+      let url = `/api/admin/support-messages?`;
+      if (csSupportStatusFilter !== 'all') url += `status=${csSupportStatusFilter}&`;
+      if (csSupportCategoryFilter !== 'all') url += `category=${encodeURIComponent(csSupportCategoryFilter)}&`;
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) setCsSupportMessages(data.messages || []);
+    } catch (e) {
+      console.error('Error loading support messages:', e);
+    } finally {
+      setCsSupportMessagesLoading(false);
+    }
+  };
+
+  const handleUpdateSupportStatus = async (id: string, status: string, notes?: string) => {
+    setCsSupportSaving(true);
+    try {
+      const res = await fetch('/api/admin/support-messages', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ id, status, admin_notes: notes })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setCsSupportNotesModal(null);
+      loadCsSupportMessages();
+    } catch (e: any) {
+      alert(e.message || 'فشل تحديث حالة رسالة الدعم');
+    } finally {
+      setCsSupportSaving(false);
+    }
+  };
+
+  const handleDeleteSupportMessage = async (id: string) => {
+    if (!confirm('هل أنت متأكد من حذف هذه الرسالة نهائياً؟')) return;
+    try {
+      const res = await fetch('/api/admin/support-messages', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ id })
+      });
+      if (!res.ok) throw new Error('فشل حذف الرسالة');
+      loadCsSupportMessages();
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'admin' && adminSection === 'customer_service' && token && user?.role === 'admin') {
+      if (customerServiceTab === 'ai_complaints') {
+        loadCsAiComplaints();
+      } else if (customerServiceTab === 'student_management') {
+        loadCsStudents();
+      } else if (customerServiceTab === 'support_messages') {
+        loadCsSupportMessages();
+      }
+    }
+  }, [activeTab, adminSection, customerServiceTab, csAiComplaintsFilter, csSupportStatusFilter, csSupportCategoryFilter, token, user]);
 
   // ─── Admin: Users Management ────────────────────────────────────────────────
   const loadAdminUsers = async () => {
@@ -6858,105 +7242,7 @@ export default function App() {
               }}
               className="custom-scrollbar"
             >
-              {!user ? (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', width: '100%', padding: '20px' }}>
-                  {renderMobileInstallBanner()}
-                  <div className="glass text-center animate-scale-in" style={{
-                    maxWidth: '460px',
-                    padding: '40px 30px',
-                    borderRadius: 'var(--radius-lg)',
-                    background: 'var(--card-bg)',
-                    border: '1.5px solid var(--border-color)',
-                    boxShadow: 'var(--shadow-lg)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '20px'
-                  }}>
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: '56px',
-                      height: '56px',
-                      borderRadius: '16px',
-                      background: 'var(--primary-light)',
-                      border: '1.5px solid var(--border-primary)',
-                      boxShadow: 'var(--shadow-glow)',
-                      marginBottom: '8px'
-                    }}>
-                      <LogIn size={26} style={{ color: 'var(--primary-color)' }} />
-                    </div>
-                    <h3 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>
-                      تسجيل الدخول للمتابعة
-                    </h3>
-                    <p style={{ fontSize: '0.92rem', color: 'var(--text-secondary)', lineHeight: '1.6', margin: '0 0 10px 0' }}>
-                      يرجى تسجيل الدخول لمتابعة استخدام المنصة التعليمية ومساعدك الذكي.
-                    </p>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAuthTab('login');
-                          setShowAuthModal(true);
-                        }}
-                        className="btn-primary"
-                        style={{
-                          padding: '12px 24px',
-                          borderRadius: 'var(--radius-md)',
-                          fontWeight: 800,
-                          fontSize: '0.95rem',
-                          border: 'none',
-                          cursor: 'pointer',
-                          width: '100%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '8px',
-                          transition: 'var(--transition)'
-                        }}
-                      >
-                        <LogIn size={16} />
-                        <span>تسجيل الدخول</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAuthTab('register');
-                          setShowAuthModal(true);
-                        }}
-                        style={{
-                          padding: '11px 24px',
-                          borderRadius: 'var(--radius-md)',
-                          fontWeight: 700,
-                          fontSize: '0.92rem',
-                          background: 'transparent',
-                          border: '1.5px solid var(--border-color)',
-                          color: 'var(--text-main)',
-                          cursor: 'pointer',
-                          width: '100%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '8px',
-                          transition: 'var(--transition)'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.borderColor = 'var(--primary-color)';
-                          e.currentTarget.style.color = 'var(--primary-color)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.borderColor = 'var(--border-color)';
-                          e.currentTarget.style.color = 'var(--text-main)';
-                        }}
-                      >
-                        <Sparkles size={16} />
-                        <span>إنشاء حساب جديد</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : messages.length === 0 ? (
+              {messages.length === 0 ? (
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', width: '100%', padding: isMobile ? '12px 4px' : '24px 12px' }}>
                   <div className="animate-scale-in" style={{
                     width: '100%',
@@ -7048,6 +7334,102 @@ export default function App() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '2px', color: 'var(--primary-color)', fontSize: isMobile ? '0.74rem' : '0.8rem', fontWeight: 800 }}>
                           <span>عرض الترتيب</span>
                           <ChevronLeft size={16} />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Quick Registration & Login CTA Banner for Unregistered Students */}
+                    {!user && (
+                      <div 
+                        className="guest-auth-banner animate-scale-in"
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '10px' : '14px', flex: 1, minWidth: 0 }}>
+                          <div style={{
+                            background: 'var(--primary-light)',
+                            color: 'var(--primary-color)',
+                            width: isMobile ? '38px' : '44px',
+                            height: isMobile ? '38px' : '44px',
+                            borderRadius: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                            border: '1px solid var(--border-primary)',
+                            boxShadow: 'var(--shadow-glow)'
+                          }}>
+                            <LogIn size={isMobile ? 18 : 22} />
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: isMobile ? '0.86rem' : '0.96rem', fontWeight: 800, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', lineHeight: '1.3' }}>
+                              <span>سجل حسابك مجاناً لبدء المذاكرة والتفاعل</span>
+                            </div>
+                            <div style={{ fontSize: isMobile ? '0.72rem' : '0.78rem', color: 'var(--text-secondary)', marginTop: '3px', lineHeight: '1.45' }}>
+                              اطرح أسئلتك في المنهج الدراسي، حل المسائل المعقدة، وولد امتحانات تقييمية ذكية فورية مع EGS AI.
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, flexDirection: isMobile ? 'column' : 'row', width: isMobile ? '100%' : 'auto' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAuthTab('register');
+                              setShowAuthModal(true);
+                            }}
+                            className="btn-primary"
+                            style={{
+                              padding: isMobile ? '10px 16px' : '9px 18px',
+                              borderRadius: '10px',
+                              fontSize: isMobile ? '0.82rem' : '0.86rem',
+                              fontWeight: 800,
+                              width: isMobile ? '100%' : 'auto',
+                              flexShrink: 0,
+                              border: 'none',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px',
+                              boxShadow: '0 2px 10px rgba(193, 39, 45, 0.3)'
+                            }}
+                          >
+                            <Sparkles size={15} />
+                            <span>إنشاء حساب جديد</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAuthTab('login');
+                              setShowAuthModal(true);
+                            }}
+                            style={{
+                              padding: isMobile ? '9px 14px' : '8px 16px',
+                              borderRadius: '10px',
+                              fontSize: isMobile ? '0.8rem' : '0.84rem',
+                              fontWeight: 700,
+                              width: isMobile ? '100%' : 'auto',
+                              flexShrink: 0,
+                              background: 'transparent',
+                              border: '1.5px solid var(--border-color)',
+                              color: 'var(--text-main)',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px',
+                              transition: 'var(--transition)'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.borderColor = 'var(--primary-color)';
+                              e.currentTarget.style.color = 'var(--primary-color)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.borderColor = 'var(--border-color)';
+                              e.currentTarget.style.color = 'var(--text-main)';
+                            }}
+                          >
+                            <LogIn size={14} />
+                            <span>تسجيل الدخول</span>
+                          </button>
                         </div>
                       </div>
                     )}
@@ -7863,6 +8245,7 @@ export default function App() {
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>
                 {[
                   { key: 'overview', label: 'المناهج والإحصائيات', icon: <BookOpen size={14} /> },
+                  { key: 'customer_service', label: 'خدمة العملاء', icon: <Headphones size={14} /> },
                   { key: 'users', label: 'المستخدمون', icon: <User size={14} /> },
                   { key: 'notifications', label: 'الإشعارات', icon: <Sparkles size={14} /> },
                   { key: 'reports', label: 'البلاغات', icon: <AlertCircle size={14} /> },
@@ -8416,6 +8799,970 @@ export default function App() {
                 )}
               </div>
               </>
+              )}
+
+              {/* Customer Service Section */}
+              {adminSection === 'customer_service' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  
+                  {/* Customer Service Header & Sub-Tabs */}
+                  <div className="glass" style={{ padding: '20px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+                      <div>
+                        <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--primary-color)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                          <Headphones size={20} />
+                          <span>نظام خدمة العملاء والدعم الفني</span>
+                        </h3>
+                        <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                          إدارة متكاملة لشكاوى الردود، وعمليات الطلاب والاشتراكات، ورسائل الدعم الفني.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Sub-tab Navigation */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px' }}>
+                      {[
+                        { key: 'ai_complaints', label: 'شكاوى ردود الذكاء الاصطناعي', count: csAiComplaints.filter(r => r.status === 'pending').length, icon: <ShieldAlert size={16} /> },
+                        { key: 'student_management', label: 'صفحة وعمليات الطلاب', icon: <User size={16} /> },
+                        { key: 'support_messages', label: 'صفحة الدعم الفني', count: csSupportMessages.filter(m => m.status === 'pending').length, icon: <MessageSquare size={16} /> },
+                      ].map((subTab) => {
+                        const isActive = customerServiceTab === subTab.key;
+                        return (
+                          <button
+                            key={subTab.key}
+                            type="button"
+                            onClick={() => setCustomerServiceTab(subTab.key as any)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '8px',
+                              padding: '12px 16px',
+                              borderRadius: 'var(--radius-md)',
+                              border: '1px solid',
+                              borderColor: isActive ? 'var(--primary-color)' : 'var(--border-color)',
+                              background: isActive ? 'var(--primary-light)' : 'var(--sidebar-bg)',
+                              color: isActive ? 'var(--primary-color)' : 'var(--text-main)',
+                              fontWeight: 700,
+                              fontSize: '0.84rem',
+                              cursor: 'pointer',
+                              transition: 'var(--transition)'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              {subTab.icon}
+                              <span>{subTab.label}</span>
+                            </div>
+                            {typeof subTab.count === 'number' && subTab.count > 0 && (
+                              <span style={{
+                                padding: '2px 7px',
+                                borderRadius: 'var(--radius-full)',
+                                background: 'rgba(230, 57, 70, 0.2)',
+                                color: '#E63946',
+                                fontSize: '0.72rem',
+                                fontWeight: 800
+                              }}>
+                                {subTab.count}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* SUB-SECTION 1: AI Response Complaints */}
+                  {customerServiceTab === 'ai_complaints' && (
+                    <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                        <div>
+                          <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--primary-color)', margin: 0 }}>
+                            شكاوى ردود الذكاء الاصطناعي والإجراءات المتخذة
+                          </h4>
+                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                            عرض كافة بلاغات الطلاب حول إجابات الذكاء الاصطناعي والإجراء المتخذ حيال كل شكوى.
+                          </span>
+                        </div>
+
+                        {/* Status Filter */}
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {[
+                            { key: 'all', label: 'الكل' },
+                            { key: 'pending', label: 'قيد المراجعة' },
+                            { key: 'action_taken', label: 'تم اتخاذ إجراء' },
+                            { key: 'reviewed', label: 'تمت المراجعة' },
+                            { key: 'dismissed', label: 'مرفوضة' },
+                          ].map((f) => (
+                            <button
+                              key={f.key}
+                              type="button"
+                              onClick={() => setCsAiComplaintsFilter(f.key as any)}
+                              style={{
+                                padding: '6px 12px',
+                                borderRadius: 'var(--radius-sm)',
+                                border: '1px solid',
+                                borderColor: csAiComplaintsFilter === f.key ? 'var(--primary-color)' : 'var(--border-color)',
+                                background: csAiComplaintsFilter === f.key ? 'var(--primary-light)' : 'var(--sidebar-bg)',
+                                color: csAiComplaintsFilter === f.key ? 'var(--primary-color)' : 'var(--text-muted)',
+                                fontSize: '0.76rem',
+                                fontWeight: 700,
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {f.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {csAiComplaintsLoading ? (
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
+                          <Loader2 size={24} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
+                        </div>
+                      ) : csAiComplaints.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
+                          <ShieldCheck size={36} style={{ margin: '0 auto 10px', opacity: 0.5, color: 'var(--primary-color)' }} />
+                          <p style={{ fontWeight: 700, margin: 0 }}>لا توجد شكاوى مطابقة في هذا الفلتر.</p>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          {csAiComplaints.map((report) => (
+                            <div
+                              key={report.id}
+                              style={{
+                                padding: '16px',
+                                borderRadius: 'var(--radius-md)',
+                                border: '1px solid var(--border-color)',
+                                background: 'var(--sidebar-bg)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '10px'
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                    {new Date(report.created_at).toLocaleString('ar-EG')}
+                                  </span>
+                                  {report.user_id ? (
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-color)', background: 'var(--primary-light)', padding: '2px 8px', borderRadius: '4px' }}>
+                                      طالب مسجل
+                                    </span>
+                                  ) : (
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--alpha-white-2)', padding: '2px 8px', borderRadius: '4px' }}>
+                                      زائر
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span style={{
+                                    padding: '3px 10px',
+                                    borderRadius: 'var(--radius-full)',
+                                    fontSize: '0.74rem',
+                                    fontWeight: 800,
+                                    background: report.status === 'pending' ? 'rgba(229, 169, 60, 0.15)' : report.status === 'action_taken' ? 'rgba(30, 112, 186, 0.15)' : report.status === 'reviewed' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(248, 113, 113, 0.15)',
+                                    color: report.status === 'pending' ? 'var(--accent-gold, #E5A93C)' : report.status === 'action_taken' ? 'var(--primary-color)' : report.status === 'reviewed' ? '#22C55E' : '#F87171',
+                                    border: '1px solid',
+                                    borderColor: report.status === 'pending' ? 'rgba(229, 169, 60, 0.3)' : report.status === 'action_taken' ? 'rgba(30, 112, 186, 0.3)' : report.status === 'reviewed' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(248, 113, 113, 0.3)',
+                                  }}>
+                                    {report.status === 'pending' ? 'قيد المراجعة' : report.status === 'action_taken' ? 'تم اتخاذ إجراء' : report.status === 'reviewed' ? 'تمت المراجعة' : 'مرفوضة'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {report.user_query && (
+                                <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                                  <strong style={{ color: 'var(--text-main)' }}>سؤال الطالب: </strong>
+                                  <span>{report.user_query}</span>
+                                </div>
+                              )}
+
+                              <div>
+                                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                                  رد الذكاء الاصطناعي المشكو منه:
+                                </div>
+                                <div style={{
+                                  padding: '10px 14px',
+                                  borderRadius: 'var(--radius-sm)',
+                                  background: 'var(--card-bg)',
+                                  border: '1px solid var(--border-color)',
+                                  fontSize: '0.84rem',
+                                  lineHeight: '1.6',
+                                  whiteSpace: 'pre-wrap',
+                                  maxHeight: '160px',
+                                  overflowY: 'auto'
+                                }}>
+                                  {report.reported_content}
+                                </div>
+                              </div>
+
+                              <div style={{
+                                padding: '8px 12px',
+                                borderRadius: 'var(--radius-sm)',
+                                background: 'rgba(230, 57, 70, 0.08)',
+                                border: '1px solid rgba(230, 57, 70, 0.2)',
+                                fontSize: '0.82rem',
+                                color: 'var(--danger-color)'
+                              }}>
+                                <strong>سبب الشكوى وملاحظة الطالب: </strong>
+                                <span>{report.reason}</span>
+                              </div>
+
+                              {report.action_taken && (
+                                <div style={{
+                                  padding: '10px 12px',
+                                  borderRadius: 'var(--radius-sm)',
+                                  background: 'rgba(30, 112, 186, 0.1)',
+                                  border: '1px solid rgba(30, 112, 186, 0.3)',
+                                  fontSize: '0.82rem',
+                                  color: 'var(--text-main)',
+                                  display: 'flex',
+                                  alignItems: 'flex-start',
+                                  gap: '8px'
+                                }}>
+                                  <CheckCircle2 size={16} style={{ color: 'var(--primary-color)', flexShrink: 0, marginTop: '2px' }} />
+                                  <div>
+                                    <strong style={{ color: 'var(--primary-color)' }}>الإجراء المتخذ من الإدارة: </strong>
+                                    <span>{report.action_taken}</span>
+                                  </div>
+                                </div>
+                              )}
+
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setCsAiActionModal({ report, actionTaken: report.action_taken || '', status: report.status || 'action_taken' })}
+                                  className="btn-primary"
+                                  style={{ padding: '6px 14px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                >
+                                  <Edit2 size={13} />
+                                  <span>{report.action_taken ? 'تعديل الإجراء المتخذ' : 'تسجيل الإجراء المتخذ'}</span>
+                                </button>
+
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                  {report.status !== 'reviewed' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveAiComplaintAction(report.id, report.action_taken || 'تمت مراجعة الرد والتأكد منه', 'reviewed')}
+                                      className="btn-secondary"
+                                      style={{ padding: '6px 10px', fontSize: '0.75rem' }}
+                                    >
+                                      تمت المراجعة
+                                    </button>
+                                  )}
+                                  {report.status !== 'dismissed' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveAiComplaintAction(report.id, report.action_taken || 'تم رفض الشكوى لعدم وجود خطأ علمي', 'dismissed')}
+                                      style={{ padding: '6px 10px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-muted)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                                    >
+                                      رفض
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteAiComplaint(report.id)}
+                                    title="حذف الشكوى"
+                                    style={{ background: 'transparent', border: 'none', color: 'var(--danger-color)', cursor: 'pointer', padding: '6px' }}
+                                  >
+                                    <Trash size={15} />
+                                  </button>
+                                </div>
+                              </div>
+
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* SUB-SECTION 2: Student Page & Operations */}
+                  {customerServiceTab === 'student_management' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      
+                      {/* Search Bar */}
+                      <div className="glass" style={{ padding: '16px 20px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', display: 'flex', gap: '10px' }}>
+                        <div style={{ position: 'relative', flex: 1 }}>
+                          <input
+                            type="text"
+                            value={csStudentSearch}
+                            onChange={(e) => setCsStudentSearch(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') loadCsStudents(); }}
+                            placeholder="ابحث عن طالب بالاسم، البريد الإلكتروني، رقم الهاتف، أو الصف..."
+                            style={{
+                              width: '100%',
+                              padding: '11px 38px 11px 12px',
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--border-color)',
+                              outline: 'none',
+                              background: 'var(--sidebar-bg)',
+                              color: 'var(--text-main)',
+                              fontSize: '0.88rem'
+                            }}
+                          />
+                          <Search size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={loadCsStudents}
+                          className="btn-primary"
+                          style={{ padding: '0 20px', fontSize: '0.85rem', fontWeight: 700 }}
+                        >
+                          بحث
+                        </button>
+                      </div>
+
+                      {/* 2-Column Responsive Layout */}
+                      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '320px 1fr', gap: '16px', alignItems: 'flex-start' }}>
+                        
+                        {/* Column 1: Students List */}
+                        <div className="glass" style={{ padding: '18px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', maxHeight: '640px', overflowY: 'auto' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <h4 style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--primary-color)', margin: 0 }}>قائمة الطلاب ({csStudents.length})</h4>
+                            <button onClick={loadCsStudents} title="تحديث القائمة" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                              <RefreshCw size={14} className={csStudentsLoading ? 'animate-spin' : ''} />
+                            </button>
+                          </div>
+
+                          {csStudentsLoading ? (
+                            <div style={{ display: 'flex', justifyContent: 'center', padding: '30px' }}>
+                              <Loader2 size={20} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
+                            </div>
+                          ) : csStudents.length === 0 ? (
+                            <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem', padding: '20px 0' }}>لا يوجد طلاب مطابقون للبحث.</p>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              {csStudents.map((u) => {
+                                const isSelected = selectedCsStudent?.id === u.id;
+                                const planName = u.plan_type === 'pro_1m' ? 'شهر برو' : u.plan_type === 'pro_2m' ? 'شهرين' : u.plan_type === 'pro_3m' ? '3 أشهر' : u.plan_type === 'pro' ? 'برو' : u.plan_type === 'max' ? 'ماكس' : 'مجاني';
+                                return (
+                                  <div
+                                    key={u.id}
+                                    onClick={() => selectCsStudent(u.id)}
+                                    style={{
+                                      padding: '12px',
+                                      borderRadius: 'var(--radius-sm)',
+                                      border: '1px solid',
+                                      borderColor: isSelected ? 'var(--primary-color)' : 'var(--border-color)',
+                                      background: isSelected ? 'var(--primary-light)' : 'var(--sidebar-bg)',
+                                      cursor: 'pointer',
+                                      transition: 'var(--transition)',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      gap: '4px'
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <span style={{ fontWeight: 800, fontSize: '0.88rem', color: isSelected ? 'var(--primary-color)' : 'var(--text-main)' }}>
+                                        {u.name}
+                                      </span>
+                                      <span className={`plan-badge ${u.plan_type?.startsWith('pro') || u.plan_type === 'max' ? 'plan-badge-pro' : 'plan-badge-free'}`} style={{ fontSize: '0.68rem' }}>
+                                        {planName}
+                                      </span>
+                                    </div>
+                                    <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)', direction: 'ltr', textAlign: 'right' }}>
+                                      {u.email || u.phone}
+                                    </span>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                      <span>{GRADE_NAMES[u.grade_level] || u.grade_level}</span>
+                                      <span style={{ fontWeight: 700, color: 'var(--primary-color)' }}>{(u.coins ?? 0).toFixed(1)} نقطة</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Column 2: Selected Student Dossier & Customer Service Operations */}
+                        <div>
+                          {!selectedCsStudent ? (
+                            <div className="glass" style={{ padding: '60px 20px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', textAlign: 'center', color: 'var(--text-muted)' }}>
+                              <User size={48} style={{ margin: '0 auto 12px', opacity: 0.4, color: 'var(--primary-color)' }} />
+                              <h4 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '6px' }}>اختر طالباً للبدء</h4>
+                              <p style={{ fontSize: '0.85rem', maxWidth: '400px', margin: '0 auto' }}>
+                                انقر على أي طالب من القائمة لعرض تفاصيل حسابه، وإلغاء الاشتراك، وإعادة احتساب النقاط، أو حذف حسابه نهائياً.
+                              </p>
+                            </div>
+                          ) : selectedCsStudentLoading ? (
+                            <div className="glass" style={{ padding: '60px 20px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', display: 'flex', justifyContent: 'center' }}>
+                              <Loader2 size={30} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                              
+                              {/* Action Feedback Alert */}
+                              {csActionFeedback && (
+                                <div style={{
+                                  padding: '12px 16px',
+                                  borderRadius: 'var(--radius-md)',
+                                  background: csActionFeedback.type === 'success' ? 'rgba(34, 197, 94, 0.12)' : 'rgba(230, 57, 70, 0.12)',
+                                  border: '1px solid',
+                                  borderColor: csActionFeedback.type === 'success' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(230, 57, 70, 0.3)',
+                                  color: csActionFeedback.type === 'success' ? 'var(--success-color)' : 'var(--danger-color)',
+                                  fontSize: '0.85rem',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px'
+                                }}>
+                                  {csActionFeedback.type === 'success' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+                                  <span>{csActionFeedback.message}</span>
+                                </div>
+                              )}
+
+                              {/* Student Summary Card */}
+                              <div className="glass" style={{ padding: '20px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '14px' }}>
+                                  <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--primary-color)', margin: 0 }}>
+                                        {selectedCsStudent.name}
+                                      </h3>
+                                      {selectedCsStudent.role === 'admin' && (
+                                        <span className="plan-badge plan-badge-max" style={{ fontSize: '0.7rem' }}>مسؤول</span>
+                                      )}
+                                    </div>
+                                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', direction: 'ltr', display: 'inline-block', marginTop: '2px' }}>
+                                      {selectedCsStudent.email || selectedCsStudent.phone}
+                                    </span>
+                                  </div>
+
+                                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                    <span className={`plan-badge ${selectedCsStudent.subscription_status === 'active' ? 'plan-badge-pro' : 'plan-badge-free'}`}>
+                                      {selectedCsStudent.subscription_status === 'active' ? 'اشتراك نشط' : selectedCsStudent.subscription_status === 'expired' ? 'اشتراك منتهي' : 'بدون اشتراك نشط'}
+                                    </span>
+                                    <span className="plan-badge plan-badge-free">
+                                      {selectedCsStudent.plan_type === 'pro_1m' ? 'باقة شهر' : selectedCsStudent.plan_type === 'pro_2m' ? 'باقة شهرين' : selectedCsStudent.plan_type === 'pro_3m' ? 'باقة 3 أشهر' : selectedCsStudent.plan_type === 'max' ? 'ماكس' : 'خطة مجانية'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Key Metrics Grid */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+                                  <div style={{ padding: '10px', borderRadius: 'var(--radius-sm)', background: 'var(--sidebar-bg)', border: '1px solid var(--border-color)' }}>
+                                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'block' }}>رصيد النقاط الحالي</span>
+                                    <span style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--primary-color)' }}>
+                                      {(selectedCsStudent.coins ?? 0).toFixed(1)}
+                                    </span>
+                                  </div>
+
+                                  <div style={{ padding: '10px', borderRadius: 'var(--radius-sm)', background: 'var(--sidebar-bg)', border: '1px solid var(--border-color)' }}>
+                                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'block' }}>نقاط الترتيب (Merit)</span>
+                                    <span style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--accent-gold, #E5A93C)' }}>
+                                      {selectedCsStudent.points || 0}
+                                    </span>
+                                  </div>
+
+                                  <div style={{ padding: '10px', borderRadius: 'var(--radius-sm)', background: 'var(--sidebar-bg)', border: '1px solid var(--border-color)' }}>
+                                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'block' }}>الصف الدراسي</span>
+                                    <span style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '4px', display: 'block' }}>
+                                      {GRADE_NAMES[selectedCsStudent.grade_level] || selectedCsStudent.grade_level}
+                                    </span>
+                                  </div>
+
+                                  <div style={{ padding: '10px', borderRadius: 'var(--radius-sm)', background: 'var(--sidebar-bg)', border: '1px solid var(--border-color)' }}>
+                                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'block' }}>الأجهزة النشطة</span>
+                                    <span style={{ fontSize: '1.1rem', fontWeight: 800, color: (selectedCsStudent.active_devices_count ?? 0) >= 3 ? '#E63946' : 'var(--text-main)' }}>
+                                      {selectedCsStudent.active_devices_count ?? 0} / 3
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {selectedCsStudent.subscription_start_date && (
+                                  <div style={{ padding: '10px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--alpha-white-2)', border: '1px solid var(--border-color)', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                                    <div>
+                                      <strong>بدء الاشتراك: </strong>
+                                      <span>{new Date(selectedCsStudent.subscription_start_date).toLocaleDateString('ar-EG')}</span>
+                                      <span style={{ color: 'var(--text-muted)', marginRight: '6px' }}>
+                                        (مضى {selectedCsStudent.cancellation_metrics?.elapsed_hours || 0} ساعة)
+                                      </span>
+                                    </div>
+                                    {selectedCsStudent.subscription_end_date && (
+                                      <div>
+                                        <strong>انتهاء الاشتراك: </strong>
+                                        <span>{new Date(selectedCsStudent.subscription_end_date).toLocaleDateString('ar-EG')}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* ACTION 1: Cancel Subscription Plan */}
+                              <div className="glass" style={{ padding: '20px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                  <CreditCard size={18} style={{ color: 'var(--primary-color)' }} />
+                                  <h4 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--primary-color)' }}>
+                                    الإجراء الأول: إلغاء باقة الاشتراك (شهر / شهرين / 3 أشهر)
+                                  </h4>
+                                </div>
+                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 14px', lineHeight: '1.6' }}>
+                                  يُشترط لإلغاء الاشتراك واسترداد الباقة أن يكون قد مضى <strong>أقل من 3 أيام (72 ساعة)</strong> على تفعيل الاشتراك، وأن يكون الطالب <strong>لم يستهلك أي نقاط</strong> من باقة الاشتراك.
+                                </p>
+
+                                {selectedCsStudent.cancellation_metrics?.is_eligible ? (
+                                  <div style={{
+                                    padding: '12px 14px',
+                                    borderRadius: 'var(--radius-sm)',
+                                    background: 'rgba(34, 197, 94, 0.12)',
+                                    border: '1px solid rgba(34, 197, 94, 0.3)',
+                                    color: 'var(--success-color)',
+                                    fontSize: '0.84rem',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '8px',
+                                    marginBottom: '14px'
+                                  }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800 }}>
+                                      <CheckCircle2 size={18} />
+                                      <span>الطالب مؤهل للإلغاء والاسترداد الفوري</span>
+                                    </div>
+                                    <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                                      مضى على الاشتراك {selectedCsStudent.cancellation_metrics.elapsed_hours} ساعة (أقل من 72 ساعة) والرصيد كامل {selectedCsStudent.coins} نقطة (لم يتم استهلاك أي نقاط).
+                                    </span>
+                                    <button
+                                      type="button"
+                                      disabled={csActionLoading}
+                                      onClick={() => setCsCancelSubModal(true)}
+                                      style={{
+                                        alignSelf: 'flex-start',
+                                        marginTop: '4px',
+                                        padding: '8px 16px',
+                                        borderRadius: 'var(--radius-sm)',
+                                        background: '#E63946',
+                                        color: '#FFFFFF',
+                                        border: 'none',
+                                        fontWeight: 800,
+                                        fontSize: '0.82rem',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                      }}
+                                    >
+                                      <XCircle size={15} />
+                                      <span>تأكيد إلغاء الاشتراك الآن</span>
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div style={{
+                                    padding: '12px 14px',
+                                    borderRadius: 'var(--radius-sm)',
+                                    background: 'rgba(229, 169, 60, 0.1)',
+                                    border: '1px solid rgba(229, 169, 60, 0.25)',
+                                    color: 'var(--text-secondary)',
+                                    fontSize: '0.82rem',
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: '8px'
+                                  }}>
+                                    <AlertTriangle size={16} style={{ color: 'var(--accent-gold, #E5A93C)', flexShrink: 0, marginTop: '2px' }} />
+                                    <div>
+                                      <strong style={{ color: 'var(--accent-gold, #E5A93C)' }}>غير مؤهل للإلغاء: </strong>
+                                      <span>{selectedCsStudent.cancellation_metrics?.ineligibility_reason || 'الطالب لا يملك اشتراكاً قابلاً للإلغاء.'}</span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* ACTION 2: Recalculate & Add Coins */}
+                              <div className="glass" style={{ padding: '20px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                  <RotateCcw size={18} style={{ color: 'var(--primary-color)' }} />
+                                  <h4 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--primary-color)' }}>
+                                    الإجراء الثاني: إعادة احتساب / إضافة النقاط
+                                  </h4>
+                                </div>
+                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 16px', lineHeight: '1.6' }}>
+                                  يتضمن هذا الإجراء إعادة احتساب النقاط المستحقة لليوم الحالي، أو إضافة رصيد نقاط مباشرة إلى حساب الطالب.
+                                </p>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
+                                  
+                                  {/* Sub-action A: Recalculate daily coins */}
+                                  <div style={{ padding: '14px', borderRadius: 'var(--radius-sm)', background: 'var(--sidebar-bg)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '10px' }}>
+                                    <div>
+                                      <span style={{ fontSize: '0.86rem', fontWeight: 800, color: 'var(--text-main)', display: 'block', marginBottom: '4px' }}>
+                                        إعادة احتساب نقاط اليوم
+                                      </span>
+                                      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0, lineHeight: '1.5' }}>
+                                        إعادة احتساب الرصيد المستحق لهذا اليوم وتعيينه لسعة الباقة (80/90/120 نقطة) وتحديث تاريخ النشاط.
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      disabled={csActionLoading}
+                                      onClick={handleCsRecalculateCoins}
+                                      className="btn-secondary"
+                                      style={{ padding: '9px 14px', fontSize: '0.82rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                                    >
+                                      <RotateCcw size={14} />
+                                      <span>إعادة احتساب نقاط اليوم الآن</span>
+                                    </button>
+                                  </div>
+
+                                  {/* Sub-action B: Add coins directly */}
+                                  <div style={{ padding: '14px', borderRadius: 'var(--radius-sm)', background: 'var(--sidebar-bg)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                    <div>
+                                      <span style={{ fontSize: '0.86rem', fontWeight: 800, color: 'var(--text-main)', display: 'block', marginBottom: '4px' }}>
+                                        إضافة نقاط مباشرة
+                                      </span>
+                                      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
+                                        إضافة نقاط مباشرة إلى رصيد حساب الطالب الحالي.
+                                      </p>
+                                    </div>
+
+                                    {/* Presets */}
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                      {['25', '50', '100', '200'].map((preset) => (
+                                        <button
+                                          key={preset}
+                                          type="button"
+                                          onClick={() => setCsCoinsToAdd(preset)}
+                                          style={{
+                                            flex: 1,
+                                            padding: '4px 6px',
+                                            borderRadius: '4px',
+                                            border: '1px solid',
+                                            borderColor: csCoinsToAdd === preset ? 'var(--primary-color)' : 'var(--border-color)',
+                                            background: csCoinsToAdd === preset ? 'var(--primary-light)' : 'transparent',
+                                            color: csCoinsToAdd === preset ? 'var(--primary-color)' : 'var(--text-muted)',
+                                            fontSize: '0.74rem',
+                                            fontWeight: 700,
+                                            cursor: 'pointer'
+                                          }}
+                                        >
+                                          +{preset}
+                                        </button>
+                                      ))}
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        value={csCoinsToAdd}
+                                        onChange={(e) => setCsCoinsToAdd(e.target.value)}
+                                        placeholder="عدد النقاط"
+                                        style={{
+                                          width: '90px',
+                                          padding: '8px 10px',
+                                          borderRadius: 'var(--radius-sm)',
+                                          border: '1px solid var(--border-color)',
+                                          background: 'var(--card-bg)',
+                                          color: 'var(--text-main)',
+                                          fontSize: '0.85rem',
+                                          outline: 'none'
+                                        }}
+                                      />
+                                      <button
+                                        type="button"
+                                        disabled={csActionLoading}
+                                        onClick={() => handleCsAddCoins()}
+                                        className="btn-primary"
+                                        style={{ flex: 1, padding: '8px 12px', fontSize: '0.82rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                                      >
+                                        <PlusCircle size={14} />
+                                        <span>إضافة للحساب</span>
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                </div>
+                              </div>
+
+                              {/* ACTION 3: Permanently Delete Account */}
+                              <div className="glass" style={{ padding: '20px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid rgba(230, 57, 70, 0.3)', color: 'var(--text-main)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                  <UserX size={18} style={{ color: 'var(--danger-color)' }} />
+                                  <h4 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--danger-color)' }}>
+                                    الإجراء الثالث: حذف حساب الطالب نهائياً
+                                  </h4>
+                                </div>
+                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 14px', lineHeight: '1.6' }}>
+                                  حذف نهائي لا يمكن التراجع عنه: سيتم مسح حساب الطالب، وسجلات المحادثات، والامتحانات، والبطاقات التعليمية، والجلسات والأجهزة والاشتراكات بشكل كامل.
+                                </p>
+                                <button
+                                  type="button"
+                                  disabled={csActionLoading || selectedCsStudent.role === 'admin'}
+                                  onClick={() => setCsDeleteConfirmModal(true)}
+                                  style={{
+                                    padding: '9px 18px',
+                                    borderRadius: 'var(--radius-sm)',
+                                    background: 'rgba(230, 57, 70, 0.15)',
+                                    color: '#E63946',
+                                    border: '1px solid rgba(230, 57, 70, 0.4)',
+                                    fontSize: '0.82rem',
+                                    fontWeight: 800,
+                                    cursor: selectedCsStudent.role === 'admin' ? 'not-allowed' : 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}
+                                >
+                                  <Trash2 size={15} />
+                                  <span>{selectedCsStudent.role === 'admin' ? 'لا يمكن حذف حساب المسؤول' : 'حذف حساب هذا الطالب نهائياً'}</span>
+                                </button>
+                              </div>
+
+                            </div>
+                          )}
+                        </div>
+
+                      </div>
+
+                    </div>
+                  )}
+
+                  {/* SUB-SECTION 3: Technical Support Messages */}
+                  {customerServiceTab === 'support_messages' && (
+                    <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                        <div>
+                          <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--primary-color)', margin: 0 }}>
+                            رسائل واستفسارات الدعم الفني (تواصل معنا)
+                          </h4>
+                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                            عرض كافة الرسائل المرسلة من الطلاب عبر نموذج التواصل في صفحة الموقع.
+                          </span>
+                        </div>
+
+                        {/* Status Filter */}
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {[
+                            { key: 'all', label: 'الكل' },
+                            { key: 'pending', label: 'قيد الانتظار' },
+                            { key: 'replied', label: 'تم الرد' },
+                            { key: 'resolved', label: 'تم الحل' },
+                            { key: 'dismissed', label: 'مرفوضة' },
+                          ].map((f) => (
+                            <button
+                              key={f.key}
+                              type="button"
+                              onClick={() => setCsSupportStatusFilter(f.key)}
+                              style={{
+                                padding: '6px 12px',
+                                borderRadius: 'var(--radius-sm)',
+                                border: '1px solid',
+                                borderColor: csSupportStatusFilter === f.key ? 'var(--primary-color)' : 'var(--border-color)',
+                                background: csSupportStatusFilter === f.key ? 'var(--primary-light)' : 'var(--sidebar-bg)',
+                                color: csSupportStatusFilter === f.key ? 'var(--primary-color)' : 'var(--text-muted)',
+                                fontSize: '0.76rem',
+                                fontWeight: 700,
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {f.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {csSupportMessagesLoading ? (
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
+                          <Loader2 size={24} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
+                        </div>
+                      ) : csSupportMessages.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
+                          <MessageSquare size={36} style={{ margin: '0 auto 10px', opacity: 0.5, color: 'var(--primary-color)' }} />
+                          <p style={{ fontWeight: 700, margin: 0 }}>لا توجد رسائل دعم فني مطابقة في هذا الفلتر.</p>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          {csSupportMessages.map((msg) => {
+                            const isPhone = /^[0-9+ ]+$/.test(msg.contact_info.trim());
+                            const rawPhone = msg.contact_info.replace(/[^0-9]/g, '');
+                            const isEmail = msg.contact_info.includes('@');
+                            return (
+                              <div
+                                key={msg.id}
+                                style={{
+                                  padding: '16px',
+                                  borderRadius: 'var(--radius-md)',
+                                  border: '1px solid var(--border-color)',
+                                  background: 'var(--sidebar-bg)',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '10px'
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--text-main)' }}>
+                                      {msg.name}
+                                    </span>
+                                    <span className="plan-badge plan-badge-free" style={{ fontSize: '0.7rem' }}>
+                                      {msg.category}
+                                    </span>
+                                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                                      {new Date(msg.created_at).toLocaleString('ar-EG')}
+                                    </span>
+                                  </div>
+
+                                  <span style={{
+                                    padding: '3px 10px',
+                                    borderRadius: 'var(--radius-full)',
+                                    fontSize: '0.74rem',
+                                    fontWeight: 800,
+                                    background: msg.status === 'pending' ? 'rgba(229, 169, 60, 0.15)' : msg.status === 'replied' ? 'rgba(30, 112, 186, 0.15)' : msg.status === 'resolved' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(248, 113, 113, 0.15)',
+                                    color: msg.status === 'pending' ? 'var(--accent-gold, #E5A93C)' : msg.status === 'replied' ? 'var(--primary-color)' : msg.status === 'resolved' ? '#22C55E' : '#F87171',
+                                    border: '1px solid',
+                                    borderColor: msg.status === 'pending' ? 'rgba(229, 169, 60, 0.3)' : msg.status === 'replied' ? 'rgba(30, 112, 186, 0.3)' : msg.status === 'resolved' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(248, 113, 113, 0.3)',
+                                  }}>
+                                    {msg.status === 'pending' ? 'قيد الانتظار' : msg.status === 'replied' ? 'تم الرد والتواصل' : msg.status === 'resolved' ? 'تم الحل' : 'مرفوضة'}
+                                  </span>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', padding: '8px 12px', background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                                  <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                                    <strong style={{ color: 'var(--text-main)' }}>بيانات الاتصال: </strong>
+                                    <span style={{ direction: 'ltr', display: 'inline-block' }}>{msg.contact_info}</span>
+                                  </div>
+
+                                  <div style={{ display: 'flex', gap: '6px', marginRight: 'auto' }}>
+                                    {isPhone && (
+                                      <>
+                                        <a
+                                          href={`tel:${msg.contact_info}`}
+                                          style={{
+                                            padding: '4px 10px',
+                                            borderRadius: '4px',
+                                            background: 'var(--primary-light)',
+                                            color: 'var(--primary-color)',
+                                            fontSize: '0.74rem',
+                                            fontWeight: 700,
+                                            textDecoration: 'none',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
+                                          }}
+                                        >
+                                          <Phone size={12} />
+                                          <span>اتصال</span>
+                                        </a>
+                                        <a
+                                          href={`https://wa.me/20${rawPhone.replace(/^0+/, '')}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          style={{
+                                            padding: '4px 10px',
+                                            borderRadius: '4px',
+                                            background: 'rgba(37, 211, 102, 0.15)',
+                                            color: '#25D366',
+                                            fontSize: '0.74rem',
+                                            fontWeight: 700,
+                                            textDecoration: 'none',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
+                                          }}
+                                        >
+                                          <MessageCircle size={12} />
+                                          <span>واتساب</span>
+                                        </a>
+                                      </>
+                                    )}
+                                    {isEmail && (
+                                      <a
+                                        href={`mailto:${msg.contact_info}?subject=EGS AI Support Response`}
+                                        style={{
+                                          padding: '4px 10px',
+                                          borderRadius: '4px',
+                                          background: 'var(--primary-light)',
+                                          color: 'var(--primary-color)',
+                                          fontSize: '0.74rem',
+                                          fontWeight: 700,
+                                          textDecoration: 'none',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '4px'
+                                        }}
+                                      >
+                                        <span>إرسال بريد</span>
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div style={{
+                                  padding: '12px 14px',
+                                  borderRadius: 'var(--radius-sm)',
+                                  background: 'var(--card-bg)',
+                                  border: '1px solid var(--border-color)',
+                                  fontSize: '0.86rem',
+                                  lineHeight: '1.6',
+                                  color: 'var(--text-main)',
+                                  whiteSpace: 'pre-wrap'
+                                }}>
+                                  {msg.message}
+                                </div>
+
+                                {msg.admin_notes && (
+                                  <div style={{
+                                    padding: '8px 12px',
+                                    borderRadius: 'var(--radius-sm)',
+                                    background: 'rgba(30, 112, 186, 0.08)',
+                                    border: '1px solid rgba(30, 112, 186, 0.2)',
+                                    fontSize: '0.8rem',
+                                    color: 'var(--text-secondary)'
+                                  }}>
+                                    <strong style={{ color: 'var(--primary-color)' }}>ملاحظات الرد: </strong>
+                                    <span>{msg.admin_notes}</span>
+                                  </div>
+                                )}
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', paddingTop: '6px', borderTop: '1px solid var(--border-color)' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCsSupportNotesModal({ message: msg, notes: msg.admin_notes || '', status: msg.status })}
+                                    className="btn-secondary"
+                                    style={{ padding: '6px 12px', fontSize: '0.76rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                  >
+                                    <Edit2 size={13} />
+                                    <span>{msg.admin_notes ? 'تعديل ملاحظات الرد' : 'تسجيل ملاحظات / رد'}</span>
+                                  </button>
+
+                                  <div style={{ display: 'flex', gap: '6px' }}>
+                                    {msg.status !== 'replied' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUpdateSupportStatus(msg.id, 'replied', msg.admin_notes || 'تم التواصل مع الطالب')}
+                                        style={{ padding: '6px 10px', fontSize: '0.74rem', background: 'var(--primary-light)', color: 'var(--primary-color)', border: 'none', borderRadius: 'var(--radius-sm)', fontWeight: 700, cursor: 'pointer' }}
+                                      >
+                                        تم الرد
+                                      </button>
+                                    )}
+                                    {msg.status !== 'resolved' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUpdateSupportStatus(msg.id, 'resolved', msg.admin_notes || 'تم حل المشكلة')}
+                                        style={{ padding: '6px 10px', fontSize: '0.74rem', background: 'rgba(34, 197, 94, 0.15)', color: '#22C55E', border: 'none', borderRadius: 'var(--radius-sm)', fontWeight: 700, cursor: 'pointer' }}
+                                      >
+                                        تم الحل
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteSupportMessage(msg.id)}
+                                      title="حذف الرسالة"
+                                      style={{ background: 'transparent', border: 'none', color: 'var(--danger-color)', cursor: 'pointer', padding: '6px' }}
+                                    >
+                                      <Trash size={15} />
+                                    </button>
+                                  </div>
+                                </div>
+
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                    </div>
+                  )}
+
+                </div>
               )}
 
               {/* Users Management Section */}
@@ -12537,6 +13884,324 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Customer Service AI Complaint Action */}
+      {csAiActionModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 1100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', direction: 'rtl' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '520px', borderRadius: 'var(--radius-lg)', padding: '24px', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', color: 'var(--text-main)', position: 'relative' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldAlert size={20} style={{ color: 'var(--primary-color)' }} />
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0 }}>توثيق الإجراء المتخذ للبلاغ</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCsAiActionModal(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
+              سجّل الإجراء المتخذ لمعالجة ملاحظة الطالب على رد الذكاء الاصطناعي (مثل تعديل صياغة المنهج أو تأكيد صحة الإجابة).
+            </p>
+
+            {/* Quick Suggestions */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
+              {[
+                'تم تصحيح وتحديث محتوى المنهج',
+                'تمت مراجعة الرد وتوضيح المفاهيم',
+                'تم التأكد من صحة الإجابة علمياً',
+                'لا يوجد خطأ علمي في الرد',
+              ].map((sugg) => (
+                <button
+                  key={sugg}
+                  type="button"
+                  onClick={() => setCsAiActionModal({ ...csAiActionModal, actionTaken: sugg })}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '4px',
+                    background: 'var(--sidebar-bg)',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-secondary)',
+                    fontSize: '0.74rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {sugg}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                  تفاصيل الإجراء المتخذ:
+                </label>
+                <textarea
+                  rows={3}
+                  value={csAiActionModal.actionTaken}
+                  onChange={(e) => setCsAiActionModal({ ...csAiActionModal, actionTaken: e.target.value })}
+                  placeholder="اكتب الإجراء المتخذ بالتفصيل..."
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--sidebar-bg)',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-main)',
+                    fontSize: '0.86rem',
+                    outline: 'none',
+                    resize: 'vertical',
+                    fontFamily: 'var(--font-arabic)'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                  تحديث حالة البلاغ:
+                </label>
+                <select
+                  value={csAiActionModal.status}
+                  onChange={(e) => setCsAiActionModal({ ...csAiActionModal, status: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--sidebar-bg)',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-main)',
+                    fontSize: '0.86rem',
+                    outline: 'none'
+                  }}
+                >
+                  <option value="action_taken">تم اتخاذ إجراء</option>
+                  <option value="reviewed">تمت المراجعة</option>
+                  <option value="dismissed">مرفوضة</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setCsAiActionModal(null)}
+                  className="btn-secondary"
+                  style={{ flex: 1, padding: '10px', fontWeight: 700 }}
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  disabled={csAiActionSaving || !csAiActionModal.actionTaken.trim()}
+                  onClick={() => handleSaveAiComplaintAction(csAiActionModal.report.id, csAiActionModal.actionTaken, csAiActionModal.status)}
+                  className="btn-primary"
+                  style={{ flex: 2, padding: '10px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                >
+                  {csAiActionSaving ? <Loader2 size={16} className="animate-spin" /> : <span>حفظ وتوثيق الإجراء</span>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Customer Service Cancel Subscription Confirmation */}
+      {csCancelSubModal && selectedCsStudent && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 1100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', direction: 'rtl' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '460px', borderRadius: 'var(--radius-lg)', padding: '26px', boxShadow: 'var(--shadow-xl)', border: '1px solid rgba(230, 57, 70, 0.3)', color: 'var(--text-main)', textAlign: 'center' }}>
+            <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'rgba(230, 57, 70, 0.15)', color: '#E63946', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <CreditCard size={26} />
+            </div>
+
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '8px' }}>
+              تأكيد إلغاء باقة الاشتراك
+            </h3>
+
+            <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: '1.6', marginBottom: '20px' }}>
+              هل أنت متأكد من رغبتك في إلغاء باقة الاشتراك للطالب <strong>{selectedCsStudent.name}</strong> واسترداد الخطة وتحويل حسابه إلى الخطة المجانية؟
+            </p>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setCsCancelSubModal(false)}
+                className="btn-secondary"
+                style={{ flex: 1, padding: '11px', fontWeight: 700 }}
+              >
+                تراجع
+              </button>
+              <button
+                type="button"
+                disabled={csActionLoading}
+                onClick={handleCsCancelSubscription}
+                style={{
+                  flex: 1.5,
+                  padding: '11px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: '#E63946',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  fontWeight: 800,
+                  fontSize: '0.88rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                {csActionLoading ? <Loader2 size={16} className="animate-spin" /> : <span>تأكيد الإلغاء والاسترداد</span>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Customer Service Permanent Student Deletion Confirmation */}
+      {csDeleteConfirmModal && selectedCsStudent && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 1100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', direction: 'rtl' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '460px', borderRadius: 'var(--radius-lg)', padding: '26px', boxShadow: 'var(--shadow-xl)', border: '1px solid rgba(230, 57, 70, 0.4)', color: 'var(--text-main)', textAlign: 'center' }}>
+            <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'rgba(230, 57, 70, 0.15)', color: '#E63946', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <UserX size={26} />
+            </div>
+
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#E63946', marginBottom: '8px' }}>
+              تحذير: حذف حساب الطالب نهائياً
+            </h3>
+
+            <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: '1.6', marginBottom: '20px' }}>
+              سيتم حذف حساب الطالب <strong>{selectedCsStudent.name}</strong> ({selectedCsStudent.email || selectedCsStudent.phone}) نهائياً، مع مسح جميع المحادثات والامتحانات والبطاقات والاشتراكات. هذا الإجراء لا يمكن الرجوع عنه!
+            </p>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setCsDeleteConfirmModal(false)}
+                className="btn-secondary"
+                style={{ flex: 1, padding: '11px', fontWeight: 700 }}
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={csActionLoading}
+                onClick={handleCsDeleteStudent}
+                style={{
+                  flex: 1.5,
+                  padding: '11px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: '#E63946',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  fontWeight: 800,
+                  fontSize: '0.88rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                {csActionLoading ? <Loader2 size={16} className="animate-spin" /> : <span>تأكيد الحذف النهائي</span>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Customer Service Support Message Notes */}
+      {csSupportNotesModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 1100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', direction: 'rtl' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '480px', borderRadius: 'var(--radius-lg)', padding: '24px', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <MessageSquare size={20} style={{ color: 'var(--primary-color)' }} />
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0 }}>ملاحظات الرد على الدعم الفني</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCsSupportNotesModal(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                  ملاحظات الدعم أو ملخص الرد:
+                </label>
+                <textarea
+                  rows={3}
+                  value={csSupportNotesModal.notes}
+                  onChange={(e) => setCsSupportNotesModal({ ...csSupportNotesModal, notes: e.target.value })}
+                  placeholder="مثال: تم التواصل عبر واتساب وتفعيل الباقة للطالب..."
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--sidebar-bg)',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-main)',
+                    fontSize: '0.86rem',
+                    outline: 'none',
+                    resize: 'vertical',
+                    fontFamily: 'var(--font-arabic)'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                  الحالة:
+                </label>
+                <select
+                  value={csSupportNotesModal.status}
+                  onChange={(e) => setCsSupportNotesModal({ ...csSupportNotesModal, status: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--sidebar-bg)',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-main)',
+                    fontSize: '0.86rem',
+                    outline: 'none'
+                  }}
+                >
+                  <option value="pending">قيد الانتظار</option>
+                  <option value="replied">تم الرد والتواصل</option>
+                  <option value="resolved">تم الحل وإغلاق التذكرة</option>
+                  <option value="dismissed">مرفوضة</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setCsSupportNotesModal(null)}
+                  className="btn-secondary"
+                  style={{ flex: 1, padding: '10px', fontWeight: 700 }}
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  disabled={csSupportSaving}
+                  onClick={() => handleUpdateSupportStatus(csSupportNotesModal.message.id, csSupportNotesModal.status, csSupportNotesModal.notes)}
+                  className="btn-primary"
+                  style={{ flex: 2, padding: '10px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                >
+                  {csSupportSaving ? <Loader2 size={16} className="animate-spin" /> : <span>حفظ التحديث</span>}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

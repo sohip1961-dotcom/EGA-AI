@@ -24,45 +24,48 @@ async function authorizeAdmin(req: NextRequest): Promise<string | NextResponse> 
   return userId;
 }
 
-// GET list reports, optionally filtered by status (Admin only)
+// GET list support messages, optionally filtered by status and category (Admin only)
 export async function GET(req: NextRequest) {
   const authResult = await authorizeAdmin(req);
   if (authResult instanceof NextResponse) return authResult;
 
   try {
     const status = req.nextUrl.searchParams.get('status') || undefined;
-    const reports = await db.getReports(status);
-    return NextResponse.json({ success: true, reports });
+    const category = req.nextUrl.searchParams.get('category') || undefined;
+    const messages = await db.getContactMessages(status, category);
+    return NextResponse.json({ success: true, messages });
   } catch (error: any) {
-    console.error('Get reports error:', error);
-    return NextResponse.json({ error: 'حدث خطأ أثناء تحميل البلاغات.' }, { status: 500 });
+    console.error('Get support messages error:', error);
+    return NextResponse.json({ error: 'حدث خطأ أثناء تحميل رسائل الدعم الفني.' }, { status: 500 });
   }
 }
 
-// PATCH update a report's status (Admin only)
+// PATCH update a support message's status or notes (Admin only)
 export async function PATCH(req: NextRequest) {
   const authResult = await authorizeAdmin(req);
   if (authResult instanceof NextResponse) return authResult;
 
   try {
-    const { id, status, action_taken, admin_notes } = await req.json();
-    if (!id || !['pending', 'reviewed', 'dismissed', 'action_taken'].includes(status)) {
-      return NextResponse.json({ error: 'معرف البلاغ وحالة صالحة مطلوبان' }, { status: 400 });
+    const body = await req.json();
+    const { id, status, admin_notes } = body;
+
+    if (!id || !['pending', 'replied', 'resolved', 'dismissed'].includes(status)) {
+      return NextResponse.json({ error: 'معرف الرسالة وحالة صالحة مطلوبان' }, { status: 400 });
     }
 
-    const success = await db.updateReportStatus(id, status, action_taken, admin_notes);
+    const success = await db.updateContactMessageStatus(id, status, admin_notes);
     if (!success) {
-      return NextResponse.json({ error: 'فشل تحديث حالة البلاغ' }, { status: 400 });
+      return NextResponse.json({ error: 'فشل تحديث حالة الرسالة' }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, message: 'تم تحديث حالة البلاغ بنجاح.' });
+    return NextResponse.json({ success: true, message: 'تم تحديث حالة الرسالة بنجاح.' });
   } catch (error: any) {
-    console.error('Update report error:', error);
-    return NextResponse.json({ error: 'حدث خطأ أثناء تحديث البلاغ.' }, { status: 500 });
+    console.error('Update support message error:', error);
+    return NextResponse.json({ error: 'حدث خطأ أثناء تحديث الرسالة.' }, { status: 500 });
   }
 }
 
-// DELETE a report (Admin only)
+// DELETE a support message (Admin only)
 export async function DELETE(req: NextRequest) {
   const authResult = await authorizeAdmin(req);
   if (authResult instanceof NextResponse) return authResult;
@@ -70,17 +73,17 @@ export async function DELETE(req: NextRequest) {
   try {
     const { id } = await req.json();
     if (!id) {
-      return NextResponse.json({ error: 'معرف البلاغ مطلوب للحذف' }, { status: 400 });
+      return NextResponse.json({ error: 'معرف الرسالة مطلوب للحذف' }, { status: 400 });
     }
 
-    const success = await db.deleteReport(id);
+    const success = await db.deleteContactMessage(id);
     if (!success) {
-      return NextResponse.json({ error: 'فشل حذف البلاغ' }, { status: 400 });
+      return NextResponse.json({ error: 'فشل حذف الرسالة' }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, message: 'تم حذف البلاغ بنجاح.' });
+    return NextResponse.json({ success: true, message: 'تم حذف الرسالة بنجاح.' });
   } catch (error: any) {
-    console.error('Delete report error:', error);
-    return NextResponse.json({ error: 'حدث خطأ أثناء حذف البلاغ.' }, { status: 500 });
+    console.error('Delete support message error:', error);
+    return NextResponse.json({ error: 'حدث خطأ أثناء حذف الرسالة.' }, { status: 500 });
   }
 }

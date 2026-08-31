@@ -33,13 +33,14 @@ export default function ContactForm({
     setErrorMsg('');
 
     try {
-      const res = await fetch('/api/report', {
+      const res = await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          reported_content: message.trim(),
-          user_query: `الاسم: ${name.trim()} | بيانات الاتصال: ${contactInfo.trim()}`,
-          reason: `نموذج تواصل موقع [${category}]`,
+          name: name.trim(),
+          contact_info: contactInfo.trim(),
+          category,
+          message: message.trim(),
         }),
       });
 

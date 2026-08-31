@@ -17,22 +17,6 @@
       "unlimited_credit": true
     },
     {
-      "id": "fee62ffc-396c-4387-8881-bebbb70f03f0",
-      "phone": "01147814562",
-      "email": "student@egsaiedu.com",
-      "name": "صهيب حسين",
-      "grade_level": "1_high",
-      "plan_type": "free",
-      "role": "student",
-      "password_hash": "343f7ea65b1d1ed5b5980d214808c2e06379a8b97586db4d6c97874d4440c174",
-      "created_at": "2026-06-20T08:42:31.769Z",
-      "coins": 50,
-      "points": 0,
-      "study_streak": 1,
-      "last_active_date": "2026-08-26",
-      "unlimited_credit": false
-    },
-    {
       "id": "f0000000-0000-4000-a000-000000000001",
       "phone": "01000000000",
       "email": "test@egsaiedu.com",
@@ -4680,70 +4664,6 @@
   "curriculum_chunks": [],
   "chat_history": [
     {
-      "id": "47c172b2-e8e5-4290-9dcf-9ab83f638267",
-      "user_id": "fee62ffc-396c-4387-8881-bebbb70f03f0",
-      "sender": "user",
-      "message": "مرحبا",
-      "created_at": "2026-06-20T08:42:51.487Z",
-      "coins_cost": 0
-    },
-    {
-      "id": "a8a79a34-2bd1-4dc4-9848-09d22c4b501d",
-      "user_id": "fee62ffc-396c-4387-8881-bebbb70f03f0",
-      "sender": "ai",
-      "message": "أهلاً بيك يا بطل! 🌟\n\nأنا \"الداحي AI\" في خدمتك. جهز أسئلتك في أي مادة من مناهج المصري (إعدادي أو ثانوي)، وهشرحلك الدنيا بطريقة بسيطة وممتعة، زي ما بتتفرج على فيديوهات مفيدة بس من غير فلسفة. 😎\n\nعايز تسأل في إيه النهاردة؟",
-      "created_at": "2026-06-20T08:42:51.490Z",
-      "coins_cost": 0
-    },
-    {
-      "id": "52a59e00-c55c-4cb9-b958-1cf03df25a48",
-      "user_id": "fee62ffc-396c-4387-8881-bebbb70f03f0",
-      "sender": "user",
-      "message": "عامل ايه",
-      "created_at": "2026-06-20T08:43:06.203Z",
-      "coins_cost": 0
-    },
-    {
-      "id": "4bc2b98d-8406-45aa-846b-fe4e989902c8",
-      "user_id": "fee62ffc-396c-4387-8881-bebbb70f03f0",
-      "sender": "ai",
-      "message": "أهلاً بيك يا باشا! 🌟\n\nأنا تمام جداً الحمد لله، وبستناك عشان تسأل في أي حاجة في المناهج المصرية (إعدادي أو ثانوي). هشرحلك أي درس بطريقة بسيطة وممتعة، زي ما تكون بتتفرج على برنامج علمي مفيد.\n\nجهز سؤالك، أنا معاك على طول! 😎",
-      "created_at": "2026-06-20T08:43:06.206Z",
-      "coins_cost": 0
-    },
-    {
-      "id": "4d5dbf6e-aba8-4762-8c54-e7bc0661ee69",
-      "user_id": "fee62ffc-396c-4387-8881-bebbb70f03f0",
-      "sender": "user",
-      "message": "كيفك",
-      "created_at": "2026-06-20T08:45:09.010Z",
-      "coins_cost": 0
-    },
-    {
-      "id": "792d0e3e-b72c-4319-86c1-cc35433be730",
-      "user_id": "fee62ffc-396c-4387-8881-bebbb70f03f0",
-      "sender": "ai",
-      "message": "يا سيدي، أنا زي الفل، الحمد لله! 💪\n\nجاهز على طول عشان أساعدك في أي حاجة في دراستك. سواء كنت في إعدادي أو ثانوي، أنا معاك خطوة بخطوة. جهز سؤالك، ونشوفك بتذاكر إيه النهاردة! 😎",
-      "created_at": "2026-06-20T08:45:09.013Z",
-      "coins_cost": 0
-    },
-    {
-      "id": "9795b93c-7357-4227-a1b8-c8777008f49e",
-      "user_id": "fee62ffc-396c-4387-8881-bebbb70f03f0",
-      "sender": "user",
-      "message": "انت كويس يعني؟",
-      "created_at": "2026-06-20T08:52:43.037Z",
-      "coins_cost": 0
-    },
-    {
-      "id": "088005cf-ce7d-4e50-b0c3-d90402602995",
-      "user_id": "fee62ffc-396c-4387-8881-bebbb70f03f0",
-      "sender": "ai",
-      "message": "والله يا باشا، أنا كويس أوي، وزي الفل! 💪\n\nزي ما تكون بتسأل صاحبك في المدرسة قبل ما تبدأ المذاكرة، أنا تمام التمام، وبستناك عشان نبدأ نشتغل مع بعض. جهز سؤالك في أي مادة، وهنبدأ رحلة الشغل الجاد مع شوية مرح، عشان المذاكرة متبقاش تقيلة عليك. 😎",
-      "created_at": "2026-06-20T08:52:43.042Z",
-      "coins_cost": 0
-    },
-    {
       "id": "dc8e7306-1bbe-4c75-b987-68ce9557c695",
       "user_id": "admin-id-1234567890",
       "sender": "user",
@@ -4832,60 +4752,13 @@
   ],
   "payment_transactions": [],
   "free_trial_grants": [],
-  "user_devices": [
-    {
-      "id": "aaec6fb4-e5a1-4c91-bae0-eaf4078600fc",
-      "user_id": "test-device-user-1787748271857",
-      "device_id": "dev_1_chrome",
-      "session_token": "dGVzdC1kZXZpY2UtdXNlci0xNzg3NzQ4MjcxODU3OjE3OTAzNDAyNzE5MzM6ZTUwNjc1M2E1MGNjMTU1ZjE4ZWZiNGZiMmM1MjFhMzc4YzZmZWI3YmM0MjcxOWY3ZGUyZjAxN2Y5YTM4YTQyNQ==",
-      "device_name": "Google Chrome على Windows",
-      "device_type": "web",
-      "is_active": true,
-      "last_active_at": "2026-08-26T12:44:31.933Z",
-      "created_at": "2026-08-26T12:44:31.933Z"
-    },
-    {
-      "id": "1b4db0bf-8755-458c-81ce-a65b5267d224",
-      "user_id": "test-device-user-1787748271857",
-      "device_id": "dev_2_mobile",
-      "session_token": "dGVzdC1kZXZpY2UtdXNlci0xNzg3NzQ4MjcxODU3OjE3OTAzNDAyNzE4NzQ6YjY1M2M1MjdjNTUyN2Y3MWFlZGYzMDlkYTY1ZDE0MjcwYTNiNmFjYjY1YWJkN2YyMDY1NDJkNjM3ZGQ2Y2U4ZA==",
-      "device_name": "تطبيق أندرويد",
-      "device_type": "mobile",
-      "user_agent": "Dalvik/2.1.0 (Linux; U; Android 14)",
-      "is_active": false,
-      "last_active_at": "2026-08-26T12:44:31.896Z",
-      "created_at": "2026-08-26T12:44:31.875Z"
-    },
-    {
-      "id": "403d056f-3f84-4521-ad08-a7c2c3e22381",
-      "user_id": "test-device-user-1787748271857",
-      "device_id": "dev_3_ipad",
-      "session_token": "dGVzdC1kZXZpY2UtdXNlci0xNzg3NzQ4MjcxODU3OjE3OTAzNDAyNzE4ODY6MTZhNTVlMWNkNDIzNzM5MDdkZjY1ZTM4YjMxZTQ5NWNhMzI3ODdlYTMzYzU1NGVkZGQ3ZWQyZTc2MDhjNjBiMg==",
-      "device_name": "Safari على iPad",
-      "device_type": "web",
-      "user_agent": "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)",
-      "is_active": false,
-      "last_active_at": "2026-08-26T12:44:31.886Z",
-      "created_at": "2026-08-26T12:44:31.886Z"
-    },
-    {
-      "id": "e752ef4f-1daa-4490-bccc-107d84245c90",
-      "user_id": "test-device-user-1787748271857",
-      "device_id": "dev_4_laptop",
-      "session_token": "dGVzdC1kZXZpY2UtdXNlci0xNzg3NzQ4MjcxODU3OjE3OTAzNDAyNzE5MDU6NDdiYjljOGI4ZGMwNGEyNzZkYWY3NDkxZDMzMTgyYTlmZDhmYjQ2NjQ3NmI1YTE3ZGM4ODNmMDE3MDQ5MTZiMg==",
-      "device_name": "Google Chrome على Mac",
-      "device_type": "web",
-      "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-      "is_active": false,
-      "last_active_at": "2026-08-26T12:44:31.929Z",
-      "created_at": "2026-08-26T12:44:31.905Z"
-    }
-  ],
+  "user_devices": [],
   "chat_sessions": [],
   "exams": [],
   "exam_submissions": [],
   "reports": [],
   "notifications": [],
   "app_versions": [],
-  "password_resets": []
+  "password_resets": [],
+  "contact_messages": []
 }
