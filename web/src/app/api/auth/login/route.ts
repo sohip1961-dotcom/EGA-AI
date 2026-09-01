@@ -18,7 +18,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { email, password, device_id, browser_fingerprint, platform: clientPlatform } = body;
 
-    if (!email || !password) {
+    const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+
+    if (!cleanEmail || !password) {
       return NextResponse.json(
         { error: 'البريد الإلكتروني وكلمة المرور مطلوبان' },
         { status: 400 }
@@ -26,7 +28,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get user profile
-    const profile = await db.getProfileByEmail(email);
+    const profile = await db.getProfileByEmail(cleanEmail);
     if (!profile) {
       return NextResponse.json(
         { error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' },
@@ -82,6 +84,8 @@ export async function POST(req: NextRequest) {
         email: profile.email,
         name: profile.name,
         grade_level: profile.grade_level,
+        track_id: profile.track_id || null,
+        elective_subject: profile.elective_subject || null,
         plan_type: profile.plan_type,
         subscription_status: profile.subscription_status || (profile.plan_type && profile.plan_type !== 'free' ? 'active' : 'inactive'),
         subscription_start_date: profile.subscription_start_date,

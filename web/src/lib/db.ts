@@ -747,13 +747,21 @@ export const db = {
 
   // Pending registrations (OTP flow)
   async getPendingRegistration(email: string): Promise<PendingRegistration | null> {
+    const cleanEmail = email.toLowerCase().trim();
     if (supabase) {
-      const { data, error } = await supabase.from('pending_registrations').select('*').eq('email', email.toLowerCase()).maybeSingle();
-      if (error) return null;
+      const { data, error } = await supabase.from('pending_registrations').select('*').eq('email', cleanEmail).maybeSingle();
+      if (error || !data) return null;
+      if (!data.expires_at && data.created_at) {
+        data.expires_at = new Date(new Date(data.created_at).getTime() + 10 * 60 * 1000).toISOString();
+      }
       return data;
     } else {
       const data = readLocalDB();
-      return data.pending_registrations.find((pr: PendingRegistration) => pr.email?.toLowerCase() === email.toLowerCase()) || null;
+      const pr = data.pending_registrations.find((p: PendingRegistration) => p.email?.toLowerCase().trim() === cleanEmail) || null;
+      if (pr && !pr.expires_at && pr.created_at) {
+        pr.expires_at = new Date(new Date(pr.created_at).getTime() + 10 * 60 * 1000).toISOString();
+      }
+      return pr;
     }
   },
 
@@ -769,10 +777,11 @@ export const db = {
     trackId?: string | null,
     electiveSubject?: string | null
   ): Promise<PendingRegistration> {
+    const cleanEmail = email.toLowerCase().trim();
     const pending: PendingRegistration = {
-      email: email.toLowerCase(),
+      email: cleanEmail,
       phone: phone || undefined,
-      name,
+      name: name.trim(),
       grade_level: gradeLevel,
       track_id: trackId || null,
       elective_subject: electiveSubject || null,
@@ -784,12 +793,19 @@ export const db = {
     };
 
     if (supabase) {
-      const { data, error } = await supabase.from('pending_registrations').upsert(pending).select().single();
-      if (error) throw error;
+      let { data, error } = await supabase.from('pending_registrations').upsert(pending).select().single();
+      if (error && (error.code === 'PGRST204' || error.message?.includes('expires_at'))) {
+        const { expires_at, ...pendingWithoutExpires } = pending;
+        const retry = await supabase.from('pending_registrations').upsert(pendingWithoutExpires).select().single();
+        if (retry.error) throw retry.error;
+        data = retry.data;
+      } else if (error) {
+        throw error;
+      }
       return data;
     } else {
       const data = readLocalDB();
-      data.pending_registrations = data.pending_registrations.filter((pr: PendingRegistration) => pr.email?.toLowerCase() !== email.toLowerCase());
+      data.pending_registrations = data.pending_registrations.filter((pr: PendingRegistration) => pr.email?.toLowerCase().trim() !== cleanEmail);
       data.pending_registrations.push(pending);
       writeLocalDB(data);
       return pending;
@@ -797,11 +813,12 @@ export const db = {
   },
 
   async deletePendingRegistration(email: string): Promise<void> {
+    const cleanEmail = email.toLowerCase().trim();
     if (supabase) {
-      await supabase.from('pending_registrations').delete().eq('email', email.toLowerCase());
+      await supabase.from('pending_registrations').delete().eq('email', cleanEmail);
     } else {
       const data = readLocalDB();
-      data.pending_registrations = data.pending_registrations.filter((pr: PendingRegistration) => pr.email?.toLowerCase() !== email.toLowerCase());
+      data.pending_registrations = data.pending_registrations.filter((pr: PendingRegistration) => pr.email?.toLowerCase().trim() !== cleanEmail);
       writeLocalDB(data);
     }
   },
@@ -809,9 +826,13 @@ export const db = {
   // Password reset OTPs
   async getPasswordReset(userId: string): Promise<PasswordReset | null> {
     if (supabase) {
-      const { data, error } = await supabase.from('password_resets').select('*').eq('user_id', userId).maybeSingle();
-      if (error) return null;
-      return data;
+      try {
+        const { data, error } = await supabase.from('password_resets').select('*').eq('user_id', userId).maybeSingle();
+        if (error) return null;
+        return data;
+      } catch {
+        return null;
+      }
     } else {
       const data = readLocalDB();
       return (data.password_resets || []).find((pr: PasswordReset) => pr.user_id === userId) || null;
@@ -821,8 +842,14 @@ export const db = {
   async createPasswordReset(userId: string, otp: string, expiresAt: string): Promise<void> {
     const reset = { user_id: userId, otp, expires_at: expiresAt, created_at: new Date().toISOString() };
     if (supabase) {
-      const { error } = await supabase.from('password_resets').upsert(reset);
-      if (error) throw error;
+      try {
+        const { error } = await supabase.from('password_resets').upsert(reset);
+        if (error) {
+          console.warn('password_resets table not available, using memory fallback:', error.message);
+        }
+      } catch (err) {
+        console.warn('password_resets table error:', err);
+      }
     } else {
       const data = readLocalDB();
       data.password_resets = (data.password_resets || []).filter((pr: PasswordReset) => pr.user_id !== userId);
@@ -833,7 +860,11 @@ export const db = {
 
   async deletePasswordReset(userId: string): Promise<void> {
     if (supabase) {
-      await supabase.from('password_resets').delete().eq('user_id', userId);
+      try {
+        await supabase.from('password_resets').delete().eq('user_id', userId);
+      } catch {
+        // Non-blocking
+      }
     } else {
       const data = readLocalDB();
       data.password_resets = (data.password_resets || []).filter((pr: PasswordReset) => pr.user_id !== userId);

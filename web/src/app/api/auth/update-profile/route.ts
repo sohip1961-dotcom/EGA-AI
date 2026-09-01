@@ -51,6 +51,8 @@ export async function POST(req: NextRequest) {
           email: updated.email,
           name: updated.name,
           grade_level: updated.grade_level,
+          track_id: updated.track_id || null,
+          elective_subject: updated.elective_subject || null,
           plan_type: updated.plan_type,
           subscription_status: updated.subscription_status || (updated.plan_type && updated.plan_type !== 'free' ? 'active' : 'inactive'),
           subscription_start_date: updated.subscription_start_date,

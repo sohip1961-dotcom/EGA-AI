@@ -25,6 +25,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    const cleanName = typeof name === 'string' ? name.trim() : '';
+
+    if (!cleanEmail || !cleanName) {
+      return NextResponse.json(
+        { error: 'الاسم والبريد الإلكتروني لا يمكن أن يكونا فارغين' },
+        { status: 400 }
+      );
+    }
+
+    if (typeof password !== 'string' || password.length < 6) {
+      return NextResponse.json(
+        { error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' },
+        { status: 400 }
+      );
+    }
+
     if (grade_level === '2_high' && !track_id) {
       return NextResponse.json(
         { error: 'يرجى اختيار المسار الدراسي لطلاب البكالوريا' },
@@ -40,14 +57,14 @@ export async function POST(req: NextRequest) {
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!emailRegex.test(cleanEmail)) {
       return NextResponse.json(
         { error: 'الرجاء إدخال بريد إلكتروني صحيح' },
         { status: 400 }
       );
     }
 
-    const existingUser = await db.getProfileByEmail(email);
+    const existingUser = await db.getProfileByEmail(cleanEmail);
     if (existingUser) {
       return NextResponse.json(
         { error: 'البريد الإلكتروني هذا مسجل بالفعل. يرجى تسجيل الدخول.' },
@@ -58,7 +75,7 @@ export async function POST(req: NextRequest) {
     const passwordHash = await hashPasswordSecure(password);
     const otpCode = generateOtp();
 
-    const sent = await sendOtpEmail(email, otpCode, 'register');
+    const sent = await sendOtpEmail(cleanEmail, otpCode, 'register');
     if (!sent.ok) {
       return NextResponse.json(
         { error: 'تعذر إرسال رمز التحقق إلى بريدك الإلكتروني. يرجى المحاولة مرة أخرى بعد قليل.' },
@@ -68,8 +85,8 @@ export async function POST(req: NextRequest) {
 
     const expiresAt = new Date(Date.now() + OTP_TTL_MS).toISOString();
     await db.createPendingRegistration(
-      email,
-      name,
+      cleanEmail,
+      cleanName,
       grade_level,
       passwordHash,
       otpCode,
@@ -83,13 +100,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'تم إرسال رمز التحقق (OTP) إلى بريدك الإلكتروني بنجاح.',
-      email: email
+      email: cleanEmail
     });
 
   } catch (error: any) {
     console.error('Registration API Error:', error);
     return NextResponse.json(
-      { error: 'حدث خطأ أثناء التسجيل. يرجى المحاولة مرة أخرى.' },
+      { error: error?.message || 'حدث خطأ أثناء التسجيل. يرجى المحاولة مرة أخرى.' },
       { status: 500 }
     );
   }

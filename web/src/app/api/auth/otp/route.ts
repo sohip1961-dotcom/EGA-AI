@@ -10,14 +10,17 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { email, otp, has_registered_before, browser_fingerprint, device_id } = body;
 
-    if (!email || !otp) {
+    const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    const cleanOtp = typeof otp === 'string' ? otp.trim() : '';
+
+    if (!cleanEmail || !cleanOtp) {
       return NextResponse.json(
         { error: 'البريد الإلكتروني ورمز التحقق مطلوبان' },
         { status: 400 }
       );
     }
 
-    const rateLimit = checkRateLimit(`otp_${ip}_${email}`, 5, 600);
+    const rateLimit = checkRateLimit(`otp_${ip}_${cleanEmail}`, 5, 600);
     if (!rateLimit.allowed) {
       return NextResponse.json(
         { error: `تم تجاوز الحد المسموح لمحاولات التحقق. يرجى الانتظار ${rateLimit.resetSeconds} ثانية.` },
@@ -26,7 +29,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get pending registration
-    const pending = await db.getPendingRegistration(email);
+    const pending = await db.getPendingRegistration(cleanEmail);
     if (!pending) {
       return NextResponse.json(
         { error: 'لم يتم العثور على طلب تسجيل معلق لهذا البريد الإلكتروني. يرجى التسجيل أولاً.' },
@@ -34,15 +37,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Verify OTP with expiry
-    if (pending.expires_at && Date.now() > new Date(pending.expires_at).getTime()) {
-      await db.deletePendingRegistration(email);
+    // Verify OTP with expiry (10 min TTL)
+    const expiresAt = pending.expires_at || (pending.created_at ? new Date(new Date(pending.created_at).getTime() + 10 * 60 * 1000).toISOString() : null);
+    if (expiresAt && Date.now() > new Date(expiresAt).getTime()) {
+      await db.deletePendingRegistration(cleanEmail);
       return NextResponse.json(
         { error: 'انتهت صلاحية رمز التحقق. يرجى التسجيل مرة أخرى للحصول على رمز جديد.' },
         { status: 400 }
       );
     }
-    if (otp !== pending.otp) {
+    if (cleanOtp !== pending.otp?.trim()) {
       return NextResponse.json(
         { error: 'رمز التحقق غير صحيح.' },
         { status: 400 }

@@ -1,17 +1,17 @@
-@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap');
 
 :root {
-  --bg-main: #0D0E0B;
-  --bg-surface: #141611;
-  --bg-card: #1C1F18;
-  --border-color: #2D3227;
-  --brand-primary: #7DA146;
-  --brand-hover: #93B856;
-  --text-main: #F4F6F0;
-  --text-muted: #9AA08F;
+  --bg-main: #0A0F1D;
+  --bg-surface: #0E172A;
+  --bg-card: #111C38;
+  --border-color: rgba(56, 189, 248, 0.15);
+  --brand-primary: #0EA5E9;
+  --brand-hover: #38BDF8;
+  --text-main: #FFFFFF;
+  --text-muted: #94A3B8;
   --status-pending: #EAB308;
   --status-processing: #3B82F6;
-  --status-completed: #22C55E;
+  --status-completed: #10B981;
   --status-failed: #EF4444;
 }
 

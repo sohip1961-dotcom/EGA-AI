@@ -2,7 +2,7 @@
 
 > **Purpose of this file:** Single source of truth for the entire project. It is written so that an AI agent (or a new developer) can understand the whole product, architecture, data model, API surface, UI, and known issues **without reading the codebase first**. Read this file and `CODING_GUIDELINES.md` (same folder) before making any change.
 >
-> **Last updated:** 2026-08-31 (Enhanced Registration & Unregistered Student Interface: Replaced isolated blank login screen with complete educational tutor workspace showing AI question composer dock with full details, interactive curriculum subject browser, and prominent centered Registration/Login hero banner `.guest-auth-banner` while preventing unauthenticated question submissions).
+> **Last updated:** 2026-09-01 (Repository and configuration sync: Updated root gitignore to exclude build artifacts, synced authentication fixes, theme updates, and prepared codebase for GitHub push without build artifacts).
 >
 > **MANDATORY MAINTENANCE RULE:** upon completing ANY task that adds, modifies, or removes anything in this project (feature, API route, schema, screen, protocol tag, env var, setting, dependency, known issue), update the corresponding section(s) of this file and the "Last updated" date **in the same session**, so this document always matches the codebase. See CODING_GUIDELINES.md rule 8. A task is not complete until this file reflects it.
 
@@ -83,7 +83,7 @@ c:\myapp\                      Git repo (github.com/sohip1961-dotcom/EGA-AI, bra
 │   │   ├── app/
 │   │   │   ├── layout.tsx     RTL Root Layout
 │   │   │   ├── page.tsx       Arabic Multi-Curricula Dashboard UI (Concurrent Progress, Preview Modal, Live Filtered Logs)
-│   │   │   ├── globals.css    Design system tokens (#7DA146 on #0D0E0B)
+│   │   │   ├── globals.css    Design system tokens (#059669 / #F59E0B on #09110E / #FAFAF9)
 │   │   │   └── api/           
 │   │   │       ├── process/   GET/POST multi-worker queue processor manager & markdown preview
 │   │   │       ├── upload/    POST multipart PDF file uploader with instant page counts
@@ -465,7 +465,7 @@ Persona "EGS AI" — passionate Egyptian teacher. Rules baked into the prompt:
 1. Primary Persona Mandate: Speak in natural, polite Egyptian colloquial Arabic adapted for preparatory and secondary students.
 2. Explain vs. solve distinction (curriculum method: Given → laws in LaTeX → steps → result+unit for STEM; grammar-rule-first for languages; precise facts for humanities).
 3. All math in LaTeX (`$$` block, `$`/`\(\)` inline).
-4. Geometric diagrams as fenced ```` ```svg ```` blocks — whitelist `svg,path,circle,rect,line,polygon,polyline,text,g,ellipse`; ban scripts/handlers/foreignObject/external hrefs; neutral colors (`currentColor`, `#7DA146`); viewBox required; Arabic labels.
+4. Geometric diagrams as fenced ```` ```svg ```` blocks — whitelist `svg,path,circle,rect,line,polygon,polyline,text,g,ellipse`; ban scripts/handlers/foreignObject/external hrefs; theme colors (`#059669`, `#0F766E`, `#F59E0B`, `currentColor`); viewBox required; Arabic labels.
 5. Interactive protocol tags: `[QUIZ_QUESTION]{json}[/QUIZ_QUESTION]`, `[CREATE_EXAM]{json}[/CREATE_EXAM]`, `[CREATE_FLASHCARDS]{json}[/CREATE_FLASHCARDS]`.
 6. Strict curriculum grounding & Out-of-curriculum warning: Answers are strictly derived from the injected curriculum context. When answering queries beyond the curriculum, the response must begin on the very first line with: `"تنبيه: هذه المعلومة خارج المنهج المقرر عليك يا بطل، ولكنها تفيدك في فهم الدرس..."`.
 7. Mode-specific behavioral block (`MODE_INSTRUCTIONS`): **socratic** (scaffolded guiding questions without immediate final answers), **detailed** (default comprehensive textbook explanations), **summary** (high-yield exam review bullet points).
@@ -531,7 +531,7 @@ Gemini intelligence fails → regex keywords; embedding fails → BM25-only; RPC
   - **Session Validation & Interception**: Protected endpoints validate the active device session via `validateUserSessionDevice`. Revoked devices receive a `401` response with `{error: 'device_session_revoked', code: 'device_session_revoked'}` and are immediately logged out with an informative Arabic explanation dialog.
   - **Device Self-Service Management**: The profile screen features an `"الأجهزة المتصلة والجلسات النشطة"` section with live active counts (`N / 3 أجهزة`), device list with device-type icons (`Smartphone`, `Tablet`, `Laptop`), last active timestamps, and remote single/all-other logout buttons.
   - **Admin Device Reset**: Administrators can view active device counts in the admin users table and reset a user's devices with a single click.
-- **OTP:** 6-digit crypto-random (`crypto.getRandomValues`), 10-minute expiry (`OTP_TTL_MS`); Resend email via `src/lib/email.ts` (register + password-reset templates). No backdoor codes. Registration returns 502 if the email cannot be sent.
+- **OTP & Email Registration:** 6-digit crypto-random (`crypto.getRandomValues`), 10-minute expiry (`OTP_TTL_MS`); Resend email via `src/lib/email.ts` (register + password-reset templates). No backdoor codes. Pending registrations are saved to `pending_registrations` with resilient fallback handling for missing schema columns and automatic 10-minute expiry calculation based on `created_at`. Registration returns 502 if the email cannot be sent.
 - **Google Sign-In:** web uses GSI button (`NEXT_PUBLIC_GOOGLE_CLIENT_ID`, hardcoded fallback ID in source). Two-step grade selection for new Google users.
 - **Guest identity:** web `egs_device_id` = `device_<random36>`. Client-supplied, spoofable.
 
@@ -564,7 +564,7 @@ Single client component `web/src/app/page.tsx`. Static routes for `/terms`, `/pr
 - **Progressive Transition:** Once auth state is deterministically established, transitions smoothly via `animate-fade-in` directly into the student's personal workspace (if logged in) or the clean guest/login interface (if unauthenticated).
 
 ### 12.1 Layout and metadata (`layout.tsx`)
-`<html lang="ar" dir="rtl">`; title "EGS AI | مساعدك الذكي في المنهج الدراسي المصري"; OG locale `ar_EG`; JSON-LD WebApplication (EducationalApplication, price 0 EGP); viewport `maximumScale 1` (pinch-zoom disabled — accessibility tradeoff), `viewportFit cover`, `interactiveWidget resizes-visual`; theme color `#0D0E0B`; GSI script; a MutationObserver strips extension-injected attributes to avoid hydration mismatches. PWA manifest (standalone, theme `#7DA146`, background `#0D0E0B`, portrait orientation, education category), Service Worker registration (`sw.js`). Fonts: Tajawal/Cairo (Arabic body), Outfit (Latin/code).
+`<html lang="ar" dir="rtl">`; title "EGS AI | مساعدك الذكي في المنهج الدراسي المصري"; OG locale `ar_EG`; JSON-LD WebApplication (EducationalApplication, price 0 EGP); viewport `maximumScale 1` (pinch-zoom disabled — accessibility tradeoff), `viewportFit cover`, `interactiveWidget resizes-visual`; theme color `#09110E`; GSI script; a MutationObserver strips extension-injected attributes to avoid hydration mismatches. PWA manifest (standalone, theme `#059669`, background `#09110E`, portrait orientation, education category), Service Worker registration (`sw.js`). Fonts: Tajawal/Cairo (Arabic body), Outfit (Latin/code).
 
 ### 12.2 Module-level components in page.tsx
 `CodeBlock` (LTR code + copy), `ThoughtBlock` (collapsible CoT with timer), `MathRenderer` (KaTeX, `trust:false`, macro `\RR`), `SvgDiagram` (DOMPurify svg profile; FORBID script/foreignObject/on-handlers/href), `parseInlineText` (inline math/bold/code), `MarkdownMessage` (hand-written line parser: headers, lists, RTL tables, block math, fences), `CurriculumLessonPicker` (student-friendly, streamlined curriculum browser for Exams and Flashcards modals featuring 1-click full curriculum selection, instant live search with query clearing, lightweight unit accordions with 1-tap whole-unit selection, minimal lesson list rows with concept subtitle summaries, and compact pinned/docked active selection summary), `InteractiveQuizCard`, `InteractiveExamInviteCard`, `InteractiveFlashcardInviteCard`, `MotivationalPaywallCard` (high-conversion psychological paywall card for depleted coins with Egyptian payment badges and 3-day refund guarantee), `FormattedChatMessage` (tag extraction including `[CREATE_FLASHCARDS]` and `[UPGRADE_PAYWALL]`), `SearchStepsPanel` (live RAG steps), `ImageEditorModal` (canvas crop + brand-palette freehand brush + undo before upload; exports JPEG stepped under 5 MB).
@@ -607,25 +607,38 @@ Single client component `web/src/app/page.tsx`. Static routes for `/terms`, `/pr
 
 ## 13. Theming and Design System
 
-Brand identity: **Ruby Crimson & Amber Gold on Obsidian Dark**, Arabic-first, glassmorphism, no emojis in UI chrome (Lucide icons on web).
+Brand identity: **Educational Cognitive Palette — Sky Blue, Royal Blue, Fresh Mint Green, and Crisp White on Nocturnal Oceanic Slate / Luminous Pearl**, Arabic-first typography with **Readex Pro**, tactile layered buttons, glassmorphic surfaces, and zero emojis in UI chrome (Lucide icons on web). Designed to maximize focus, comfort, and cognitive retention for students.
 
 ### 13.1 Brand colors
-| Token | Value |
-|---|---|
-| Primary Ruby | `#C1272D` |
-| Primary hover / accent | `#D83A32` |
-| Amber Gold | `#E5A93C` |
-| Neural Blue | `#1E70BA` |
-| Obsidian Dark Surface | `#0E0D0D` / `#131111` / `#1C1818` |
-| Warm Ivory Light Surface | `#FAF7F5` / `#F3ECE6` / `#FFFFFF` |
+| Token | Value | Description |
+|---|---|---|
+| Primary Sky Blue | `#0EA5E9` / `#38BDF8` | Core brand color, focus accents, primary gradient start |
+| Accent Royal Blue | `#2563EB` / `#1D4ED8` | Deep focus, secondary buttons, user message bubbles |
+| Accent Fresh Mint Green | `#10B981` / `#34D399` | Growth, correct answers, success indicators, mint action buttons |
+| Crisp White | `#FFFFFF` | High-contrast text, glossy highlights, clean icons |
+| Interactive Gold (Podium 1st / Rewards) | `#F59E0B` | Competition top rank, leaderboard crown, pro plan chips |
+| Nocturnal Oceanic Slate (Dark Backgrounds) | `#0A0F1D` / `#0E172A` / `#111C38` / `#16254A` | Eye-friendly dark background, elevated cards, sidebar |
+| Luminous Pearl (Light Backgrounds) | `#F8FAFC` / `#FFFFFF` / `#F1F5F9` | Crisp daylight learning mode |
 
-### 13.2 Web dark tokens (`:root` in globals.css)
-bg `#0E0D0D`, elevated `#181414`, sidebar `#131111`, card `#1C1818`, card-hover `#262020`, input `#181414`; text `#FBF8F6` / `#CFC6C2` / muted `#8E827D`; status: danger `#f87171`, warning `#E5A93C`, success `#22C55E`, info `#1E70BA`.
+### 13.2 Typography
+- **Primary Arabic Font:** `Readex Pro` (300, 400, 500, 600, 700, 800) — modern, highly legible geometric Arabic typography engineered for educational screens.
+- **Supporting Arabic Fonts:** `Cairo`, `Tajawal`.
+- **Latin, Math & Code Font:** `Plus Jakarta Sans`, KaTeX.
 
-### 13.3 Web light tokens (`html[data-theme='light']`)
-bg `#FAF7F5`, surfaces `#FFFFFF`, sidebar `#F3ECE6`, text `#1A1413`/`#5E504D`/`#90807C`, on-primary `#FFFFFF`, black-alpha borders.
+### 13.3 Tactile Button System
+- `.btn-primary`: Triple-tone gradient (`#0EA5E9` → `#2563EB` → `#10B981`), top specular highlight `inset 0 1px 0 rgba(255,255,255,0.35)`, layered shadow `0 4px 18px -2px rgba(14, 165, 233, 0.45)`, hover lift `-2px` with expanded glow `0 8px 26px -2px rgba(14, 165, 233, 0.6)`, active spring scale `0.97`.
+- `.btn-secondary`: Frosted glass with cyan border `rgba(56, 189, 248, 0.22)`, hover light fill `rgba(14, 165, 233, 0.08)`, active scale `0.97`.
+- `.btn-mint`: Fresh mint gradient (`#10B981` → `#059669`) with mint glow `0 4px 16px rgba(16, 185, 129, 0.35)`.
+- `.btn-royal`: Royal blue gradient (`#2563EB` → `#1D4ED8`) with royal glow `0 4px 16px rgba(37, 99, 235, 0.35)`.
+- `.btn-ghost`: Subtle hover fill with primary accent.
 
-### 13.4 Score colors
+### 13.4 Web dark tokens (`:root` in globals.css)
+bg `#0A0F1D`, elevated `#0E172A`, sidebar `#0B132B`, card `#111C38`, card-hover `#16254A`, input `#0D162D`; text `#FFFFFF` / `#CBD5E1` / muted `#94A3B8`; borders `rgba(56, 189, 248, 0.12)`; status: danger `#F87171`, warning `#FBBF24`, success `#10B981`, info `#38BDF8`.
+
+### 13.5 Web light tokens (`html[data-theme='light']`)
+bg `#F8FAFC`, surfaces `#FFFFFF`, sidebar `#F1F5F9`, card `#FFFFFF`, text `#0F172A`/`#334155`/`#64748B`, primary `#0284C7`, interactive gold `#D97706`, on-primary `#FFFFFF`, cyan/sky-alpha borders.
+
+### 13.6 Score colors
 ≥80 green (ممتاز جداً), ≥50 orange (جيد — يحتاج تحسين), <50 red (ضعيف).
 
 ---
