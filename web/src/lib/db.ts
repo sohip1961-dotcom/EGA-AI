@@ -84,6 +84,7 @@ export interface ContactMessage {
 
 export interface AppNotification {
   id: string;
+  user_id?: string | null;
   title: string;
   body: string;
   type: 'info' | 'success' | 'warning' | 'maintenance';
@@ -2511,20 +2512,37 @@ export const db = {
   },
 
   // ─── Notifications ─────────────────────────────────────────────────────────
-  async getActiveNotifications(target: 'web' | 'phone'): Promise<AppNotification[]> {
+  async getActiveNotifications(target: 'web' | 'phone', userId?: string | null): Promise<AppNotification[]> {
     if (supabase) {
-      const { data, error } = await supabase
+      let query = supabase
         .from('notifications')
         .select('*')
         .eq('active', true)
         .order('created_at', { ascending: false });
+
+      if (userId) {
+        query = query.or(`user_id.is.null,user_id.eq.${userId}`);
+      } else {
+        query = query.is('user_id', null);
+      }
+
+      const { data, error } = await query;
       if (error) return [];
-      return (data || []).filter((n: AppNotification) => n.target === 'both' || n.target === target);
+      return (data || []).filter((n: AppNotification) => {
+        const matchesTarget = n.target === 'both' || n.target === target;
+        const matchesUser = !n.user_id || (userId && n.user_id === userId);
+        return matchesTarget && matchesUser;
+      });
     } else {
       const data = readLocalDB();
       const list = (data.notifications || []) as AppNotification[];
       return list
-        .filter(n => n.active && (n.target === 'both' || n.target === target))
+        .filter(n => {
+          const matchesActive = n.active;
+          const matchesTarget = n.target === 'both' || n.target === target;
+          const matchesUser = userId ? (!n.user_id || n.user_id === userId) : !n.user_id;
+          return matchesActive && matchesTarget && matchesUser;
+        })
         .sort((a, b) => b.created_at.localeCompare(a.created_at));
     }
   },
@@ -2543,6 +2561,7 @@ export const db = {
   async createNotification(notification: Omit<AppNotification, 'id' | 'created_at' | 'active'>): Promise<AppNotification> {
     const newNotification: AppNotification = {
       ...notification,
+      user_id: notification.user_id || null,
       id: crypto.randomUUID(),
       active: true,
       created_at: new Date().toISOString()
@@ -2701,6 +2720,8 @@ export const db = {
         await supabase.from('contact_messages').delete().eq('user_id', id);
         await supabase.from('payment_transactions').delete().eq('user_id', id);
         await supabase.from('account_deletions').delete().eq('user_id', id);
+        await supabase.from('user_devices').delete().eq('user_id', id);
+        await supabase.from('notifications').delete().eq('user_id', id);
       } catch (e) {
         console.warn('deleteUser related tables cleanup notice:', e);
       }
@@ -2719,6 +2740,8 @@ export const db = {
       if (data.account_deletions) data.account_deletions = data.account_deletions.filter((ad: any) => ad.user_id !== id);
       if (data.flashcard_decks) data.flashcard_decks = data.flashcard_decks.filter((fd: any) => fd.user_id !== id);
       if (data.payment_transactions) data.payment_transactions = data.payment_transactions.filter((pt: any) => pt.user_id !== id);
+      if (data.user_devices) data.user_devices = data.user_devices.filter((ud: any) => ud.user_id !== id);
+      if (data.notifications) data.notifications = data.notifications.filter((n: any) => n.user_id !== id);
       writeLocalDB(data);
       return true;
     }
@@ -3332,9 +3355,10 @@ export const db = {
       }
     }
 
-    // Create in-app confirmation notification
+    // Create in-app confirmation notification for subscriber
     try {
       await this.createNotification({
+        user_id: userId,
         title: 'تم تفعيل اشتراكك بنجاح',
         body: `تهانينا! تم تفعيل ${planTitle} وضبط رصيدك إلى ${newCoins} نقطة تتجدد يومياً. استمتع بميزات المساعد الذكي غير المحدودة.`,
         type: 'success',

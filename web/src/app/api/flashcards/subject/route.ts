@@ -12,7 +12,12 @@ export async function GET(req: NextRequest) {
     const token = authHeader.substring(7);
     const userId = verifySessionToken(token);
     if (!userId) {
-      return NextResponse.json({ error: 'جلسة غير صالحة' }, { status: 401 });
+      return NextResponse.json({ error: 'جلسة غير صالحة', code: 'session_expired' }, { status: 401 });
+    }
+
+    const profile = await db.getProfile(userId);
+    if (!profile) {
+      return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم أو تم حذفه.', code: 'user_not_found' }, { status: 401 });
     }
 
     const { searchParams } = new URL(req.url);

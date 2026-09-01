@@ -17,7 +17,12 @@ export async function GET(req: NextRequest) {
     }
 
     if (!userId) {
-      return NextResponse.json([]);
+      return NextResponse.json({ error: 'تسجيل الدخول مطلوب لعرض نتائج الامتحانات', code: 'login_required' }, { status: 401 });
+    }
+
+    const profile = await db.getProfile(userId);
+    if (!profile) {
+      return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم أو تم حذفه.', code: 'user_not_found' }, { status: 401 });
     }
 
     const submissions = await db.getExamSubmissions(userId, deviceId || undefined);

@@ -81,7 +81,7 @@ export const viewport: Viewport = {
   // Next 16 Viewport type (viewportFit / interactiveWidget are supported fields).
   viewportFit: 'cover',
   interactiveWidget: 'resizes-visual',
-  themeColor: '#0D0E0B',
+  themeColor: '#0D1B2A',
 };
 
 export default function RootLayout({

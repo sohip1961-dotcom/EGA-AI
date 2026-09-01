@@ -30,15 +30,17 @@ export async function GET(req: NextRequest) {
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
       userId = verifySessionToken(token);
-      if (userId) {
-        const profile = await db.getProfile(userId);
-        if (profile) gradeLevel = profile.grade_level;
-      }
     }
 
     if (!userId) {
-      return NextResponse.json({ error: 'يجب تسجيل الدخول لعرض الامتحانات' }, { status: 401 });
+      return NextResponse.json({ error: 'يجب تسجيل الدخول لعرض الامتحانات', code: 'login_required' }, { status: 401 });
     }
+
+    const profile = await db.getProfile(userId);
+    if (!profile) {
+      return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم أو تم حذفه.', code: 'user_not_found' }, { status: 401 });
+    }
+    gradeLevel = profile.grade_level;
 
     const exams = await db.getExams(gradeLevel, subjectName, userId, deviceId || undefined);
     return NextResponse.json(exams.map(sanitizeExam));
@@ -69,7 +71,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (!userId) {
-      return NextResponse.json({ error: 'يجب تسجيل الدخول لحفظ الامتحان' }, { status: 401 });
+      return NextResponse.json({ error: 'يجب تسجيل الدخول لحفظ الامتحان', code: 'login_required' }, { status: 401 });
+    }
+
+    const profile = await db.getProfile(userId);
+    if (!profile) {
+      return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم أو تم حذفه.', code: 'user_not_found' }, { status: 401 });
     }
 
     const newExam = await db.createExam({

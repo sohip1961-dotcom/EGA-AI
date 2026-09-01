@@ -35,6 +35,8 @@ import {
   Search,
   LogIn,
   Bell,
+  Sun,
+  Moon,
   ArrowRight,
   Image as ImageIcon,
   Mic,
@@ -518,7 +520,7 @@ const ThoughtBlock = ({
                 <thead>
                   <tr style={{ backgroundColor: 'var(--primary-light)', borderBottom: '2px solid var(--border-color)' }}>
                     {headers.map((h, hIdx) => (
-                      <th key={hIdx} style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--primary-color)' }}>{parseInlineText(h)}</th>
+                      <th key={hIdx} style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-main)' }}>{parseInlineText(h)}</th>
                     ))}
                   </tr>
                 </thead>
@@ -540,17 +542,17 @@ const ThoughtBlock = ({
 
       // Headers
       if (trimmed.startsWith('### ')) {
-        blocks.push(<h3 key={`h3-${idx}`} style={{ marginTop: '1.2rem', marginBottom: '0.6rem', color: 'var(--primary-color)', fontWeight: 700, fontSize: '1.05rem' }}>{parseInlineText(trimmed.substring(4))}</h3>);
+        blocks.push(<h3 key={`h3-${idx}`} style={{ marginTop: '1.2rem', marginBottom: '0.6rem', color: 'var(--text-main)', fontWeight: 700, fontSize: '1.05rem' }}>{parseInlineText(trimmed.substring(4))}</h3>);
         idx++;
         continue;
       }
       if (trimmed.startsWith('## ')) {
-        blocks.push(<h2 key={`h2-${idx}`} style={{ marginTop: '1.2rem', marginBottom: '0.6rem', color: 'var(--primary-color)', fontWeight: 700, fontSize: '1.15rem' }}>{parseInlineText(trimmed.substring(3))}</h2>);
+        blocks.push(<h2 key={`h2-${idx}`} style={{ marginTop: '1.2rem', marginBottom: '0.6rem', color: 'var(--text-main)', fontWeight: 700, fontSize: '1.15rem' }}>{parseInlineText(trimmed.substring(3))}</h2>);
         idx++;
         continue;
       }
       if (trimmed.startsWith('# ')) {
-        blocks.push(<h1 key={`h1-${idx}`} style={{ marginTop: '1.2rem', marginBottom: '0.6rem', color: 'var(--primary-color)', fontWeight: 700, fontSize: '1.3rem' }}>{parseInlineText(trimmed.substring(2))}</h1>);
+        blocks.push(<h1 key={`h1-${idx}`} style={{ marginTop: '1.2rem', marginBottom: '0.6rem', color: 'var(--text-main)', fontWeight: 700, fontSize: '1.3rem' }}>{parseInlineText(trimmed.substring(2))}</h1>);
         idx++;
         continue;
       }
@@ -871,11 +873,11 @@ const ThoughtBlock = ({
     return (
       <div className="motivational-paywall-card animate-scale-in">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(229, 169, 60, 0.15)', color: 'var(--secondary-color)', padding: '4px 12px', borderRadius: 'var(--radius-full)', fontSize: '0.78rem', fontWeight: 800 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'var(--primary-light)', color: 'var(--primary-color)', padding: '4px 12px', borderRadius: 'var(--radius-full)', fontSize: '0.78rem', fontWeight: 800 }}>
             <Sparkles size={14} />
             <span>أنت بطل المذاكرة اليوم!</span>
           </div>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--secondary-color)', fontSize: '0.74rem', fontWeight: 700 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--primary-color)', fontSize: '0.74rem', fontWeight: 700 }}>
             <Trophy size={13} />
             <span>إنجاز أكاديمي رائع</span>
           </div>
@@ -946,7 +948,7 @@ const ThoughtBlock = ({
             gap: '8px',
             border: 'none',
             cursor: 'pointer',
-            boxShadow: '0 4px 18px rgba(193, 39, 45, 0.35)'
+            boxShadow: 'var(--shadow-glow-strong)'
           }}
         >
           <CreditCard size={16} />
@@ -1158,7 +1160,7 @@ const ThoughtBlock = ({
   };
 
 // ─── Image Editor (crop + freehand markup, dependency-free) ──────────────────
-const EDITOR_BRUSH_COLORS = ['#C1272D', '#D83A32', '#E5A93C', '#1E70BA', '#10b981', '#fbbf24', '#FFFFFF', '#0E0D0D'];
+const EDITOR_BRUSH_COLORS = ['#FFB703', '#00B4D8', '#7209B7', '#10b981', '#fbbf24', '#FFFFFF', '#0D1B2A'];
 
 const ImageEditorModal = ({
   src,
@@ -1210,7 +1212,7 @@ const ImageEditorModal = ({
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.clearRect(cropRect.x * sx, cropRect.y * sy, cropRect.w * sx, cropRect.h * sy);
-      ctx.strokeStyle = '#C1272D';
+      ctx.strokeStyle = '#FFB703';
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 4]);
       ctx.strokeRect(cropRect.x * sx, cropRect.y * sy, cropRect.w * sx, cropRect.h * sy);
@@ -1943,17 +1945,19 @@ export default function App() {
 
   // Theme State
   const [theme, setTheme] = useState<'system' | 'light' | 'dark'>('system');
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark');
 
   const applyTheme = (t: string) => {
     if (typeof window === 'undefined') return;
-    let resolvedTheme = 'dark';
+    let res: 'light' | 'dark' = 'dark';
     if (t === 'system') {
       const isDarkSystem = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      resolvedTheme = isDarkSystem ? 'dark' : 'light';
+      res = isDarkSystem ? 'dark' : 'light';
     } else {
-      resolvedTheme = t;
+      res = t === 'light' ? 'light' : 'dark';
     }
-    document.documentElement.setAttribute('data-theme', resolvedTheme);
+    setResolvedTheme(res);
+    document.documentElement.setAttribute('data-theme', res);
   };
 
   const handleThemeChange = (newTheme: 'system' | 'light' | 'dark') => {
@@ -1962,10 +1966,9 @@ export default function App() {
     applyTheme(newTheme);
   };
 
-  const handleDismissNotification = (id: string) => {
-    const updated = [...dismissedNotifIds, id];
-    setDismissedNotifIds(updated);
-    localStorage.setItem('egs_dismissed_notifications', JSON.stringify(updated));
+  const toggleTheme = () => {
+    const nextTheme = resolvedTheme === 'light' ? 'dark' : 'light';
+    handleThemeChange(nextTheme);
   };
 
   // Auth State
@@ -1973,6 +1976,34 @@ export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
+
+  // Notification Center State
+  const [activeNotifications, setActiveNotifications] = useState<any[]>([]);
+  const [dismissedNotifIds, setDismissedNotifIds] = useState<string[]>([]);
+  const [showNotifCenter, setShowNotifCenter] = useState(false);
+
+  const loadNotifications = async (authToken?: string | null) => {
+    try {
+      const tok = authToken !== undefined ? authToken : (token || (typeof window !== 'undefined' ? localStorage.getItem('egs_token') : null));
+      const headers: Record<string, string> = {};
+      if (tok) {
+        headers['Authorization'] = `Bearer ${tok}`;
+      }
+      const res = await fetch('/api/notifications?target=web', { headers });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.notifications)) {
+        setActiveNotifications(data.notifications);
+      }
+    } catch (e) {
+      // Non-blocking
+    }
+  };
+
+  const handleDismissNotification = (id: string) => {
+    const updated = [...dismissedNotifIds, id];
+    setDismissedNotifIds(updated);
+    localStorage.setItem('egs_dismissed_notifications', JSON.stringify(updated));
+  };
 
   // Phase 2: Flashcards & Leaderboard States
   const [flashcardDecks, setFlashcardDecks] = useState<any[]>([]);
@@ -2171,19 +2202,59 @@ export default function App() {
     return () => clearInterval(interval);
   }, [verifiedCurrencyData]);
 
-  // Multi-Device Management State (Max 3 Devices)
+  // Multi-Device Management State (Max 3 Devices) & Session Invalidation
   const [userDevices, setUserDevices] = useState<any[]>([]);
   const [loadingDevices, setLoadingDevices] = useState<boolean>(false);
   const [deviceActionMessage, setDeviceActionMessage] = useState<{ text: string; type: 'success' | 'error' }>({ text: '', type: 'success' });
   const [sessionRevokedModal, setSessionRevokedModal] = useState<boolean>(false);
+  const [accountDeletedModal, setAccountDeletedModal] = useState<boolean>(false);
+  const [accountDeletedMessage, setAccountDeletedMessage] = useState<string>('');
 
-  const handleSessionRevoked = () => {
+  const handleForceLogout = (reason?: string, modalType?: 'deleted' | 'revoked' | 'expired') => {
     localStorage.removeItem('egs_token');
     localStorage.removeItem('egs_user');
+    localStorage.removeItem('egs_chat_sessions');
+    localStorage.removeItem('egs_active_exam_id');
+    localStorage.removeItem('egs_active_exam_time');
     setToken(null);
     setUser(null);
-    setCoins(15.0);
-    setSessionRevokedModal(true);
+    setProfileName('');
+    setActiveSessionId(null);
+    setSessions([]);
+    setUserDevices([]);
+    if (modalType === 'revoked') {
+      setCoins(15.0);
+      setSessionRevokedModal(true);
+    } else {
+      setCoins(5.0);
+      if (modalType === 'deleted' || reason) {
+        setAccountDeletedMessage(reason || 'تم تسجيل الخروج لأن هذا الحساب لم يعد متوفراً أو تم حذفه.');
+        setAccountDeletedModal(true);
+      }
+    }
+    setActiveTab(prev => (prev === 'profile' || prev === 'admin' ? 'chat' : prev));
+    loadSystemConfig(deviceId, null);
+    loadNotifications(null);
+  };
+
+  const handleSessionRevoked = () => {
+    handleForceLogout('تم إنهاء الجلسة على هذا الجهاز.', 'revoked');
+  };
+
+  const checkAuthError = (resStatus: number, data?: any): boolean => {
+    if (resStatus === 401 || (resStatus === 404 && (data?.code === 'user_not_found' || data?.error === 'user_not_found'))) {
+      if (data?.code === 'device_session_revoked' || data?.error === 'device_session_revoked' || data?.code === 'device_limit_exceeded') {
+        handleForceLogout(data?.message || 'تم تسجيل الخروج من هذا الجهاز.', 'revoked');
+        return false;
+      }
+      if (data?.code === 'user_not_found' || data?.error === 'user_not_found' || data?.message?.includes('غير موجود') || data?.message?.includes('حذف') || data?.error?.includes('غير موجود')) {
+        handleForceLogout(data?.message || 'تم إنهاء الجلسة لأن الحساب لم يعد متوفراً أو تم حذفه نهائياً.', 'deleted');
+        return false;
+      }
+      handleForceLogout('انتهت صلاحية الجلسة أو تعذر العثور على الحساب. يرجى تسجيل الدخول مجدداً.', 'deleted');
+      return false;
+    }
+    return true;
   };
 
   const fetchUserDevices = async () => {
@@ -2198,8 +2269,8 @@ export default function App() {
         }
       });
       const data = await res.json();
-      if (res.status === 401 && (data.error?.includes('أجهزة') || data.code === 'device_session_revoked' || data.code === 'device_limit_exceeded')) {
-        handleSessionRevoked();
+      if (!res.ok) {
+        checkAuthError(res.status, data);
         return;
       }
       if (data.success && data.devices) {
@@ -2289,6 +2360,10 @@ export default function App() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
+      if (!res.ok) {
+        checkAuthError(res.status, data);
+        return;
+      }
       if (data.success) {
         setFlashcardDecks(data.decks || []);
       }
@@ -2306,6 +2381,10 @@ export default function App() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
+      if (!res.ok) {
+        checkAuthError(res.status, data);
+        return;
+      }
       if (data.success) {
         setDeckCards(data.cards || []);
         setCurrentCardIndex(0);
@@ -2328,6 +2407,10 @@ export default function App() {
         body: JSON.stringify({ card_id: cardId, rating })
       });
       const data = await res.json();
+      if (!res.ok) {
+        checkAuthError(res.status, data);
+        return;
+      }
       if (data.success) {
         if (currentCardIndex < deckCards.length - 1) {
           setIsCardFlipped(false);
@@ -2437,6 +2520,10 @@ export default function App() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
+      if (!res.ok) {
+        checkAuthError(res.status, data);
+        return;
+      }
       if (data.success) {
         setSubjectCards(prev => prev.filter(c => c.id !== cardId));
         setEditingCard(null);
@@ -2460,6 +2547,10 @@ export default function App() {
         body: JSON.stringify({ id: deckId, title: newTitle.trim() })
       });
       const data = await res.json();
+      if (!res.ok) {
+        checkAuthError(res.status, data);
+        return;
+      }
       if (data.success) {
         setEditingDeck(null);
         fetchFlashcardDecks();
@@ -2482,6 +2573,10 @@ export default function App() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
+      if (!res.ok) {
+        checkAuthError(res.status, data);
+        return;
+      }
       if (data.success) {
         fetchFlashcardDecks();
         if (selectedFlashcardSubject) {
@@ -2519,6 +2614,11 @@ export default function App() {
         })
       });
       const data = await res.json();
+      if (!res.ok) {
+        if (!checkAuthError(res.status, data)) return;
+        alert(data.error || 'فشل إنشاء الكروت');
+        return;
+      }
       if (data.success) {
         setShowFlashcardCreateModal(false);
         setManualDeckTitle('');
@@ -2586,6 +2686,11 @@ export default function App() {
         })
       });
       const data = await res.json();
+      if (!res.ok) {
+        if (!checkAuthError(res.status, data)) return;
+        alert(data.error || 'فشل توليد الكروت');
+        return;
+      }
       if (data.success) {
         setFlashcardTopic('');
         setSelectedFlashcardLesson(null);
@@ -2612,6 +2717,10 @@ export default function App() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
+      if (!res.ok) {
+        checkAuthError(res.status, data);
+        return;
+      }
       if (data.success) {
         setLeaderboardData((data.leaderboard || []).slice(0, 10));
         setUserLeaderboardRank(data.user_rank || null);
@@ -2667,11 +2776,6 @@ export default function App() {
   const [reportReason, setReportReason] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
   const [reportDone, setReportDone] = useState(false);
-
-  // Notification Center State
-  const [activeNotifications, setActiveNotifications] = useState<any[]>([]);
-  const [dismissedNotifIds, setDismissedNotifIds] = useState<string[]>([]);
-  const [showNotifCenter, setShowNotifCenter] = useState(false);
 
   // Admin State
   const [adminSection, setAdminSection] = useState<'overview' | 'customer_service' | 'users' | 'notifications' | 'reports' | 'versions'>('overview');
@@ -2811,10 +2915,18 @@ export default function App() {
       const currentGrade = user ? user.grade_level : chatGrade;
       const examsRes = await fetch(`/api/exams?grade_level=${currentGrade}&subject_name=${chatSubject}`, { headers });
       const examsData = await examsRes.json();
+      if (!examsRes.ok) {
+        checkAuthError(examsRes.status, examsData);
+        return;
+      }
       setExams(Array.isArray(examsData) ? examsData : []);
 
       const subRes = await fetch(`/api/exams/submissions`, { headers });
       const subData = await subRes.json();
+      if (!subRes.ok) {
+        checkAuthError(subRes.status, subData);
+        return;
+      }
       setSubmissions(Array.isArray(subData) ? subData : []);
     } catch (e) {
       console.error('Error loading exams data:', e);
@@ -2863,7 +2975,10 @@ export default function App() {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'فشل توليد الامتحان');
+      if (!res.ok) {
+        if (!checkAuthError(res.status, data)) return;
+        throw new Error(data.error || 'فشل توليد الامتحان');
+      }
 
       await loadExamsData();
       const examObj = data.exam || data;
@@ -2929,7 +3044,10 @@ export default function App() {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'فشل تصحيح الامتحان');
+      if (!res.ok) {
+        if (!checkAuthError(res.status, data)) return;
+        throw new Error(data.error || 'فشل تصحيح الامتحان');
+      }
 
       setExamResult(data);
 
@@ -3048,6 +3166,7 @@ export default function App() {
               setCoins(d.user.coins ?? 50.0);
               setPoints(d.user.points ?? 0);
               localStorage.setItem('egs_user', JSON.stringify(d.user));
+              loadNotifications(savedToken);
             }
           })
           .catch(() => {});
@@ -3276,9 +3395,9 @@ export default function App() {
                         left: '5px',
                         fontSize: '0.62rem',
                         fontWeight: 700,
-                        background: 'rgba(229, 169, 60, 0.18)',
-                        color: 'var(--accent-gold, #E5A93C)',
-                        border: '1px solid rgba(229, 169, 60, 0.35)',
+                        background: 'var(--primary-light)',
+                        color: 'var(--primary-color)',
+                        border: '1px solid var(--border-primary)',
                         borderRadius: '4px',
                         padding: '1px 5px',
                         lineHeight: '1.2'
@@ -3578,7 +3697,7 @@ export default function App() {
         {/* Zero-Coins Motivational Banner for Free Accounts */}
         {user && (user.role !== 'admin' && !user.unlimited_credit) && coins <= 0 && !isUserSubscribed && (
           <div style={{
-            background: 'linear-gradient(135deg, rgba(125, 161, 70, 0.12) 0%, rgba(229, 169, 60, 0.14) 100%)',
+            background: 'linear-gradient(135deg, rgba(255, 183, 3, 0.15) 0%, rgba(114, 9, 183, 0.12) 100%)',
             border: '1.5px solid var(--primary-color)',
             borderRadius: '16px',
             padding: isMobile ? '12px 14px' : '14px 18px',
@@ -3595,7 +3714,7 @@ export default function App() {
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', flex: 1, minWidth: 0 }}>
               <div style={{
                 background: 'var(--primary-color)',
-                color: '#fff',
+                color: 'var(--text-on-primary)',
                 width: isMobile ? '32px' : '38px',
                 height: isMobile ? '32px' : '38px',
                 borderRadius: '10px',
@@ -3603,14 +3722,14 @@ export default function App() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(125, 161, 70, 0.35)'
+                boxShadow: 'var(--shadow-glow)'
               }}>
                 <Sparkles size={isMobile ? 16 : 18} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: isMobile ? '0.84rem' : '0.9rem', fontWeight: 800, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', lineHeight: '1.3' }}>
                   <span>أنت بطل المذاكرة اليوم!</span>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--secondary-color)', fontWeight: 700, background: 'rgba(229, 169, 60, 0.14)', padding: '1px 6px', borderRadius: '6px' }}>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--primary-color)', fontWeight: 700, background: 'var(--primary-light)', padding: '1px 6px', borderRadius: '6px' }}>
                     استنفدت رصيدك اليومي
                   </span>
                 </div>
@@ -4251,9 +4370,9 @@ export default function App() {
                       left: '6px',
                       fontSize: '0.62rem',
                       fontWeight: 700,
-                      background: 'rgba(229, 169, 60, 0.18)',
-                      color: 'var(--accent-gold, #E5A93C)',
-                      border: '1px solid rgba(229, 169, 60, 0.35)',
+                      background: 'var(--primary-light)',
+                      color: 'var(--primary-color)',
+                      border: '1px solid var(--border-primary)',
                       borderRadius: '4px',
                       padding: '1px 5px',
                       lineHeight: '1.2'
@@ -4319,6 +4438,13 @@ export default function App() {
     fetch('/api/config', { headers })
       .then(res => res.json())
       .then(data => {
+        // If an active token was provided but server returned user_not_found/session_invalid/authenticated:false
+        if (activeToken) {
+          if (data.session_invalid || data.user_not_found || data.authenticated === false || (!data.user && activeToken)) {
+            handleForceLogout('تم إنهاء الجلسة لأن هذا الحساب لم يعد متوفراً أو تم حذفه.', 'deleted');
+            return;
+          }
+        }
         if (data.website_link) setWebsiteLink(data.website_link);
         if (data.active_grade_levels) {
           setActiveGradeLevels(data.active_grade_levels);
@@ -4475,18 +4601,39 @@ export default function App() {
       const storedDismissed = localStorage.getItem('egs_dismissed_notifications');
       if (storedDismissed) setDismissedNotifIds(JSON.parse(storedDismissed));
     } catch (e) {}
-    fetch('/api/notifications?target=web')
-      .then(res => res.json())
-      .then(data => { if (data.success) setActiveNotifications(data.notifications); })
-      .catch(() => {});
+    loadNotifications(storedToken);
 
     // 7. Complete initial loading smoothly to avoid FOUC / flashes
     const initTimer = setTimeout(() => {
       setIsInitialLoading(false);
     }, 120);
 
+    // 8. Tab Focus & Periodic Heartbeat for Live Session Invalidation
+    const handleVisibilityCheck = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        const currentTok = localStorage.getItem('egs_token');
+        if (currentTok) {
+          loadSystemConfig(devId, currentTok);
+          loadNotifications(currentTok);
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityCheck);
+    window.addEventListener('focus', handleVisibilityCheck);
+
+    const sessionHeartbeat = setInterval(() => {
+      const currentTok = localStorage.getItem('egs_token');
+      if (currentTok) {
+        loadSystemConfig(devId, currentTok);
+        loadNotifications(currentTok);
+      }
+    }, 60000);
+
     return () => {
       clearTimeout(initTimer);
+      clearInterval(sessionHeartbeat);
+      document.removeEventListener('visibilitychange', handleVisibilityCheck);
+      window.removeEventListener('focus', handleVisibilityCheck);
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
       window.removeEventListener('appinstalled', handleAppInstalled);
@@ -4535,6 +4682,10 @@ export default function App() {
         headers: { 'Authorization': `Bearer ${storedToken}` }
       });
       const data = await res.json();
+      if (!res.ok) {
+        checkAuthError(res.status, data);
+        return;
+      }
       if (data.success && data.sessions) {
         setSessions(data.sessions);
       }
@@ -4565,6 +4716,10 @@ export default function App() {
       
       const res = await fetch(url, { headers });
       const data = await res.json();
+      if (!res.ok) {
+        checkAuthError(res.status, data);
+        return;
+      }
       if (data.success && data.history) {
         const parsedHistory = data.history.map((h: any) => {
           if (h.sender === 'ai' && h.message && h.message.startsWith('<thought')) {
@@ -4619,6 +4774,10 @@ export default function App() {
         headers: { 'Authorization': `Bearer ${storedToken}` }
       });
       const data = await res.json();
+      if (!res.ok) {
+        checkAuthError(res.status, data);
+        return;
+      }
       if (data.success) {
         if (activeSessionId === sessionId) {
           setActiveSessionId(null);
@@ -4741,6 +4900,7 @@ export default function App() {
         setPoints(data.user.points || 0);
         setShowAuthModal(false);
         resetAuthForm();
+        loadNotifications(data.token);
 
       } else {
         // Register step 1: Send registration details
@@ -4805,6 +4965,7 @@ export default function App() {
           setPoints(data.user.points || 0);
           setShowAuthModal(false);
           resetAuthForm();
+          loadNotifications(data.token);
         }
       }
     } catch (err: any) {
@@ -4860,6 +5021,7 @@ export default function App() {
         setShowGoogleGradeModal(false);
         setGoogleTempUser(null);
         resetAuthForm();
+        loadNotifications(data.token);
       }
     } catch (err: any) {
       setAuthError(err.message);
@@ -4924,11 +5086,19 @@ export default function App() {
     }
     localStorage.removeItem('egs_token');
     localStorage.removeItem('egs_user');
+    localStorage.removeItem('egs_chat_sessions');
+    localStorage.removeItem('egs_active_exam_id');
+    localStorage.removeItem('egs_active_exam_time');
     setToken(null);
     setUser(null);
+    setProfileName('');
+    setActiveSessionId(null);
+    setSessions([]);
+    setUserDevices([]);
     setCoins(50.0);
     setActiveTab('chat');
     loadSystemConfig(deviceId, null);
+    loadNotifications(null);
   };
   const handleUpdateUserGrade = async (newGrade: string, newTrack?: string | null, newElective?: string | null) => {
     if (!user) return;
@@ -4947,7 +5117,10 @@ export default function App() {
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'فشل تحديث السنة الدراسية.');
+      if (!res.ok) {
+        if (!checkAuthError(res.status, data)) return;
+        throw new Error(data.error || 'فشل تحديث السنة الدراسية.');
+      }
 
       // Update state and storage
       const updatedUser = {
@@ -5139,6 +5312,9 @@ export default function App() {
           data = await res.json();
         } catch (_) {
           data = { message: res.statusText || 'حدث خطأ في الاتصال بالخادم.' };
+        }
+        if (!checkAuthError(res.status, data)) {
+          return;
         }
         // Handle limits
         if (data.error === 'limit_reached') {
@@ -6439,7 +6615,10 @@ export default function App() {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) {
+        if (!checkAuthError(res.status, data)) return;
+        throw new Error(data.error);
+      }
 
       // Update local storage and user state
       const updatedUser = { ...user, name: data.user.name };
@@ -6468,7 +6647,10 @@ export default function App() {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) {
+        if (!checkAuthError(res.status, data)) return;
+        throw new Error(data.error);
+      }
 
       setProfileOtpStep(true);
       setProfileMessage({ text: 'تم إرسال رمز التحقق إلى بريدك الإلكتروني.', type: 'success' });
@@ -6504,7 +6686,10 @@ export default function App() {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) {
+        if (!checkAuthError(res.status, data)) return;
+        throw new Error(data.error);
+      }
 
       setProfileOtpStep(false);
       setProfileOtp('');
@@ -6542,29 +6727,14 @@ export default function App() {
       >
         <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           <div 
+            className="brand-logo-frame"
             style={{
-              position: 'absolute',
-              inset: '-10px',
-              borderRadius: '26px',
-              border: '2px solid var(--border-primary)',
-              animation: 'pulse-ring 2.5s ease-out infinite'
-            }} 
-          />
-          <div 
-            style={{
-              background: 'var(--primary-light)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '72px',
-              height: '72px',
-              borderRadius: '22px',
-              border: '1.5px solid var(--border-primary)',
-              boxShadow: 'var(--shadow-glow-strong)',
-              overflow: 'hidden'
+              width: '86px',
+              height: '86px',
+              borderRadius: '24px'
             }}
           >
-            <img src="/logo.png" alt="EGS AI Logo" style={{ width: '84%', height: '84%', objectFit: 'contain' }} />
+            <img src="/logo.png" alt="EGS AI Logo" style={{ width: '88%', height: '88%', objectFit: 'contain' }} />
           </div>
         </div>
 
@@ -6662,8 +6832,8 @@ export default function App() {
 
           {/* Logo */}
           <div style={{ textAlign: 'center', paddingTop: isMobile ? '8px' : '4px', marginBottom: '4px' }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '48px', height: '48px', borderRadius: '14px', background: 'var(--primary-light)', border: '1px solid var(--border-primary)', marginBottom: '10px', overflow: 'hidden' }}>
-              <img src="/logo.png" alt="EGS AI Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            <div className="brand-logo-frame" style={{ width: '56px', height: '56px', borderRadius: '16px', marginBottom: '10px' }}>
+              <img src="/logo.png" alt="EGS AI Logo" style={{ width: '90%', height: '90%', objectFit: 'contain' }} />
             </div>
             <h1 style={{ fontSize: '1.6rem', fontWeight: 900, letterSpacing: '-0.5px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
               <span className="text-gradient">EGS AI</span>
@@ -6826,38 +6996,6 @@ export default function App() {
 
         {/* Footer Identity Section */}
         <div style={{ padding: '16px 18px', borderTop: '1px solid var(--border-color)', background: 'var(--sidebar-bg)' }}>
-          {/* Theme switcher */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 0 14px 0', borderBottom: '1px solid var(--border-color)', marginBottom: '14px' }}>
-            <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600 }}>مظهر المنصة</span>
-            <div style={{ display: 'flex', background: 'var(--alpha-white-4)', padding: '2px', borderRadius: '8px', gap: '2px' }}>
-              {[
-                { value: 'light', label: 'مضيء' },
-                { value: 'dark', label: 'مظلم' },
-                { value: 'system', label: 'تلقائي' }
-              ].map((opt) => {
-                const isActive = theme === opt.value;
-                return (
-                  <button
-                    key={opt.value}
-                    onClick={() => handleThemeChange(opt.value as any)}
-                    style={{
-                      border: 'none',
-                      background: isActive ? 'var(--primary-color)' : 'transparent',
-                      color: isActive ? 'var(--text-on-primary)' : 'var(--text-secondary)',
-                      fontSize: '0.74rem',
-                      padding: '4px 8px',
-                      borderRadius: '6px',
-                      fontWeight: isActive ? 700 : 500,
-                      cursor: 'pointer',
-                      transition: 'var(--transition-fast)'
-                    }}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
           {user ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -6959,7 +7097,7 @@ export default function App() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              background: 'var(--sidebar-bg)',
+              background: 'var(--header-bg, var(--card-bg))',
               borderBottom: '1px solid var(--border-color)',
               height: '64px',
               zIndex: 5,
@@ -6990,35 +7128,8 @@ export default function App() {
                   {sidebarOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
                 </button>
 
-                <div
-                  onClick={() => {
-                    if (!isUserSubscribed) {
-                      setActiveTab('subscriptions');
-                    } else {
-                      setActiveTab('chat');
-                    }
-                    if (isMobile) setSidebarOpen(false);
-                  }}
-                  title="EGS AI - المساعد الذكي الرسمي"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    cursor: 'pointer',
-                    padding: '4px 12px',
-                    borderRadius: 'var(--radius-full)',
-                    transition: 'var(--transition)',
-                    background: 'var(--primary-light)',
-                    border: '1px solid var(--border-primary)'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--primary-glow)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'var(--primary-light)'}
-                >
-                  <span style={{ fontWeight: 800, fontSize: isMobile ? '0.85rem' : '0.95rem', color: 'var(--text-main)' }}>EGS AI</span>
-                </div>
-
                 {!isMobile && chatSubject && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--alpha-white-4)', border: '1px solid var(--border-color)', padding: '4px 12px', borderRadius: 'var(--radius-full)', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  <div className="header-subject-chip">
                     {getSubjectIcon(chatSubject)}
                     <span>{chatSubject}</span>
                   </div>
@@ -7037,13 +7148,13 @@ export default function App() {
                       display: 'flex', 
                       alignItems: 'center', 
                       gap: '4px', 
-                      background: 'rgba(229, 169, 60, 0.12)', 
+                      background: 'var(--primary-light)', 
                       padding: isMobile ? '4px 8px' : '4px 12px', 
                       borderRadius: 'var(--radius-full)', 
                       fontSize: isMobile ? '0.72rem' : '0.8rem', 
                       fontWeight: 800, 
-                      color: 'var(--secondary-color)', 
-                      border: '1px solid rgba(229, 169, 60, 0.25)', 
+                      color: 'var(--primary-color)', 
+                      border: '1px solid var(--border-primary)', 
                       position: 'relative',
                       cursor: 'pointer',
                       transition: 'all 0.2s ease'
@@ -7057,38 +7168,28 @@ export default function App() {
                     )}
                   </div>
                 )}
-                <div 
-                  onClick={() => {
-                    if (isUserSubscribed) {
-                      setActiveTab('profile');
-                      if (isMobile) setSidebarOpen(false);
-                    } else {
-                      if (isMobile) {
-                        setShowUpgradeSheet(true);
+                {user && (
+                  <div 
+                    onClick={() => {
+                      if (isUserSubscribed) {
+                        setActiveTab('profile');
+                        if (isMobile) setSidebarOpen(false);
                       } else {
-                        setActiveTab('subscriptions');
+                        if (isMobile) {
+                          setShowUpgradeSheet(true);
+                        } else {
+                          setActiveTab('subscriptions');
+                        }
                       }
-                    }
-                  }}
-                  style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '4px', 
-                    background: coins <= 5 && !isUserSubscribed ? 'rgba(193, 39, 45, 0.15)' : 'var(--alpha-white-4)', 
-                    border: coins <= 5 && !isUserSubscribed ? '1px solid var(--danger-color)' : '1px solid var(--border-color)',
-                    padding: isMobile ? '4px 8px' : '4px 12px', 
-                    borderRadius: 'var(--radius-full)', 
-                fontSize: isMobile ? '0.72rem' : '0.8rem', 
-                    fontWeight: 700, 
-                    color: coins <= 5 && !isUserSubscribed ? 'var(--danger-color)' : 'var(--primary-color)',
-                    cursor: 'pointer'
-                  }}
-                  title={isUserSubscribed ? "رصيد النقاط اليومية المتاح — يتجدد تلقائياً كل 24 ساعة" : "رصيد العملات المتاح — اضغط للترقية وشحن الرصيد"}
-                >
-                  <Coins size={13} />
-                  <span>{coins.toFixed(isMobile ? 1 : 2)} {isMobile ? 'عملة' : 'عملة'}</span>
-                  {coins <= 5 && !isUserSubscribed && <Plus size={11} />}
-                </div>
+                    }}
+                    className={`header-coins-chip ${coins <= 5 && !isUserSubscribed ? 'low-coins' : ''}`}
+                    title={isUserSubscribed ? "رصيد النقاط اليومية المتاح — يتجدد تلقائياً كل 24 ساعة" : "رصيد العملات المتاح — اضغط للترقية وشحن الرصيد"}
+                  >
+                    <Coins size={13} />
+                    <span>{coins.toFixed(isMobile ? 1 : 2)} {isMobile ? 'عملة' : 'عملة'}</span>
+                    {coins <= 5 && !isUserSubscribed && <Plus size={11} />}
+                  </div>
+                )}
                 <div style={{ position: 'relative' }}>
                   <button
                     onClick={() => setShowNotifCenter(prev => !prev)}
@@ -7161,23 +7262,31 @@ export default function App() {
                     </div>
                   )}
                 </div>
+                {/* Theme Switcher Button on Main Interface */}
+                <button
+                  onClick={toggleTheme}
+                  style={{
+                    background: 'var(--alpha-white-4)',
+                    color: 'var(--text-secondary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '50%',
+                    width: isMobile ? '32px' : '34px',
+                    height: isMobile ? '32px' : '34px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    transition: 'var(--transition-fast)'
+                  }}
+                  title={resolvedTheme === 'light' ? "تفعيل الوضع المظلم" : "تفعيل الوضع المضيء"}
+                  aria-label="تبديل مظهر المنصة"
+                >
+                  {resolvedTheme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
+                </button>
                 {!isMobile && !isUserSubscribed && (
                   <button
                     onClick={() => setActiveTab('subscriptions')}
-                    className="pulse-primary"
-                    style={{
-                      background: 'var(--primary-light)',
-                      color: 'var(--primary-color)',
-                      border: '1px solid var(--border-primary)',
-                      borderRadius: '20px',
-                      padding: '6px 14px',
-                      fontSize: '0.85rem',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}
+                    className="header-sub-btn"
                   >
                     <CreditCard size={13} />
                     <span>الاشتراكات</span>
@@ -7210,18 +7319,10 @@ export default function App() {
                       setAuthTab('login');
                       setShowAuthModal(true);
                     }}
-                    style={{
-                      background: 'transparent',
-                      border: '1px solid var(--border-color)',
-                      color: 'var(--text-main)',
-                      borderRadius: '16px',
-                      padding: isMobile ? '5px 10px' : '6px 14px',
-                      fontSize: isMobile ? '0.78rem' : '0.85rem',
-                      fontWeight: 600,
-                      cursor: 'pointer'
-                    }}
+                    className="header-login-btn"
                   >
-                    تسجيل الدخول
+                    <LogIn size={14} />
+                    <span>تسجيل الدخول</span>
                   </button>
                 )}
               </div>
@@ -7255,28 +7356,16 @@ export default function App() {
                   }}>
                     <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: isMobile ? '3px' : '6px' }}>
                       {/* Brand Icon */}
-                      <div style={{ position: 'relative', display: 'inline-block', marginBottom: isMobile ? '2px' : '4px' }}>
-                        <div style={{
-                          position: 'absolute',
-                          inset: isMobile ? '-4px' : '-6px',
-                          borderRadius: '50%',
-                          border: '1.5px solid var(--border-primary)',
-                          animation: 'pulse-ring 2.5s ease-out infinite',
-                        }} />
-                        <div style={{
-                          background: 'var(--primary-light)',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: isMobile ? '38px' : '64px',
-                          height: isMobile ? '38px' : '64px',
-                          borderRadius: isMobile ? '12px' : '20px',
-                          fontSize: '2rem',
-                          border: '1.5px solid var(--border-primary)',
-                          boxShadow: 'var(--shadow-glow)',
-                          overflow: 'hidden',
-                        }}>
-                          <img src="/logo.png" alt="EGS AI Logo" style={{ width: '82%', height: '82%', objectFit: 'contain' }} />
+                      <div style={{ position: 'relative', display: 'inline-block', marginBottom: isMobile ? '4px' : '8px' }}>
+                        <div 
+                          className="brand-logo-frame"
+                          style={{
+                            width: isMobile ? '54px' : '82px',
+                            height: isMobile ? '54px' : '82px',
+                            borderRadius: isMobile ? '16px' : '24px'
+                          }}
+                        >
+                          <img src="/logo.png" alt="EGS AI Logo" style={{ width: '88%', height: '88%', objectFit: 'contain' }} />
                         </div>
                       </div>
                       
@@ -7293,50 +7382,6 @@ export default function App() {
 
                     {/* Mobile PWA Install Banner */}
                     {renderMobileInstallBanner()}
-
-                    {/* Quick Competition Access Banner */}
-                    {user && (
-                      <div 
-                        className="competition-home-banner animate-scale-in"
-                        onClick={() => {
-                          setActiveTab('leaderboard');
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <div style={{
-                            width: isMobile ? '34px' : '38px',
-                            height: isMobile ? '34px' : '38px',
-                            borderRadius: '10px',
-                            background: 'rgba(229, 169, 60, 0.15)',
-                            border: '1px solid rgba(229, 169, 60, 0.3)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: 'var(--secondary-color)',
-                            flexShrink: 0
-                          }}>
-                            <Trophy size={isMobile ? 18 : 20} />
-                          </div>
-                          <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span style={{ fontSize: isMobile ? '0.82rem' : '0.9rem', fontWeight: 800, color: 'var(--text-main)' }}>
-                                مسابقة أوائل الطلاب
-                              </span>
-                              <span style={{ fontSize: '0.62rem', background: 'rgba(229, 169, 60, 0.2)', color: 'var(--secondary-color)', padding: '1px 6px', borderRadius: '4px', fontWeight: 800 }}>
-                                المتصدرين
-                              </span>
-                            </div>
-                            <p style={{ margin: '2px 0 0', fontSize: isMobile ? '0.7rem' : '0.76rem', color: 'var(--text-muted)' }}>
-                              رصيدك: <strong style={{ color: 'var(--secondary-color)' }}>{points} نقطة</strong> — {userLeaderboardRank?.rank_number ? `ترتيبك الحالي #${userLeaderboardRank.rank_number}` : 'اضغط لعرض قائمة المتصدرين والمنافسة'}
-                            </p>
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '2px', color: 'var(--primary-color)', fontSize: isMobile ? '0.74rem' : '0.8rem', fontWeight: 800 }}>
-                          <span>عرض الترتيب</span>
-                          <ChevronLeft size={16} />
-                        </div>
-                      </div>
-                    )}
 
                     {/* Quick Registration & Login CTA Banner for Unregistered Students */}
                     {!user && (
@@ -7389,7 +7434,7 @@ export default function App() {
                               alignItems: 'center',
                               justifyContent: 'center',
                               gap: '6px',
-                              boxShadow: '0 2px 10px rgba(193, 39, 45, 0.3)'
+                              boxShadow: 'var(--shadow-glow)'
                             }}
                           >
                             <Sparkles size={15} />
@@ -7721,7 +7766,7 @@ export default function App() {
                       <ShieldCheck size={16} />
                       <span>اشتراكك سارٍ ونشط</span>
                     </div>
-                    <h2 style={{ fontSize: isMobile ? '1.5rem' : '1.9rem', fontWeight: 900, color: 'var(--primary-color)' }}>
+                    <h2 style={{ fontSize: isMobile ? '1.5rem' : '1.9rem', fontWeight: 900, color: 'var(--text-main)' }}>
                       تفاصيل اشتراكك الحالي
                     </h2>
                     <p style={{ color: 'var(--text-muted)', marginTop: '8px', fontSize: '0.92rem', lineHeight: '1.7', maxWidth: '640px', margin: '8px auto 0' }}>
@@ -7878,8 +7923,8 @@ export default function App() {
                     </div>
 
                     {/* Notice */}
-                    <div style={{ background: 'rgba(229, 169, 60, 0.08)', border: '1px solid rgba(229, 169, 60, 0.25)', borderRadius: '12px', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' }}>
-                      <AlertCircle size={18} color="var(--secondary-color)" style={{ flexShrink: 0 }} />
+                    <div style={{ background: 'var(--primary-light)', border: '1px solid var(--border-primary)', borderRadius: '12px', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' }}>
+                      <AlertCircle size={18} color="var(--primary-color)" style={{ flexShrink: 0 }} />
                       <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
                         لا يمكن الاشتراك في باقة إضافية أو إعادة التوجيه للدفع أثناء سريان اشتراكك الحالي. سيتاح لك الاشتراك وتجديد باقتك فور انتهاء المدة الحالية في {user?.subscription_end_date ? new Date(user.subscription_end_date).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' }) : 'نهاية الفترة'}.
                       </span>
@@ -7914,7 +7959,7 @@ export default function App() {
                   {/* Title & Header */}
                   <div style={{ textAlign: 'center' }}>
                     {user?.subscription_status === 'expired' && (
-                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(193, 39, 45, 0.1)', color: 'var(--danger-color)', padding: '8px 18px', borderRadius: 'var(--radius-full)', fontSize: '0.88rem', fontWeight: 800, marginBottom: '16px', border: '1px solid rgba(193, 39, 45, 0.25)' }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'var(--danger-bg)', color: 'var(--danger-color)', padding: '8px 18px', borderRadius: 'var(--radius-full)', fontSize: '0.88rem', fontWeight: 800, marginBottom: '16px', border: '1px solid rgba(248, 113, 113, 0.25)' }}>
                         <AlertCircle size={16} />
                         <span>انتهت فترة اشتراكك السابقة. تم إيقاف التجديد اليومي التلقائي لمنع تجاوز المدة.</span>
                       </div>
@@ -7923,7 +7968,7 @@ export default function App() {
                       <CreditCard size={15} />
                       <span>الاشتراكات والأسعار الرسمية</span>
                     </div>
-                    <h2 style={{ fontSize: isMobile ? '1.5rem' : '1.9rem', fontWeight: 900, color: 'var(--primary-color)' }}>
+                    <h2 style={{ fontSize: isMobile ? '1.5rem' : '1.9rem', fontWeight: 900, color: 'var(--text-main)' }}>
                       {user?.subscription_status === 'expired' ? 'جدّد اشتراكك لمواصلة التفوق' : 'اختر باقة الاشتراك المناسبة لك'}
                     </h2>
                     <p style={{ color: 'var(--text-muted)', marginTop: '8px', fontSize: '0.92rem', lineHeight: '1.7', maxWidth: '640px', margin: '8px auto 0' }}>
@@ -8237,7 +8282,7 @@ export default function App() {
             <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '30px' }} className="animate-scale-in">
               
               <div>
-                <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-color)' }}>لوحة تحكم المسؤول</h2>
+                <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--text-main)' }}>لوحة تحكم المسؤول</h2>
                 <p style={{ color: 'var(--text-muted)', marginTop: '4px' }}>إدارة كاملة للمنصة: المناهج، المستخدمون، الإشعارات، البلاغات، وإصدارات التطبيق.</p>
               </div>
 
@@ -8374,7 +8419,7 @@ export default function App() {
               {/* Baccalaureate Tracks Activation */}
               <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary-color)' }}>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>
                     إدارة وتفعيل مسارات السنة الثانية بكالوريا
                   </h3>
                   {savingTracks && (
@@ -8549,7 +8594,7 @@ export default function App() {
                     )}
 
                     {uploadMode === 'placeholder' && (
-                      <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(229, 169, 60, 0.1)', border: '1px solid rgba(229, 169, 60, 0.3)', fontSize: '0.8rem', color: 'var(--accent-gold, #E5A93C)', lineHeight: '1.6' }}>
+                      <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'var(--primary-light)', border: '1px solid var(--border-primary)', fontSize: '0.8rem', color: 'var(--primary-color)', lineHeight: '1.6' }}>
                         سيتم إضافة المادة إلى قائمة المواد للطلاب مع إشعار "قريباً / قيد الإعداد". لن يتمكن الطلاب من إرسال أسئلة حولها حتى تقوم برفع ملف المنهج لاحقاً.
                       </div>
                     )}
@@ -8695,7 +8740,7 @@ export default function App() {
                               </td>
                               <td style={{ padding: '12px 8px', direction: 'ltr', textAlign: 'right' }}>
                                 {isPlaceholder ? (
-                                  <span style={{ background: 'rgba(229, 169, 60, 0.15)', color: 'var(--accent-gold, #E5A93C)', border: '1px solid rgba(229, 169, 60, 0.3)', padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, direction: 'rtl', display: 'inline-block' }}>
+                                  <span style={{ background: 'var(--primary-light)', color: 'var(--primary-color)', border: '1px solid var(--border-primary)', padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, direction: 'rtl', display: 'inline-block' }}>
                                     قيد التجهيز (بدون ملف)
                                   </span>
                                 ) : (
@@ -8961,10 +9006,10 @@ export default function App() {
                                     borderRadius: 'var(--radius-full)',
                                     fontSize: '0.74rem',
                                     fontWeight: 800,
-                                    background: report.status === 'pending' ? 'rgba(229, 169, 60, 0.15)' : report.status === 'action_taken' ? 'rgba(30, 112, 186, 0.15)' : report.status === 'reviewed' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(248, 113, 113, 0.15)',
-                                    color: report.status === 'pending' ? 'var(--accent-gold, #E5A93C)' : report.status === 'action_taken' ? 'var(--primary-color)' : report.status === 'reviewed' ? '#22C55E' : '#F87171',
+                                    background: report.status === 'pending' ? 'var(--primary-light)' : report.status === 'action_taken' ? 'var(--info-light)' : report.status === 'reviewed' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(248, 113, 113, 0.15)',
+                                    color: report.status === 'pending' ? 'var(--primary-color)' : report.status === 'action_taken' ? 'var(--info-color)' : report.status === 'reviewed' ? '#22C55E' : '#F87171',
                                     border: '1px solid',
-                                    borderColor: report.status === 'pending' ? 'rgba(229, 169, 60, 0.3)' : report.status === 'action_taken' ? 'rgba(30, 112, 186, 0.3)' : report.status === 'reviewed' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(248, 113, 113, 0.3)',
+                                    borderColor: report.status === 'pending' ? 'var(--border-primary)' : report.status === 'action_taken' ? 'var(--info-color)' : report.status === 'reviewed' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(248, 113, 113, 0.3)',
                                   }}>
                                     {report.status === 'pending' ? 'قيد المراجعة' : report.status === 'action_taken' ? 'تم اتخاذ إجراء' : report.status === 'reviewed' ? 'تمت المراجعة' : 'مرفوضة'}
                                   </span>
@@ -9250,7 +9295,7 @@ export default function App() {
 
                                   <div style={{ padding: '10px', borderRadius: 'var(--radius-sm)', background: 'var(--sidebar-bg)', border: '1px solid var(--border-color)' }}>
                                     <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'block' }}>نقاط الترتيب (Merit)</span>
-                                    <span style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--accent-gold, #E5A93C)' }}>
+                                    <span style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--primary-color)' }}>
                                       {selectedCsStudent.points || 0}
                                     </span>
                                   </div>
@@ -9293,7 +9338,7 @@ export default function App() {
                               <div className="glass" style={{ padding: '20px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                                   <CreditCard size={18} style={{ color: 'var(--primary-color)' }} />
-                                  <h4 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--primary-color)' }}>
+                                  <h4 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
                                     الإجراء الأول: إلغاء باقة الاشتراك (شهر / شهرين / 3 أشهر)
                                   </h4>
                                 </div>
@@ -9349,17 +9394,17 @@ export default function App() {
                                   <div style={{
                                     padding: '12px 14px',
                                     borderRadius: 'var(--radius-sm)',
-                                    background: 'rgba(229, 169, 60, 0.1)',
-                                    border: '1px solid rgba(229, 169, 60, 0.25)',
+                                    background: 'var(--primary-light)',
+                                    border: '1px solid var(--border-primary)',
                                     color: 'var(--text-secondary)',
                                     fontSize: '0.82rem',
                                     display: 'flex',
                                     alignItems: 'flex-start',
                                     gap: '8px'
                                   }}>
-                                    <AlertTriangle size={16} style={{ color: 'var(--accent-gold, #E5A93C)', flexShrink: 0, marginTop: '2px' }} />
+                                    <AlertTriangle size={16} style={{ color: 'var(--primary-color)', flexShrink: 0, marginTop: '2px' }} />
                                     <div>
-                                      <strong style={{ color: 'var(--accent-gold, #E5A93C)' }}>غير مؤهل للإلغاء: </strong>
+                                      <strong style={{ color: 'var(--primary-color)' }}>غير مؤهل للإلغاء: </strong>
                                       <span>{selectedCsStudent.cancellation_metrics?.ineligibility_reason || 'الطالب لا يملك اشتراكاً قابلاً للإلغاء.'}</span>
                                     </div>
                                   </div>
@@ -9370,7 +9415,7 @@ export default function App() {
                               <div className="glass" style={{ padding: '20px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                                   <RotateCcw size={18} style={{ color: 'var(--primary-color)' }} />
-                                  <h4 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--primary-color)' }}>
+                                  <h4 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
                                     الإجراء الثاني: إعادة احتساب / إضافة النقاط
                                   </h4>
                                 </div>
@@ -9605,10 +9650,10 @@ export default function App() {
                                     borderRadius: 'var(--radius-full)',
                                     fontSize: '0.74rem',
                                     fontWeight: 800,
-                                    background: msg.status === 'pending' ? 'rgba(229, 169, 60, 0.15)' : msg.status === 'replied' ? 'rgba(30, 112, 186, 0.15)' : msg.status === 'resolved' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(248, 113, 113, 0.15)',
-                                    color: msg.status === 'pending' ? 'var(--accent-gold, #E5A93C)' : msg.status === 'replied' ? 'var(--primary-color)' : msg.status === 'resolved' ? '#22C55E' : '#F87171',
+                                    background: msg.status === 'pending' ? 'var(--primary-light)' : msg.status === 'replied' ? 'var(--info-light)' : msg.status === 'resolved' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(248, 113, 113, 0.15)',
+                                    color: msg.status === 'pending' ? 'var(--primary-color)' : msg.status === 'replied' ? 'var(--info-color)' : msg.status === 'resolved' ? '#22C55E' : '#F87171',
                                     border: '1px solid',
-                                    borderColor: msg.status === 'pending' ? 'rgba(229, 169, 60, 0.3)' : msg.status === 'replied' ? 'rgba(30, 112, 186, 0.3)' : msg.status === 'resolved' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(248, 113, 113, 0.3)',
+                                    borderColor: msg.status === 'pending' ? 'var(--border-primary)' : msg.status === 'replied' ? 'var(--info-color)' : msg.status === 'resolved' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(248, 113, 113, 0.3)',
                                   }}>
                                     {msg.status === 'pending' ? 'قيد الانتظار' : msg.status === 'replied' ? 'تم الرد والتواصل' : msg.status === 'resolved' ? 'تم الحل' : 'مرفوضة'}
                                   </span>
@@ -9924,9 +9969,14 @@ export default function App() {
                           <div key={n.id} style={{ padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: n.active ? 'var(--alpha-white-2)' : 'transparent', opacity: n.active ? 1 : 0.5 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
                               <div style={{ flex: 1 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                   <span style={{ fontWeight: 700 }}>{n.title}</span>
                                   <span className="plan-badge plan-badge-free" style={{ fontSize: '0.65rem' }}>{n.target === 'both' ? 'الموقع والتطبيق' : n.target === 'web' ? 'الموقع' : 'التطبيق'}</span>
+                                  {n.user_id ? (
+                                    <span className="plan-badge plan-badge-pro" style={{ fontSize: '0.65rem' }}>إشعار لمستخدم محدد</span>
+                                  ) : (
+                                    <span className="plan-badge" style={{ fontSize: '0.65rem', background: 'var(--alpha-white-3)' }}>إشعار عام للكل</span>
+                                  )}
                                 </div>
                                 <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '4px' }}>{n.body}</p>
                               </div>
@@ -9951,7 +10001,7 @@ export default function App() {
               {adminSection === 'reports' && (
                 <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
-                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary-color)' }}>بلاغات الطلاب عن ردود الذكاء الاصطناعي</h3>
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>بلاغات الطلاب عن ردود الذكاء الاصطناعي</h3>
                     <select value={reportsStatusFilter} onChange={(e) => setReportsStatusFilter(e.target.value as any)} style={{ padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--sidebar-bg)', color: 'var(--text-main)' }}>
                       <option value="pending">قيد المراجعة</option>
                       <option value="reviewed">تمت المراجعة</option>
@@ -10083,7 +10133,7 @@ export default function App() {
             <div style={{ maxWidth: '600px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '30px' }} className="animate-scale-in">
               
               <div>
-                <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-color)' }}>الملف الشخصي للطالب</h2>
+                <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--text-main)' }}>الملف الشخصي للطالب</h2>
                 <p style={{ color: 'var(--text-muted)', marginTop: '4px' }}>تعديل بياناتك الشخصية وتغيير كلمة المرور وإدارة باقة اشتراكك التعليمي.</p>
               </div>
 
@@ -10105,7 +10155,7 @@ export default function App() {
 
               {/* Profile Card details */}
               <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '20px', color: 'var(--text-main)' }}>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary-color)' }}>البيانات الأساسية</h3>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>البيانات الأساسية</h3>
                 
                 <form onSubmit={handleUpdateProfileName} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -10246,7 +10296,7 @@ export default function App() {
 
               {/* Password update flow */}
               <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '16px', color: 'var(--text-main)' }}>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary-color)' }}>تحديث كلمة المرور</h3>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>تحديث كلمة المرور</h3>
                 
                 {!profileOtpStep ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -10581,8 +10631,8 @@ export default function App() {
               </div>
 
               {/* Account Deletion & Danger Zone */}
-              <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid rgba(193, 39, 45, 0.3)', display: 'flex', flexDirection: 'column', gap: '12px', color: 'var(--text-main)' }}>
-                <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#C1272D', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+              <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-md)', background: 'var(--card-bg)', border: '1px solid var(--border-primary)', display: 'flex', flexDirection: 'column', gap: '12px', color: 'var(--text-main)' }}>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--primary-color)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
                   <Trash2 size={16} />
                   <span>منطقة الأمان وحذف الحساب</span>
                 </h3>
@@ -10595,9 +10645,9 @@ export default function App() {
                     alignSelf: 'flex-start',
                     marginTop: '4px',
                     padding: '10px 18px',
-                    background: 'rgba(193, 39, 45, 0.1)',
-                    color: '#C1272D',
-                    border: '1px solid rgba(193, 39, 45, 0.3)',
+                    background: 'var(--primary-light)',
+                    color: 'var(--primary-color)',
+                    border: '1px solid var(--border-primary)',
                     borderRadius: 'var(--radius-sm)',
                     fontWeight: 700,
                     fontSize: '0.86rem',
@@ -10749,7 +10799,7 @@ export default function App() {
               {/* Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '20px' }}>
                 <div>
-                  <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-color)' }}>الامتحانات والاختبارات التقييمية</h2>
+                  <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--text-main)' }}>الامتحانات والاختبارات التقييمية</h2>
                   <p style={{ color: 'var(--text-muted)', marginTop: '4px', fontSize: '0.92rem' }}>
                     قسم التقييم الذكي القائم على الذكاء الاصطناعي لقياس فهمك للمنهج الدراسي وتصحيح أخطائك.
                   </p>
@@ -10855,7 +10905,7 @@ export default function App() {
                       {/* Points / Rewards celebration pill */}
                       {Boolean(examResult.points_awarded && examResult.points_awarded > 0) && (
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(229, 169, 60, 0.15)', color: 'var(--secondary-color)', border: '1px solid rgba(229, 169, 60, 0.3)', padding: '6px 14px', borderRadius: 'var(--radius-full)', fontWeight: 800, fontSize: '0.85rem' }}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'var(--primary-light)', color: 'var(--primary-color)', border: '1px solid var(--border-primary)', padding: '6px 14px', borderRadius: 'var(--radius-full)', fontWeight: 800, fontSize: '0.85rem' }}>
                             <Trophy size={16} />
                             <span>+{examResult.points_awarded} نقاط الترتيب</span>
                           </div>
@@ -11498,8 +11548,8 @@ export default function App() {
                             const isRevealed = !!revealedAnswers[card.id];
                             const boxVal = card.box || 1;
                             const boxLabel = boxVal === 1 ? 'مبتدئ' : boxVal === 2 ? 'متوسط' : boxVal >= 5 ? 'متقن' : 'متقدم';
-                            const boxBg = boxVal === 1 ? 'rgba(229, 169, 60, 0.15)' : boxVal === 2 ? 'rgba(30, 112, 186, 0.15)' : 'var(--primary-light)';
-                            const boxColor = boxVal === 1 ? 'var(--secondary-color)' : boxVal === 2 ? 'var(--info-color)' : 'var(--primary-color)';
+                            const boxBg = boxVal === 1 ? 'var(--primary-light)' : boxVal === 2 ? 'var(--info-light)' : 'rgba(114, 9, 183, 0.15)';
+                            const boxColor = boxVal === 1 ? 'var(--primary-color)' : boxVal === 2 ? 'var(--info-color)' : 'var(--secondary-color)';
 
                             return (
                               <div key={card.id} className="flashcard-card-item">
@@ -11869,7 +11919,7 @@ export default function App() {
                       return Object.values(subjectGroups).map(group => (
                         <div key={group.subject_name} className="glass" style={{ padding: '20px', borderRadius: '16px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '16px', background: 'var(--card-bg)' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <h3 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, color: 'var(--primary-color)' }}>{group.subject_name}</h3>
+                            <h3 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, color: 'var(--text-main)' }}>{group.subject_name}</h3>
                             <span style={{ fontSize: '0.75rem', background: 'var(--primary-light)', color: 'var(--primary-color)', padding: '2px 8px', borderRadius: '6px', fontWeight: 800 }}>
                               {group.total_count} كارت
                             </span>
@@ -11909,7 +11959,7 @@ export default function App() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '14px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Brain size={22} style={{ color: 'var(--primary-color)' }} />
-                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: 'var(--primary-color)' }}>إنشاء كروت تعليمية ذكية</h3>
+                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: 'var(--text-main)' }}>إنشاء كروت تعليمية ذكية</h3>
                 </div>
                 <button onClick={() => setShowFlashcardCreateModal(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '6px', borderRadius: '8px' }}>
                   <X size={18} />
@@ -12113,7 +12163,7 @@ export default function App() {
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
             <div className="glass" style={{ maxWidth: '480px', width: '100%', borderRadius: '20px', padding: '24px', background: 'var(--card-bg)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: 'var(--primary-color)' }}>تعديل الكارت</h3>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: 'var(--text-main)' }}>تعديل الكارت</h3>
                 <button onClick={() => setEditingCard(null)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
               </div>
 
@@ -12416,7 +12466,7 @@ export default function App() {
                                 </div>
                               </div>
 
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(229, 169, 60, 0.12)', padding: '4px 10px', borderRadius: 'var(--radius-full)', border: '1px solid rgba(229, 169, 60, 0.25)', color: 'var(--secondary-color)', fontWeight: 900, fontSize: '0.82rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--primary-light)', padding: '4px 10px', borderRadius: 'var(--radius-full)', border: '1px solid var(--border-primary)', color: 'var(--primary-color)', fontWeight: 900, fontSize: '0.82rem' }}>
                                 <Trophy size={13} />
                                 <span>{row.points || 0}</span>
                               </div>
@@ -12803,6 +12853,54 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL: Account Deleted / Session Terminated Alert */}
+      {accountDeletedModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(12px)', zIndex: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '440px', borderRadius: 'var(--radius-lg)', padding: '28px 24px', boxShadow: 'var(--shadow-xl)', border: '1px solid rgba(230, 57, 70, 0.4)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+            <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'rgba(230, 57, 70, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#E63946' }}>
+              <UserX size={28} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>تم تسجيل الخروج من الحساب</h3>
+              <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: '1.6' }}>
+                {accountDeletedMessage || 'لم يعد هذا الحساب متوفراً أو تم حذفه من قاعدة البيانات. تم تسجيل الخروج تلقائياً وتطهير بيانات الجلسة من جهازك.'}
+              </p>
+            </div>
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
+              <button
+                onClick={() => {
+                  setAccountDeletedModal(false);
+                  setAuthTab('register');
+                  setShowAuthModal(true);
+                }}
+                className="btn-primary"
+                style={{ width: '100%', padding: '12px' }}
+              >
+                <span>إنشاء حساب جديد</span>
+              </button>
+              <button
+                onClick={() => {
+                  setAccountDeletedModal(false);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  background: 'transparent',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--text-secondary)',
+                  fontWeight: 600,
+                  fontSize: '0.88rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <span>المتابعة كزائر</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: Direct Mobile PWA Installation Guide */}
       {showIosInstallModal && (
         <div 
@@ -12936,8 +13034,8 @@ export default function App() {
             
             {/* Modal Brand Header */}
             <div style={{ padding: '22px 24px 0', textAlign: 'center' }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '46px', height: '46px', borderRadius: '14px', background: 'var(--primary-light)', border: '1px solid var(--border-primary)', overflow: 'hidden' }}>
-                <img src="/logo.png" alt="EGS AI Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              <div className="brand-logo-frame" style={{ width: '54px', height: '54px', borderRadius: '16px', marginBottom: '4px' }}>
+                <img src="/logo.png" alt="EGS AI Logo" style={{ width: '90%', height: '90%', objectFit: 'contain' }} />
               </div>
               <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-main)' }}>EGS AI</h2>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px', marginBottom: '16px' }}>مساعدك الذكي في المنهج الدراسي</p>
@@ -13114,8 +13212,8 @@ export default function App() {
               ) : (
                 /* OTP Verification Step */
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'center' }}>
-                  <div style={{ background: 'var(--primary-light)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '52px', height: '52px', borderRadius: '14px', margin: '0 auto', border: '1px solid var(--border-primary)' }}>
-                    <Lock size={24} style={{ color: 'var(--primary-color)' }} />
+                  <div style={{ background: 'rgba(0, 180, 216, 0.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '52px', height: '52px', borderRadius: '14px', margin: '0 auto', border: '1px solid #00B4D8' }}>
+                    <Lock size={24} style={{ color: '#00B4D8' }} />
                   </div>
                   <div>
                     <h4 style={{ fontWeight: 800, fontSize: '1.05rem' }}>أدخل رمز التحقق (OTP)</h4>
@@ -13167,8 +13265,8 @@ export default function App() {
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px' }}>
           <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', padding: '24px', margin: isMobile ? '20px auto' : '40px auto', flexShrink: 0 }}>
             <div style={{ textAlign: 'center', marginBottom: '18px' }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '46px', height: '46px', borderRadius: '14px', background: 'var(--primary-light)', border: '1px solid var(--border-primary)', marginBottom: '10px' }}>
-                <BookOpen size={24} style={{ color: 'var(--primary-color)' }} />
+              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '46px', height: '46px', borderRadius: '14px', background: 'rgba(0, 180, 216, 0.12)', border: '1px solid #00B4D8', marginBottom: '10px' }}>
+                <BookOpen size={24} style={{ color: '#00B4D8' }} />
               </div>
               <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-main)' }}>اختر سنتك الدراسية</h2>
               <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>مرحباً بك {googleTempUser.name}! يرجى اختيار السنة الدراسية لإتمام إعداد حسابك.</p>
@@ -13787,13 +13885,13 @@ export default function App() {
       {/* MODAL: Placeholder Curriculum Notice for Students */}
       {placeholderModalCurriculum && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 1100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', direction: 'rtl' }}>
-          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '460px', borderRadius: 'var(--radius-lg)', padding: '30px 24px', boxShadow: 'var(--shadow-xl)', border: '1px solid rgba(229, 169, 60, 0.4)', color: 'var(--text-main)', textAlign: 'center', position: 'relative' }}>
+          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '460px', borderRadius: 'var(--radius-lg)', padding: '30px 24px', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-primary)', color: 'var(--text-main)', textAlign: 'center', position: 'relative' }}>
             
-            <div style={{ width: '64px', height: '64px', borderRadius: 'var(--radius-full)', background: 'rgba(229, 169, 60, 0.15)', color: 'var(--accent-gold, #E5A93C)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', border: '1px solid rgba(229, 169, 60, 0.3)' }}>
+            <div style={{ width: '64px', height: '64px', borderRadius: 'var(--radius-full)', background: 'var(--primary-light)', color: 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', border: '1px solid var(--border-primary)' }}>
               <Clock size={32} />
             </div>
 
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(229, 169, 60, 0.15)', color: 'var(--accent-gold, #E5A93C)', padding: '4px 12px', borderRadius: 'var(--radius-full)', fontSize: '0.78rem', fontWeight: 800, marginBottom: '12px' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'var(--primary-light)', color: 'var(--primary-color)', padding: '4px 12px', borderRadius: 'var(--radius-full)', fontSize: '0.78rem', fontWeight: 800, marginBottom: '12px' }}>
               <span>قيد الإعداد والتجهيز</span>
             </div>
 

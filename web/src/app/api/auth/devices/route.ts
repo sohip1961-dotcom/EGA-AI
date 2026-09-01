@@ -13,7 +13,12 @@ export async function GET(req: NextRequest) {
     const token = authHeader.substring(7);
     const userId = verifySessionToken(token);
     if (!userId) {
-      return NextResponse.json({ error: 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً' }, { status: 401 });
+      return NextResponse.json({ error: 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً', code: 'session_expired' }, { status: 401 });
+    }
+
+    const profile = await db.getProfile(userId);
+    if (!profile) {
+      return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم أو تم حذفه.', code: 'user_not_found' }, { status: 401 });
     }
 
     const currentDeviceId = req.headers.get('x-device-id') || req.nextUrl.searchParams.get('device_id') || undefined;
@@ -54,7 +59,12 @@ export async function DELETE(req: NextRequest) {
     const token = authHeader.substring(7);
     const userId = verifySessionToken(token);
     if (!userId) {
-      return NextResponse.json({ error: 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً' }, { status: 401 });
+      return NextResponse.json({ error: 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً', code: 'session_expired' }, { status: 401 });
+    }
+
+    const profile = await db.getProfile(userId);
+    if (!profile) {
+      return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم أو تم حذفه.', code: 'user_not_found' }, { status: 401 });
     }
 
     const currentDeviceId = req.headers.get('x-device-id') || req.nextUrl.searchParams.get('current_device_id') || undefined;

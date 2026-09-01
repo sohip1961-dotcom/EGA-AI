@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
     const profile = await db.getProfile(userId);
     if (!profile) {
-      return NextResponse.json({ error: 'لم يتم العثور على حسابك' }, { status: 404 });
+      return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم أو تم حذفه.', code: 'user_not_found' }, { status: 401 });
     }
 
     const url = new URL(req.url);

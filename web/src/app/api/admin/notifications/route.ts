@@ -47,13 +47,14 @@ export async function POST(req: NextRequest) {
   if (authResult instanceof NextResponse) return authResult;
 
   try {
-    const { title, body, type, target } = await req.json();
+    const { title, body, type, target, user_id } = await req.json();
 
     if (!title || !body) {
       return NextResponse.json({ error: 'عنوان الإشعار ونصه مطلوبان' }, { status: 400 });
     }
 
     const notification = await db.createNotification({
+      user_id: user_id ? String(user_id).trim() : null,
       title: title.trim().slice(0, 200),
       body: body.trim().slice(0, 2000),
       type: VALID_TYPES.includes(type) ? type : 'info',

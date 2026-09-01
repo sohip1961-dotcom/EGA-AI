@@ -345,9 +345,10 @@ CREATE TABLE IF NOT EXISTS public.reports (
 CREATE INDEX IF NOT EXISTS reports_status_idx ON public.reports(status);
 CREATE INDEX IF NOT EXISTS reports_created_at_idx ON public.reports(created_at);
 
--- 15. Notifications Table (admin-authored, student-facing)
+-- 15. Notifications Table (admin-authored & system user-specific, student-facing)
 CREATE TABLE IF NOT EXISTS public.notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     body TEXT NOT NULL,
     type TEXT NOT NULL DEFAULT 'info', -- 'info' | 'success' | 'warning' | 'maintenance'
@@ -357,6 +358,7 @@ CREATE TABLE IF NOT EXISTS public.notifications (
 );
 
 CREATE INDEX IF NOT EXISTS notifications_active_idx ON public.notifications(active);
+CREATE INDEX IF NOT EXISTS notifications_user_id_idx ON public.notifications(user_id);
 
 -- 16. App Versions Table (mobile force-update management)
 CREATE TABLE IF NOT EXISTS public.app_versions (

@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
     const profile = await db.getProfile(userId);
     if (!profile) {
-      return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم' }, { status: 404 });
+      return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم أو تم حذفه.', code: 'user_not_found' }, { status: 401 });
     }
 
     const verifiedState = verifyUserCurrencyState(profile, DAILY_COIN_CAPS);

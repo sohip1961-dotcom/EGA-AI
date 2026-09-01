@@ -43,15 +43,21 @@ export async function GET(req: NextRequest) {
     
     const allCurriculums = await db.getCurriculums();
 
-    // Check for authenticated user to return current coins
+    // Check for authenticated user to return current coins and profile
     const authHeader = req.headers.get('Authorization');
     let profile = null;
+    let authAttempted = false;
+    let authValid = false;
     if (authHeader && authHeader.startsWith('Bearer ')) {
+      authAttempted = true;
       const token = authHeader.substring(7);
       try {
         const userId = verifySessionToken(token);
         if (userId) {
           profile = await db.getProfile(userId);
+          if (profile) {
+            authValid = true;
+          }
         }
       } catch (e) {}
     }
@@ -65,6 +71,8 @@ export async function GET(req: NextRequest) {
       guestCoins = guest && guest.coins !== undefined ? guest.coins : 5.0;
     }
     
+    const userNotFound = authAttempted && !authValid;
+
     return NextResponse.json({
       website_link: websiteLink || 'http://localhost:3000',
       active_grade_levels: activeGradeLevels,
@@ -73,6 +81,12 @@ export async function GET(req: NextRequest) {
       all_curriculums: allCurriculums,
       guest_messages_count: guestMessagesCount,
       guest_coins: guestCoins,
+      authenticated: authValid,
+      ...(userNotFound ? {
+        user: null,
+        user_not_found: true,
+        session_invalid: true
+      } : {}),
       ...(profile ? {
         user: {
           id: profile.id,

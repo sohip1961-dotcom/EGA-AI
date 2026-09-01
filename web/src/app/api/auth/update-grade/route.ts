@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     // Verify if user exists
     const profile = await db.getProfile(userId);
     if (!profile) {
-      return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم' }, { status: 404 });
+      return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم أو تم حذفه.', code: 'user_not_found' }, { status: 401 });
     }
 
     // Update profile grade level, track, and elective in DB

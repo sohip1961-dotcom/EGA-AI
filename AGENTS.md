@@ -14,4 +14,4 @@ Quick facts:
 - `web/` — Next.js 16 SPA (`src/app/page.tsx` holds the entire UI, `src/app/globals.css` the design system, `src/app/api/` all routes, `src/lib/db.ts` all DB access).
 - `mobile/` — Flutter app (`lib/main.dart` holds the entire app).
 - Backend: Supabase (schema in `web/supabase_schema.sql` + two migration files).
-- Language: Arabic-first, RTL, Egyptian curriculum tutoring. Brand colors: Deep Emerald Green `#059669` / `#0F766E` and Golden Yellow `#F59E0B` on `#09110E` / `#FAFAF9`.
+- Language: Arabic-first, RTL, Egyptian curriculum tutoring. Brand colors: Educational Tech Palette (Deep Tech Blue `#0D1B2A`, Medium Slate Blue `#1E2E3D`, Snow Gray `#F8F9FA`, Neon Amber `#FFB703`, Vivid Cyan `#00B4D8`, and Digital Violet `#7209B7`).

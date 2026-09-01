@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState } from 'react';
 import Link from 'next/link';
@@ -94,6 +94,9 @@ export default function DeleteAccountPage() {
           if (parsed.email && parsed.email.toLowerCase() === email.trim().toLowerCase()) {
             localStorage.removeItem('egs_token');
             localStorage.removeItem('egs_user');
+            localStorage.removeItem('egs_chat_sessions');
+            localStorage.removeItem('egs_active_exam_id');
+            localStorage.removeItem('egs_active_exam_time');
           }
         }
       } catch {
@@ -167,8 +170,8 @@ export default function DeleteAccountPage() {
               width: '42px', 
               height: '42px', 
               borderRadius: '12px', 
-              background: 'rgba(193, 39, 45, 0.15)', 
-              color: '#C1272D', 
+              background: 'var(--primary-light)', 
+              color: 'var(--primary-color)', 
               display: 'flex', 
               alignItems: 'center', 
               justifyContent: 'center' 
@@ -190,16 +193,16 @@ export default function DeleteAccountPage() {
           style={{ 
             padding: '20px', 
             borderRadius: 'var(--radius-lg)', 
-            background: 'rgba(193, 39, 45, 0.08)', 
-            border: '1.5px solid rgba(193, 39, 45, 0.3)', 
+            background: 'var(--danger-bg)', 
+            border: '1.5px solid rgba(248, 113, 113, 0.3)', 
             marginBottom: '28px',
             color: 'var(--text-main)'
           }}
         >
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-            <ShieldAlert size={26} style={{ color: '#C1272D', flexShrink: 0, marginTop: '2px' }} />
+            <ShieldAlert size={26} style={{ color: 'var(--danger-color)', flexShrink: 0, marginTop: '2px' }} />
             <div>
-              <h2 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#C1272D', margin: '0 0 8px 0' }}>
+              <h2 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--danger-color)', margin: '0 0 8px 0' }}>
                 تنبيه هام جداً: الحذف فوري ونهائي ولا يمكن التراجع عنه
               </h2>
               <ul style={{ margin: 0, paddingRight: '18px', fontSize: '0.88rem', lineHeight: '1.8', color: 'var(--text-main)' }}>
@@ -324,8 +327,8 @@ export default function DeleteAccountPage() {
                 padding: '14px',
                 borderRadius: 'var(--radius-sm)',
                 border: 'none',
-                background: '#C1272D',
-                color: '#FFFFFF',
+                background: 'var(--primary-color)',
+                color: 'var(--text-on-primary)',
                 fontWeight: 800,
                 fontSize: '1rem',
                 cursor: loading || !email.trim() ? 'not-allowed' : 'pointer',
@@ -408,7 +411,7 @@ export default function DeleteAccountPage() {
                     borderRadius: 'var(--radius-sm)',
                     border: '1px solid var(--border-color)',
                     background: 'var(--sidebar-bg)',
-                    color: '#C1272D',
+                    color: 'var(--primary-color)',
                     fontSize: '1.6rem',
                     fontWeight: 800,
                     letterSpacing: '8px',
@@ -433,8 +436,8 @@ export default function DeleteAccountPage() {
                   padding: '14px',
                   borderRadius: 'var(--radius-sm)',
                   border: 'none',
-                  background: '#C1272D',
-                  color: '#FFFFFF',
+                  background: 'var(--primary-color)',
+                  color: 'var(--text-on-primary)',
                   fontWeight: 800,
                   fontSize: '1rem',
                   cursor: loading || otp.length < 6 ? 'not-allowed' : 'pointer',

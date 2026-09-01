@@ -19,7 +19,15 @@ export async function GET(req: NextRequest) {
     // Website requires login, reject web guest requests
     if (!userId) {
       return NextResponse.json(
-        { error: 'login_required', message: 'تسجيل الدخول مطلوب لعرض المحادثات.' },
+        { error: 'login_required', code: 'login_required', message: 'تسجيل الدخول مطلوب لعرض المحادثات.' },
+        { status: 401 }
+      );
+    }
+
+    const profile = await db.getProfile(userId);
+    if (!profile) {
+      return NextResponse.json(
+        { error: 'user_not_found', code: 'user_not_found', message: 'لم يتم العثور على حساب المستخدم أو تم حذفه.' },
         { status: 401 }
       );
     }

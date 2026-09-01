@@ -18,7 +18,15 @@ export async function GET(req: NextRequest) {
     const userId = verifySessionToken(token);
     if (!userId) {
       return NextResponse.json(
-        { error: 'session_expired', message: 'جلسة العمل منتهية. يرجى تسجيل الدخول مجدداً.' },
+        { error: 'session_expired', code: 'session_expired', message: 'جلسة العمل منتهية. يرجى تسجيل الدخول مجدداً.' },
+        { status: 401 }
+      );
+    }
+
+    const profile = await db.getProfile(userId);
+    if (!profile) {
+      return NextResponse.json(
+        { error: 'user_not_found', code: 'user_not_found', message: 'لم يتم العثور على حساب المستخدم أو تم حذفه.' },
         { status: 401 }
       );
     }
@@ -53,7 +61,15 @@ export async function POST(req: NextRequest) {
     const userId = verifySessionToken(token);
     if (!userId) {
       return NextResponse.json(
-        { error: 'session_expired', message: 'جلسة العمل منتهية. يرجى تسجيل الدخول مجدداً.' },
+        { error: 'session_expired', code: 'session_expired', message: 'جلسة العمل منتهية. يرجى تسجيل الدخول مجدداً.' },
+        { status: 401 }
+      );
+    }
+
+    const profile = await db.getProfile(userId);
+    if (!profile) {
+      return NextResponse.json(
+        { error: 'user_not_found', code: 'user_not_found', message: 'لم يتم العثور على حساب المستخدم أو تم حذفه.' },
         { status: 401 }
       );
     }
@@ -103,7 +119,15 @@ export async function DELETE(req: NextRequest) {
     const userId = verifySessionToken(token);
     if (!userId) {
       return NextResponse.json(
-        { error: 'session_expired', message: 'جلسة العمل منتهية. يرجى تسجيل الدخول مجدداً.' },
+        { error: 'session_expired', code: 'session_expired', message: 'جلسة العمل منتهية. يرجى تسجيل الدخول مجدداً.' },
+        { status: 401 }
+      );
+    }
+
+    const profile = await db.getProfile(userId);
+    if (!profile) {
+      return NextResponse.json(
+        { error: 'user_not_found', code: 'user_not_found', message: 'لم يتم العثور على حساب المستخدم أو تم حذفه.' },
         { status: 401 }
       );
     }

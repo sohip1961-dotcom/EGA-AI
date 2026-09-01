@@ -171,8 +171,8 @@ export async function POST(req: NextRequest) {
     profile = await db.getProfile(userId);
     if (!profile) {
       return NextResponse.json(
-        { error: 'user_not_found', message: 'لم يتم العثور على حساب المستخدم.' },
-        { status: 404 }
+        { error: 'user_not_found', code: 'user_not_found', message: 'لم يتم العثور على حساب المستخدم أو تم حذفه.' },
+        { status: 401 }
       );
     }
 

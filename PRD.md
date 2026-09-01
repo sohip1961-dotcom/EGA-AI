@@ -2,7 +2,7 @@
 
 > **Purpose of this file:** Single source of truth for the entire project. It is written so that an AI agent (or a new developer) can understand the whole product, architecture, data model, API surface, UI, and known issues **without reading the codebase first**. Read this file and `CODING_GUIDELINES.md` (same folder) before making any change.
 >
-> **Last updated:** 2026-09-01 (Repository and configuration sync: Updated root gitignore to exclude build artifacts, synced authentication fixes, theme updates, and prepared codebase for GitHub push without build artifacts).
+> **Last updated:** 2026-09-01 (Targeted User Notifications vs General Broadcasts: Added nullable user_id FK to notifications table, scoped getActiveNotifications to deliver platform broadcasts to all visitors + private notifications targeted exclusively to the authenticated subscriber upon subscription activation, updated DB methods, API routes, migrations, and admin badges).
 >
 > **MANDATORY MAINTENANCE RULE:** upon completing ANY task that adds, modifies, or removes anything in this project (feature, API route, schema, screen, protocol tag, env var, setting, dependency, known issue), update the corresponding section(s) of this file and the "Last updated" date **in the same session**, so this document always matches the codebase. See CODING_GUIDELINES.md rule 8. A task is not complete until this file reflects it.
 
@@ -83,7 +83,7 @@ c:\myapp\                      Git repo (github.com/sohip1961-dotcom/EGA-AI, bra
 │   │   ├── app/
 │   │   │   ├── layout.tsx     RTL Root Layout
 │   │   │   ├── page.tsx       Arabic Multi-Curricula Dashboard UI (Concurrent Progress, Preview Modal, Live Filtered Logs)
-│   │   │   ├── globals.css    Design system tokens (#059669 / #F59E0B on #09110E / #FAFAF9)
+│   │   │   ├── globals.css    Design system tokens (#FFB703 / #00B4D8 / #7209B7 on #0D1B2A / #F8F9FA)
 │   │   │   └── api/           
 │   │   │       ├── process/   GET/POST multi-worker queue processor manager & markdown preview
 │   │   │       ├── upload/    POST multipart PDF file uploader with instant page counts
@@ -184,7 +184,7 @@ c:\myapp\                      Git repo (github.com/sohip1961-dotcom/EGA-AI, bra
 - **Models:** `flash` (DeepSeek chat, default) and `pro` (DeepSeek reasoner). `thinking` boolean toggles chain-of-thought streaming.
 - **Interaction modes:** `socratic` / `detailed` (default) / `summary` — per-session AI teaching style (`chat_sessions.mode`), selected in the chat composer and appended as a behavioral block to the system prompt.
 - **Reports:** students can flag an AI answer; admin reviews (`pending`/`reviewed`/`dismissed`).
-- **Notifications:** admin broadcasts (`info`/`success`/`warning`/`maintenance`) targeted to `web`; dismissals stored client-side.
+- **Notifications:** general platform broadcasts (`user_id NULL`) or targeted personal notifications (e.g. subscriber activation confirmations with `user_id UUID`), with types `info`/`success`/`warning`/`maintenance` targeted to `web`/`phone`/`both`; dismissals stored client-side.
 
 ---
 
@@ -290,7 +290,7 @@ RPC function: `hybrid_search_curriculum(p_curriculum_id, p_query_embedding VECTO
 `id UUID PK`, `user_id UUID FK SET NULL`, `device_id TEXT`, `message_id TEXT`, `session_id UUID FK SET NULL`, `reported_content TEXT NOT NULL`, `user_query TEXT`, `reason TEXT NOT NULL`, `status TEXT NOT NULL DEFAULT 'pending'` (`pending`/`action_taken`/`reviewed`/`dismissed`), `action_taken TEXT NULL`, `admin_notes TEXT NULL`, `created_at`. Indexes on status, created_at.
 
 ### 6.12 `notifications`
-`id UUID PK`, `title TEXT`, `body TEXT`, `type TEXT DEFAULT 'info'` (`info`/`success`/`warning`/`maintenance`), `target TEXT DEFAULT 'web'`, `active BOOLEAN DEFAULT true` (indexed), `created_at`.
+`id UUID PK`, `user_id UUID FK → profiles(id) ON DELETE CASCADE NULL` (null for general broadcasts, user UUID for targeted notifications), `title TEXT`, `body TEXT`, `type TEXT DEFAULT 'info'` (`info`/`success`/`warning`/`maintenance`), `target TEXT DEFAULT 'both'`, `active BOOLEAN DEFAULT true` (indexed), `created_at`. Indexes on `active`, `user_id`.
 
 ### 6.13 `flashcard_decks`
 `id UUID PK`, `user_id UUID FK → profiles CASCADE`, `subject_name TEXT NOT NULL`, `grade_level TEXT NOT NULL`, `title TEXT NOT NULL`, `created_at TIMESTAMPTZ default NOW()`.
@@ -403,7 +403,7 @@ All routes under `web/src/app/api/`. Conventions:
 |---|---|---|
 | `/api/config` | GET (optional auth) | `{website_link, active_grade_levels (default 5 grades), active_tracks (default 4 tracks), active_curriculum_ids, all_curriculums, guest_messages_count, guest_coins, user?}`. Never hard-fails. |
 | `/api/config` | POST (Admin) | Persist `website_link` / `active_grade_levels` / `active_tracks` / `active_curriculum_ids` to `system_settings`. |
-| `/api/notifications` | GET (public) | `?target=web`; active rows matching target. |
+| `/api/notifications` | GET (public / optional auth) | `?target=web`; active rows matching target. If `Authorization: Bearer <token>` is present, returns active broadcasts (`user_id IS NULL`) plus targeted personal notifications matching the authenticated `user_id`. Otherwise returns only public broadcasts. |
 | `/api/report` | POST (Bearer or device-id) | `{reported_content (req, ≤8000), user_query (≤2000), reason (≤500), message_id (≤200), session_id?}` → `reports` row. |
 | `/api/contact` | POST (Public / Optional Bearer) | `{name, contact_info, category?, message}`. Validates fields, associates authenticated `user_id` if present, saves message to `contact_messages` with status `'pending'`. |
 | `/api/log` | POST (Bearer or device-id) | Client telemetry echoed to server console (`[BROWSER LOG]:`), capped 4000 chars. Not persisted. |
@@ -431,7 +431,7 @@ All routes under `web/src/app/api/`. Conventions:
 | `/api/admin/customer-service` | GET `?action=student_detail&userId=` / POST | Admin Customer Service Hub: (1) `action: 'student_detail'` returns detailed student profile, subscription start/end dates, elapsed hours, coin balance, devices count, and exact cancellation eligibility status with reason; (2) `action: 'cancel_subscription'` verifies the strict 3-day (72h) / 0-coin-spent condition, cancels subscription to `'free'`, resets timestamps, and marks payment transactions as `'refunded'`; (3) `action: 'recalculate_coins'` recalculates and sets today's coins to the active plan cap; (4) `action: 'add_coins'` adds arbitrary coins directly to student account; (5) `action: 'delete_student'` permanently purges student account and all cascades; (6) `action: 'update_report_action'` records admin resolution note and updates status. |
 | `/api/admin/support-messages` | GET `?status=&category=` / PATCH `{id, status, admin_notes?}` / DELETE `{id}` | Support Ticket Desk: lists contact form submissions, updates ticket status (`pending`, `replied`, `resolved`, `dismissed`) and internal notes, or deletes tickets. |
 | `/api/admin/reports` | GET `?status=` / PATCH `{id, status, action_taken?, admin_notes?}` / DELETE | AI Complaints Moderation: filters by status (`pending`, `action_taken`, `reviewed`, `dismissed`), saves action taken note, updates status, or permanently deletes report. |
-| `/api/admin/notifications` | GET / POST / PATCH `{id,active}` / DELETE | Title ≤200, body ≤2000, type/target whitelisted. |
+| `/api/admin/notifications` | GET / POST / PATCH `{id,active}` / DELETE | Title ≤200, body ≤2000, type/target whitelisted, optional `user_id` targeting. |
 | `/api/admin/curriculum` | GET / POST / PATCH `{id, subject_name}` / DELETE `{id}` | POST supports two modes: (1) Multipart upload (`file`, `grade_level`, `subject_name`, `track_id?`, `is_elective?`) or attaching to existing placeholder (`curriculum_id`, `file`), running hierarchical parent-child chunking & vector embedding; (2) JSON/multipart placeholder creation (`is_placeholder: true`, `grade_level`, `subject_name`, `track_id?`, `is_elective?`) without a file. |
 | `/api/admin/curriculum/detail` | GET `?id=` / POST `{id, grade_level, subject_name, content}` | GET reassembles Markdown from chunks; POST re-chunks and generates batch embeddings using the unified hierarchical v2 pipeline (`processCurriculumChunks`), preserving full parent-child hierarchy in the database. |
 | `/api/admin/curriculum/units` | POST / PUT (Admin) | Body `{id: curriculumId, units: CurriculumUnit[]}`. Updates and persists manually authored units and lessons for a curriculum. |
@@ -440,7 +440,7 @@ All routes under `web/src/app/api/`. Conventions:
 | Route | Method | Behavior |
 |---|---|---|
 | `/api/payment/kashier/initialize` | POST (Bearer) | Body `{plan_id: 'pro_1m'|'pro_2m'|'pro_3m'}`. Validates plan and user token. **Blocks duplicate checkouts**: if user already has an active, unexpired subscription (`subscription_status === 'active'` and `now < subscription_end_date`), rejects with 400 and Arabic error message. Otherwise generates a unique order ID `egs_sub_<id>_<time>`, calculates server-side HMAC-SHA256 order hash (`/?payment=mid.orderId.amount.currency`), creates a pending `payment_transactions` record, and returns the checkout payload and URLs. |
-| `/api/payment/kashier/webhook` | POST (public/gateway) | Receives asynchronous server-to-server transaction notifications from Kashier. Verifies HMAC signature with `KASHIER_SECURITY_KEY`. If payment succeeded (`SUCCESS`/`CAPTURED`/`APPROVED`), marks transaction `success`, activates the exact duration (30/60/90 days), sets `subscription_status: 'active'`, `subscription_start_date`, `subscription_end_date`, `subscription_plan_id`, tops up daily coin balance to the plan cap (80/90/120), and creates an in-app confirmation notification. |
+| `/api/payment/kashier/webhook` | POST (public/gateway) | Receives asynchronous server-to-server transaction notifications from Kashier. Verifies HMAC signature with `KASHIER_SECURITY_KEY`. If payment succeeded (`SUCCESS`/`CAPTURED`/`APPROVED`), marks transaction `success`, activates the exact duration (30/60/90 days), sets `subscription_status: 'active'`, `subscription_start_date`, `subscription_end_date`, `subscription_plan_id`, tops up daily coin balance to the plan cap (80/90/120), and creates an in-app confirmation notification targeted exclusively to the subscriber (`user_id: transaction.user_id`). |
 | `/api/payment/kashier/callback` | GET / POST (public/gateway) | Handles customer redirect from Kashier checkout. Validates signature and status. Activates subscription on success and redirects to `/?payment_result=success&orderId=...&plan=...`; on failure redirects to `/?payment_result=failed`. |
 | `/api/payment/kashier/verify` | POST (Bearer) | Client-side verification endpoint called when checkout modal emits a completion event. Validates HMAC signature against Kashier data or checks verified transaction status before activating subscription, preventing unauthorized or spoofed activations. |
 | `/api/user/verify-currency` | POST (Bearer) | Authenticated currency and subscription verification endpoint. Evaluates Cairo calendar date (`Africa/Cairo`), checks exact subscription status and countdown, computes exact time to next renewal (00:00 Cairo time), generates HMAC signature, and returns verified state to synchronize client and server. |
@@ -465,7 +465,7 @@ Persona "EGS AI" — passionate Egyptian teacher. Rules baked into the prompt:
 1. Primary Persona Mandate: Speak in natural, polite Egyptian colloquial Arabic adapted for preparatory and secondary students.
 2. Explain vs. solve distinction (curriculum method: Given → laws in LaTeX → steps → result+unit for STEM; grammar-rule-first for languages; precise facts for humanities).
 3. All math in LaTeX (`$$` block, `$`/`\(\)` inline).
-4. Geometric diagrams as fenced ```` ```svg ```` blocks — whitelist `svg,path,circle,rect,line,polygon,polyline,text,g,ellipse`; ban scripts/handlers/foreignObject/external hrefs; theme colors (`#059669`, `#0F766E`, `#F59E0B`, `currentColor`); viewBox required; Arabic labels.
+4. Geometric diagrams as fenced ```` ```svg ```` blocks — whitelist `svg,path,circle,rect,line,polygon,polyline,text,g,ellipse`; ban scripts/handlers/foreignObject/external hrefs; theme colors (`#FFB703`, `#00B4D8`, `#7209B7`, `currentColor`); viewBox required; Arabic labels.
 5. Interactive protocol tags: `[QUIZ_QUESTION]{json}[/QUIZ_QUESTION]`, `[CREATE_EXAM]{json}[/CREATE_EXAM]`, `[CREATE_FLASHCARDS]{json}[/CREATE_FLASHCARDS]`.
 6. Strict curriculum grounding & Out-of-curriculum warning: Answers are strictly derived from the injected curriculum context. When answering queries beyond the curriculum, the response must begin on the very first line with: `"تنبيه: هذه المعلومة خارج المنهج المقرر عليك يا بطل، ولكنها تفيدك في فهم الدرس..."`.
 7. Mode-specific behavioral block (`MODE_INSTRUCTIONS`): **socratic** (scaffolded guiding questions without immediate final answers), **detailed** (default comprehensive textbook explanations), **summary** (high-yield exam review bullet points).
@@ -531,6 +531,11 @@ Gemini intelligence fails → regex keywords; embedding fails → BM25-only; RPC
   - **Session Validation & Interception**: Protected endpoints validate the active device session via `validateUserSessionDevice`. Revoked devices receive a `401` response with `{error: 'device_session_revoked', code: 'device_session_revoked'}` and are immediately logged out with an informative Arabic explanation dialog.
   - **Device Self-Service Management**: The profile screen features an `"الأجهزة المتصلة والجلسات النشطة"` section with live active counts (`N / 3 أجهزة`), device list with device-type icons (`Smartphone`, `Tablet`, `Laptop`), last active timestamps, and remote single/all-other logout buttons.
   - **Admin Device Reset**: Administrators can view active device counts in the admin users table and reset a user's devices with a single click.
+- **Deleted Account & Orphan Session Auto-Logout:**
+  - When an account is deleted (via Admin Users, Admin Customer Service, or student self-service `/delete-account`), all database records including `user_devices` are immediately purged.
+  - **Deterministic Initial Validation (`/api/config`)**: On browser startup or page load, if a token is provided in `localStorage` for a deleted or non-existent profile, `/api/config` explicitly returns `{ authenticated: false, user: null, user_not_found: true, session_invalid: true }`. The client immediately executes `handleForceLogout`, purging `egs_token`, `egs_user`, `egs_chat_sessions`, `egs_active_exam_id`, etc., and transitions to guest mode with an Arabic session-terminated dialog (`accountDeletedModal`).
+  - **Live Heartbeat & Tab Focus Invalidation**: Active sessions automatically verify with `/api/config` whenever the tab regains focus (`visibilitychange` / `window.onfocus`) and via a recurring 60-second background heartbeat. Deleted users are logged out immediately without needing to perform manual actions.
+  - **Universal 401 Interception**: All protected API endpoints (`/api/chat`, `/api/chat/sessions`, `/api/chat/history`, `/api/exams/*`, `/api/flashcards/*`, `/api/auth/devices`, `/api/auth/update-*`, `/api/user/verify-currency`) verify that `db.getProfile(userId)` exists. If not, they return `401 Unauthorized` with `{ error: 'user_not_found', code: 'user_not_found' }`, which triggers `handleForceLogout` across the web client.
 - **OTP & Email Registration:** 6-digit crypto-random (`crypto.getRandomValues`), 10-minute expiry (`OTP_TTL_MS`); Resend email via `src/lib/email.ts` (register + password-reset templates). No backdoor codes. Pending registrations are saved to `pending_registrations` with resilient fallback handling for missing schema columns and automatic 10-minute expiry calculation based on `created_at`. Registration returns 502 if the email cannot be sent.
 - **Google Sign-In:** web uses GSI button (`NEXT_PUBLIC_GOOGLE_CLIENT_ID`, hardcoded fallback ID in source). Two-step grade selection for new Google users.
 - **Guest identity:** web `egs_device_id` = `device_<random36>`. Client-supplied, spoofable.
@@ -560,18 +565,18 @@ Single client component `web/src/app/page.tsx`. Static routes for `/terms`, `/pr
 
 ### 12.0 Application Lifecycle & Deterministic Auth Resolution
 - **Zero-Flash Initialization:** On initial client mount, the app enters an `isInitialLoading: true` state for ~120ms while synchronously recovering stored credentials (`egs_token` & `egs_user`) and local layout settings (`egs_theme`, `isMobile`, `sidebarOpen`) from `localStorage`.
-- **Branded Preloader:** While `isInitialLoading` is active, renders a lightweight, elegant branded splash screen (deep obsidian `#0E0D0D`, glowing pulsing logo ring, gradient title, and `Loader2` indicator) preventing Flash of Unauthenticated Content (FOUC) or premature display of registration/login cards for authenticated students.
+- **Branded Preloader:** While `isInitialLoading` is active, renders a lightweight, elegant branded splash screen (deep obsidian `#0E0D0D`, clean framed logo, gradient title, and `Loader2` indicator) preventing Flash of Unauthenticated Content (FOUC) or premature display of registration/login cards for authenticated students.
 - **Progressive Transition:** Once auth state is deterministically established, transitions smoothly via `animate-fade-in` directly into the student's personal workspace (if logged in) or the clean guest/login interface (if unauthenticated).
 
 ### 12.1 Layout and metadata (`layout.tsx`)
-`<html lang="ar" dir="rtl">`; title "EGS AI | مساعدك الذكي في المنهج الدراسي المصري"; OG locale `ar_EG`; JSON-LD WebApplication (EducationalApplication, price 0 EGP); viewport `maximumScale 1` (pinch-zoom disabled — accessibility tradeoff), `viewportFit cover`, `interactiveWidget resizes-visual`; theme color `#09110E`; GSI script; a MutationObserver strips extension-injected attributes to avoid hydration mismatches. PWA manifest (standalone, theme `#059669`, background `#09110E`, portrait orientation, education category), Service Worker registration (`sw.js`). Fonts: Tajawal/Cairo (Arabic body), Outfit (Latin/code).
+`<html lang="ar" dir="rtl">`; title "EGS AI | مساعدك الذكي في المنهج الدراسي المصري"; OG locale `ar_EG`; JSON-LD WebApplication (EducationalApplication, price 0 EGP); viewport `maximumScale 1` (pinch-zoom disabled — accessibility tradeoff), `viewportFit cover`, `interactiveWidget resizes-visual`; theme color `#0D1B2A`; GSI script; a MutationObserver strips extension-injected attributes to avoid hydration mismatches. PWA manifest (standalone, theme `#FFB703`, background `#0D1B2A`, portrait orientation, education category), Service Worker registration (`sw.js`). Fonts: Tajawal/Cairo (Arabic body), Outfit (Latin/code).
 
 ### 12.2 Module-level components in page.tsx
 `CodeBlock` (LTR code + copy), `ThoughtBlock` (collapsible CoT with timer), `MathRenderer` (KaTeX, `trust:false`, macro `\RR`), `SvgDiagram` (DOMPurify svg profile; FORBID script/foreignObject/on-handlers/href), `parseInlineText` (inline math/bold/code), `MarkdownMessage` (hand-written line parser: headers, lists, RTL tables, block math, fences), `CurriculumLessonPicker` (student-friendly, streamlined curriculum browser for Exams and Flashcards modals featuring 1-click full curriculum selection, instant live search with query clearing, lightweight unit accordions with 1-tap whole-unit selection, minimal lesson list rows with concept subtitle summaries, and compact pinned/docked active selection summary), `InteractiveQuizCard`, `InteractiveExamInviteCard`, `InteractiveFlashcardInviteCard`, `MotivationalPaywallCard` (high-conversion psychological paywall card for depleted coins with Egyptian payment badges and 3-day refund guarantee), `FormattedChatMessage` (tag extraction including `[CREATE_FLASHCARDS]` and `[UPGRADE_PAYWALL]`), `SearchStepsPanel` (live RAG steps), `ImageEditorModal` (canvas crop + brand-palette freehand brush + undo before upload; exports JPEG stepped under 5 MB).
 
 ### 12.3 Views
-1. **Sidebar** (right, RTL): logo header (Beta pill removed), new chat, search, subscriptions page (`باقات الاشتراك` for free users, `اشتراكي الحالي` for active subscribers), exams, flashcards (المدرب الذكي), competition & leaderboard (المسابقة ولوحة المتصدرين), profile, admin (role-gated), contact us (تواصل معنا), app download & installation link (`تحميل وتثبيت التطبيق` routing to `/download`), delete account link (حذف الحساب), session list (subject chip, hover delete, grade-mismatch block; opening a session restores its interaction mode), theme switcher (light/dark/system), user card (plan badge, coins, points, logout) or login CTA. Desktop 320px collapsible; mobile 280px fixed overlay + backdrop.
-2. **Chat & Study Hub (Mobile-Ergonomic):** header (Interactive Trophy points pill `"نقاط الترتيب"` routing directly to competition rankings with 1 tap, interactive coins pill displaying daily balance and routing to profile for active subscribers / upgrade sheet for free users, subscriptions header CTA hidden for active subscribers, notification bell dropdown, avatar); empty state (compact animated logo, student greeting, dedicated Home Screen Quick Access Competition Banner `.competition-home-banner` for logged-in students, prominent centered Registration/Login hero banner `.guest-auth-banner` for unregistered visitors, horizontal swipeable compact subject chips rail `.subject-cards-grid` with 20px icons, and streamlined 2-column study mode grid with 22px icons keeping the centered AI composer dock visible above-the-fold with all its features and details rendered but gated against unauthenticated submission on all screen sizes); non-intrusive mobile PWA install banner (shown only on mobile browsers when not running in standalone mode and not dismissed); message list with smart floating scroll-to-bottom FAB (`.scroll-bottom-fab`) with pulse glow when new content arrives; composer dock.
+1. **Sidebar** (right, RTL): logo header (Beta pill removed), new chat, search, subscriptions page (`باقات الاشتراك` for free users, `اشتراكي الحالي` for active subscribers), exams, flashcards (المدرب الذكي), competition & leaderboard (المسابقة ولوحة المتصدرين), profile, admin (role-gated), contact us (تواصل معنا), app download & installation link (`تحميل وتثبيت التطبيق` routing to `/download`), delete account link (حذف الحساب), session list (subject chip, hover delete, grade-mismatch block; opening a session restores its interaction mode), user card (plan badge, coins, points, logout) or login CTA. Desktop 320px collapsible; mobile 280px fixed overlay + backdrop.
+2. **Chat & Study Hub (Mobile-Ergonomic):** header (Streamlined uncluttered top bar with sidebar menu toggle, subject chip on desktop, and user action cluster: interactive points trophy pill `"نقاط الترتيب"` and coins balance pill `header-coins-chip` rendering exclusively for logged-in students, notifications bell dropdown, theme switch button with 1-tap Sun/Moon toggle between light and dark modes, user avatar / login CTA); empty state (enlarged crisp brand logo, student greeting, prominent centered Registration/Login hero banner `.guest-auth-banner` for unregistered visitors, horizontal swipeable compact subject chips rail `.subject-cards-grid` with 20px icons, and streamlined 2-column study mode grid with 22px icons keeping the centered AI composer dock visible above-the-fold with all its features and details rendered but gated against unauthenticated submission on all screen sizes); non-intrusive mobile PWA install banner (shown only on mobile browsers when not running in standalone mode and not dismissed); message list with smart floating scroll-to-bottom FAB (`.scroll-bottom-fab`) with pulse glow when new content arrives; composer dock.
 3. **Composer (Ergonomic Dock) & In-Stream Image Submission:** Primary row with auto-grow textarea (16px base font preventing iOS zoom, Enter send / Shift+Enter newline, cap 160px), 38x38px image attach button (≤5 MB → editor modal → instant preview attachment with 0 blocking pre-reading delay), and 38x38px circular send button. When submitted with an attached image, sends immediately and displays `"تحليل الصورة"` (`image_analysis` search step) while server-side VQA extracts problems and feeds into curriculum RAG + DeepSeek stream. For free accounts with depleted coins, displays a motivational paywall banner above the input dock celebrating their daily progress and offering 1-click Kashier subscription checkout (hidden for active subscribers whose daily coins replenish automatically). Beneath is the horizontal swipeable feature toolbar (`.composer-features-toolbar` with gradient edge fade masks) containing: Mode/Template pill (opens interactive teaching explanation modal on desktop / bottom sheet on mobile), Deep Thinking toggle pill (`.active-glow`), AI Model selector pill (Flash vs. Pro with `.active-gold`), Subject picker pill (opens subject picker modal/sheet), and Grade pill for guests.
 4. **Exams:** creator modal (dual mode: "اختيار من المنهج" with modern student-friendly picker supporting 1-click whole-curriculum selection, instant search, lightweight unit accordions with 1-tap whole-unit selection, streamlined lesson rows with concept subtitles, and docked scope summary; "موضوع مخصص" for custom topics; modes auto/total_only ≤15/custom_types MCQ+TF+essay counts); grid of available exams + submission history (score colors: ≥80 green, ≥50 orange, else red; mobile responsive single-column layout); taking view (all questions required before submit; **no timer exists**; on mobile includes sticky bottom action dock `.exam-taking-sticky-bar` with answered question progress and instant submission CTA; bottom navigation automatically hides during active exam answering for full immersion); results view (conic-gradient score ring, AI evaluation as markdown, per-question corrections from `questions_review`).
 5. **Flashcards (المدرب الذكي):** Dual-view study system with "جميع الكروت" (All Cards Grid/List view displaying all pooled cards with answer reveal toggles, deck filter pills, and Leitner box level badges) and "مراجعة تفاعلية" (3D interactive focus flip stack with progress bar, previous/next card navigation controls, touch-ergonomic Leitner 1-5 rating buttons, and summary completion screen), inline card edit/delete, deck rename/delete, and AI + Manual creation modal (featuring the same streamlined student-friendly Unit & Lesson Picker with whole-curriculum, whole-unit, and specific lesson selection with live search and concept subtitles for AI card generation; container styled with `.mobile-main-with-nav` for safe bottom clearance).
@@ -607,36 +612,47 @@ Single client component `web/src/app/page.tsx`. Static routes for `/terms`, `/pr
 
 ## 13. Theming and Design System
 
-Brand identity: **Educational Cognitive Palette — Sky Blue, Royal Blue, Fresh Mint Green, and Crisp White on Nocturnal Oceanic Slate / Luminous Pearl**, Arabic-first typography with **Readex Pro**, tactile layered buttons, glassmorphic surfaces, and zero emojis in UI chrome (Lucide icons on web). Designed to maximize focus, comfort, and cognitive retention for students.
+Brand identity: **Educational Tech Palette — Neon Amber/Yellow CTA, Deep Tech Blue, Medium Slate Blue, Snow Grey, Vivid Cyan, and Digital Violet**, Arabic-first typography with **Tajawal / Cairo / Readex Pro**, tactile layered buttons, glassmorphic surfaces, and zero emojis in UI chrome (Lucide icons on web). Designed to maximize focus, contrast, and visual clarity for students.
 
-### 13.1 Brand colors
-| Token | Value | Description |
-|---|---|---|
-| Primary Sky Blue | `#0EA5E9` / `#38BDF8` | Core brand color, focus accents, primary gradient start |
-| Accent Royal Blue | `#2563EB` / `#1D4ED8` | Deep focus, secondary buttons, user message bubbles |
-| Accent Fresh Mint Green | `#10B981` / `#34D399` | Growth, correct answers, success indicators, mint action buttons |
-| Crisp White | `#FFFFFF` | High-contrast text, glossy highlights, clean icons |
-| Interactive Gold (Podium 1st / Rewards) | `#F59E0B` | Competition top rank, leaderboard crown, pro plan chips |
-| Nocturnal Oceanic Slate (Dark Backgrounds) | `#0A0F1D` / `#0E172A` / `#111C38` / `#16254A` | Eye-friendly dark background, elevated cards, sidebar |
-| Luminous Pearl (Light Backgrounds) | `#F8FAFC` / `#FFFFFF` / `#F1F5F9` | Crisp daylight learning mode |
+### 13.1 Brand colors & Component Color Mapping Guide
+
+#### Light Mode Palette & Component Distribution
+* **Main Background (`#F8F9FA`):** App body, central chat canvas, and global layout wrapper.
+* **Sidebar Background (`#EFF3F6`):** Soft cool grayish-blue sidebar surface providing subtle contrast with the main content area.
+* **Card & Content Background (`#FFFFFF`):** Lesson cards, prompt dock container, modal sheets, and header bar.
+* **Headings & Body Text (`#0D1B2A`):** Primary headings (`h1`–`h6`), subject titles, action card titles, table headers, and body copy.
+* **Platform Primary Color (`#00B4D8` / Sky Blue):** Primary color of the platform for all chrome, active links, nav items, icons, borders, avatars, chips, and tech highlights.
+  - **Logo & AI Avatar Frames:** Pastel cyan / blue surface (`#E1F6FB`), `1.5px solid #00B4D8` border, and soft glow (`.brand-logo-frame`, `.message-avatar-ai`).
+  - **Sidebar Active Nav Item:** Pastel cyan surface (`#E1F6FB`), `1.5px solid #00B4D8` border, and `#00B4D8` text and icon. Inactive items use `#0D1B2A` text and `#0D1B2A` icons.
+  - **Selected Subject Card:** Pastel cyan surface (`#E1F6FB`), `2px solid #00B4D8` border, and a solid filled `#00B4D8` icon container with a pure white icon inside.
+  - **Quick Study Action Cards:** `#FFFFFF` card surface, `#0D1B2A` title, and a pastel cyan icon box (`#E1F6FB`) with a Vivid Cyan `#00B4D8` icon.
+  - **Header Subscriptions Button:** Pastel cyan surface (`#E1F6FB`), `1px solid #00B4D8` border, and `#00B4D8` text and card icon.
+* **Platform Secondary Color (`#FFB703` / Yellow):** Dedicated secondary color used exclusively for action/CTA buttons (`.btn-primary`), button highlights, and alert indicators.
+* **Button Text (on Yellow CTA) (`#0D1B2A`):** High-contrast Deep Blue text and icons on primary yellow CTA buttons.
+* **Low-Coin Balance Alert (`#EF4444`):** Soft coral pill (`#FDE8E8` background, `rgba(239, 68, 68, 0.35)` border, and `#EF4444` text and icon).
+* **Logo Branding:** Dual-tone / cyan-to-violet gradient (`#00B4D8` to `#7209B7`) for "EGS AI".
+
+#### Dark Mode Palette
+* **Main Background:** `#0D1B2A` (Deep Tech Blue) — app body, page background, and sidebar wrapper.
+* **Card & Content Background:** `#1E2E3D` (Medium Slate Blue) — card surfaces, prompt input container, modal dialogs, and secondary buttons.
+* **Headings & Body Text:** `#F8F9FA` (Snow Gray) — primary titles, section headings, body text, and table content.
+* **Call to Action (CTA) & Alerts:** `#FFB703` (Neon Amber / Yellow) — primary CTA buttons, alerts, and notice indicators.
+* **Button Text (on Yellow CTA):** `#0D1B2A` (Deep Blue Text) — high-contrast text and icons on primary yellow CTA buttons.
+* **Tech Accents & Gradients:** `#7209B7` (Digital Violet) — border glow on hero card, focus rings, AI mode pill highlights (`تفكير عميق`), and digital gradients.
 
 ### 13.2 Typography
-- **Primary Arabic Font:** `Readex Pro` (300, 400, 500, 600, 700, 800) — modern, highly legible geometric Arabic typography engineered for educational screens.
-- **Supporting Arabic Fonts:** `Cairo`, `Tajawal`.
-- **Latin, Math & Code Font:** `Plus Jakarta Sans`, KaTeX.
+- **Primary Arabic Font:** `Tajawal`, `Cairo`, `Readex Pro` — modern, highly legible geometric Arabic typography.
+- **Latin, Math & Code Font:** `Outfit`, KaTeX.
 
 ### 13.3 Tactile Button System
-- `.btn-primary`: Triple-tone gradient (`#0EA5E9` → `#2563EB` → `#10B981`), top specular highlight `inset 0 1px 0 rgba(255,255,255,0.35)`, layered shadow `0 4px 18px -2px rgba(14, 165, 233, 0.45)`, hover lift `-2px` with expanded glow `0 8px 26px -2px rgba(14, 165, 233, 0.6)`, active spring scale `0.97`.
-- `.btn-secondary`: Frosted glass with cyan border `rgba(56, 189, 248, 0.22)`, hover light fill `rgba(14, 165, 233, 0.08)`, active scale `0.97`.
-- `.btn-mint`: Fresh mint gradient (`#10B981` → `#059669`) with mint glow `0 4px 16px rgba(16, 185, 129, 0.35)`.
-- `.btn-royal`: Royal blue gradient (`#2563EB` → `#1D4ED8`) with royal glow `0 4px 16px rgba(37, 99, 235, 0.35)`.
-- `.btn-ghost`: Subtle hover fill with primary accent.
+- `.btn-primary`: Action/CTA button background (`#FFB703` / `--btn-primary-bg`), Deep Blue text (`#0D1B2A`), hover lift `-1px` with expanded glow `0 6px 20px rgba(255, 183, 3, 0.45)`, active spring scale `0.97`. In Light Mode, yellow serves as the dedicated secondary color for buttons, while sky blue (`#00B4D8`) acts as the platform primary color.
+- `.btn-secondary`: Light Mode `#FFFFFF` with `1.5px solid rgba(13,27,42,0.12)` border; Dark Mode `#1E2E3D` with `1.5px solid rgba(248,249,250,0.15)` border, active scale `0.97`.
 
-### 13.4 Web dark tokens (`:root` in globals.css)
-bg `#0A0F1D`, elevated `#0E172A`, sidebar `#0B132B`, card `#111C38`, card-hover `#16254A`, input `#0D162D`; text `#FFFFFF` / `#CBD5E1` / muted `#94A3B8`; borders `rgba(56, 189, 248, 0.12)`; status: danger `#F87171`, warning `#FBBF24`, success `#10B981`, info `#38BDF8`.
+### 13.4 Web dark tokens (`:root, html[data-theme='dark']` in globals.css)
+bg `#0D1B2A`, elevated `#1E2E3D`, sidebar `#0D1B2A`, header `#0D1B2A`, card `#1E2E3D`, card-hover `#26384A`, input `#1E2E3D`; text `#F8F9FA` / `#C5D1DE` / muted `#8899A6`; primary `#FFB703`, text-on-primary `#0D1B2A`, secondary (accent) `#7209B7`, btn-primary-bg `#FFB703`, info `#00B4D8`, send-btn `linear-gradient(135deg, #00B4D8 0%, #7209B7 100%)`.
 
 ### 13.5 Web light tokens (`html[data-theme='light']`)
-bg `#F8FAFC`, surfaces `#FFFFFF`, sidebar `#F1F5F9`, card `#FFFFFF`, text `#0F172A`/`#334155`/`#64748B`, primary `#0284C7`, interactive gold `#D97706`, on-primary `#FFFFFF`, cyan/sky-alpha borders.
+bg `#F8F9FA`, elevated `#FFFFFF`, sidebar `#EFF3F6`, header `#FFFFFF`, card `#FFFFFF`, card-hover `#F8F9FA`, input `#FFFFFF`; text `#0D1B2A` / `#2A3B4C` / muted `#5C6F84`; primary (platform) `#00B4D8`, secondary (buttons) `#FFB703`, btn-primary-bg `#FFB703`, text-on-primary `#FFFFFF`, icon & active links `#00B4D8`, info `#00B4D8`, send-btn `#00B4D8`.
 
 ### 13.6 Score colors
 ≥80 green (ممتاز جداً), ≥50 orange (جيد — يحتاج تحسين), <50 red (ضعيف).
