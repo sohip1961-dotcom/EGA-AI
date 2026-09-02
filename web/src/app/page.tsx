@@ -609,7 +609,15 @@ const ThoughtBlock = ({
   };
 
   // Interactive Quiz Card Component
-  const InteractiveQuizCard = ({ quiz, onAnswerSubmit }: { quiz: any; onAnswerSubmit?: (text: string) => void }) => {
+  const InteractiveQuizCard = ({ 
+    quiz, 
+    onAnswerSubmit,
+    onGoToExams 
+  }: { 
+    quiz: any; 
+    onAnswerSubmit?: (text: string, isCorrect?: boolean) => void;
+    onGoToExams?: () => void;
+  }) => {
     const [selected, setSelected] = useState<number | null>(null);
     const [essayAnswer, setEssayAnswer] = useState('');
     const [submitted, setSubmitted] = useState(false);
@@ -628,8 +636,9 @@ const ThoughtBlock = ({
 
     const handleSubmit = (answerText: string) => {
       setSubmitted(true);
+      const isAnsCorrect = isCorrect();
       if (onAnswerSubmit) {
-        onAnswerSubmit(answerText);
+        onAnswerSubmit(answerText, isAnsCorrect);
       }
     };
 
@@ -811,8 +820,15 @@ const ThoughtBlock = ({
             lineHeight: '1.5'
           }}>
             {quiz.type !== 'essay' && (
-              <p style={{ fontWeight: 800, color: isCorrect() ? 'var(--success-color)' : 'var(--danger-color)', marginBottom: '4px' }}>
-                {isCorrect() ? 'إجابة صحيحة! أحسنت يا بطل!' : 'إجابة خاطئة، لا بأس فالهدف هو التعلم!'}
+              <p style={{ fontWeight: 800, color: isCorrect() ? 'var(--success-color)' : 'var(--danger-color)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {isCorrect() ? (
+                  <>
+                    <Award size={16} />
+                    <span>إجابة صحيحة! أحسنت يا بطل (+2 نقطة في الترتيب)!</span>
+                  </>
+                ) : (
+                  <span>إجابة خاطئة، لا بأس فالهدف هو التعلم!</span>
+                )}
               </p>
             )}
             {quiz.type === 'essay' && (
@@ -820,7 +836,32 @@ const ThoughtBlock = ({
                 تم إرسال إجابتك للتحليل!
               </p>
             )}
-            <p style={{ color: 'var(--text-secondary)' }}><strong>الشرح والتوضيح:</strong> {quiz.explanation}</p>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: onGoToExams ? '10px' : '0' }}><strong>الشرح والتوضيح:</strong> {quiz.explanation}</p>
+            {onGoToExams && (
+              <button
+                type="button"
+                onClick={onGoToExams}
+                style={{
+                  marginTop: '10px',
+                  padding: '7px 14px',
+                  borderRadius: '8px',
+                  fontSize: '0.78rem',
+                  fontWeight: 800,
+                  background: 'var(--primary-light)',
+                  border: '1px solid var(--border-primary)',
+                  color: 'var(--primary-color)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  transition: 'var(--transition)'
+                }}
+              >
+                <FileText size={13} />
+                <span>اختبر نفسك في امتحان كامل على هذا المفهوم</span>
+                <ArrowLeft size={13} />
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -976,7 +1017,7 @@ const ThoughtBlock = ({
     content: string; 
     sender: 'user' | 'ai';
     onGoToExams: (exam: any) => void;
-    onAnswerSubmit: (text: string) => void;
+    onAnswerSubmit: (text: string, isCorrect?: boolean) => void;
     onGoToFlashcards?: (subjectName: string) => void;
     onGoToSubscriptions?: () => void;
   }) => {
@@ -1032,7 +1073,7 @@ const ThoughtBlock = ({
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
         {displayContent.trim() && <MarkdownMessage content={displayContent} />}
         {isPaywall && <MotivationalPaywallCard onGoToSubscriptions={onGoToSubscriptions} />}
-        {quizData && <InteractiveQuizCard quiz={quizData} onAnswerSubmit={onAnswerSubmit} />}
+        {quizData && <InteractiveQuizCard quiz={quizData} onAnswerSubmit={onAnswerSubmit} onGoToExams={examData ? () => onGoToExams(examData) : undefined} />}
         {examData && <InteractiveExamInviteCard exam={examData} onGoToExams={() => onGoToExams(examData)} />}
         {flashcardsData && (
           <div className="glass" style={{ padding: '16px 20px', borderRadius: '14px', border: '1px solid var(--border-primary)', background: 'var(--primary-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginTop: '12px' }}>
@@ -3686,6 +3727,58 @@ export default function App() {
     }
   }, [user, chatGrade, curriculums, activeCurriculumIds, selectedTrack, selectedElective]);
 
+  // Helper for dynamic subject-specific prompt sparks
+  const getSubjectPromptSuggestions = (subject: string) => {
+    const s = (subject || '').trim();
+    if (s.includes('فيزياء')) {
+      return [
+        { label: 'أهم قوانين ومفاهيم المنهج', prompt: 'لخص لي أهم قوانين وتعاريف منهج الفيزياء المقررة مع وحدات القياس بأسلوب بسيط.' },
+        { label: 'حل مسألة امتحان متوقعة', prompt: 'اطرح عليّ مسألة امتحان متوقعة في الفيزياء واشرح خطوات حلها بالمعطيات والقوانين.' },
+        { label: 'اختبر فهمي بسؤال سريع', prompt: 'اسألني سؤالاً تدريبياً في الفيزياء لتقييم مدى استيعابي مع تصحيح إجابتي.' }
+      ];
+    }
+    if (s.includes('كيمياء')) {
+      return [
+        { label: 'شرح المعادلات والتفاعلات', prompt: 'اشرح لي كيفية كتابة ووزن المعادلات الكيميائية المقررة بأمثلة واضحة.' },
+        { label: 'أهم أسئلة علل في الكيمياء', prompt: 'اذكر لي أهم 3 أسئلة (علل لما يأتي) تتكرر في امتحانات الكيمياء مع إجاباتها النموذجية.' },
+        { label: 'اختبرني في المفاهيم الكيميائية', prompt: 'اطرح عليّ سؤالاً تفاعلياً في الكيمياء لاختبار فهمي للمفاهيم الأساسية.' }
+      ];
+    }
+    if (s.includes('رياضيات') || s.includes('جبر') || s.includes('هندسة') || s.includes('تفاضل') || s.includes('مثلثات') || s.includes('إحصاء')) {
+      return [
+        { label: 'أهم القوانين والنظريات', prompt: 'لخص لي أهم القوانين والنظريات الرياضية المقررة وكيفية تطبيقها في المسائل.' },
+        { label: 'حل مسألة نموذجية خطوة بخطوة', prompt: 'اشرح لي طريقة حل مسألة نموذجية في الرياضيات خطوة بخطوة مع التعويض.' },
+        { label: 'اختبرني بمسألة تفكير', prompt: 'اعطني مسألة رياضية تطبيقية لأحلها بنفسي وتصحح لي خطوات الحل.' }
+      ];
+    }
+    if (s.includes('أحياء') || s.includes('احياء')) {
+      return [
+        { label: 'تلخيص التراكيب والوظائف', prompt: 'لخص لي أهم التراكيب والوظائف الحيوية في الدرس الأول بشكل منظم وواضح.' },
+        { label: 'مقارنات هامة في الامتحانات', prompt: 'اكتب لي أهم جدول مقارنة مطلوب في منهج الأحياء لهذا الفصل.' },
+        { label: 'سؤال امتحان تفاعلي', prompt: 'اختبرني بسؤال اختيار من متعدد في الأحياء مع شرح الإجابة الصحيحة.' }
+      ];
+    }
+    if (s.includes('عربي') || s.includes('لغة عربية')) {
+      return [
+        { label: 'شرح وإعراب قاعدة نحوية', prompt: 'اشرح لي القاعدة النحوية المقررة مع إعراب نموذجي لعدة أمثلة توضيحية.' },
+        { label: 'مواطن الجمال في النصوص', prompt: 'وضح لي أهم مواطن الجمال والأساليب البلاغية في النص المقرر بأسلوب مبسط.' },
+        { label: 'اختبرني في النحو', prompt: 'اعطني قطعة صغيرة أو جملة لضبطها وإعراب الكلمات المهمة فيها.' }
+      ];
+    }
+    if (s.includes('تاريخ') || s.includes('جغرافيا') || s.includes('فلسفة')) {
+      return [
+        { label: 'أهم الأحداث والنتائج', prompt: `لخص لي أهم النقاط والتواريخ والأسباب والنتائج في منهج ${s}.` },
+        { label: 'سؤال بما تفسر وما النتائج', prompt: `اطرح عليّ أهم أسئلة (ما النتائج المترتبة / بما تفسر) في ${s}.` },
+        { label: 'اختبرني في الدرس', prompt: `اختبر معلوماتي بسؤال سريع في مادة ${s} مع توضيح الإجابة النموذجية.` }
+      ];
+    }
+    return [
+      { label: `شرح وتفصيل في ${s || 'المنهج'}`, prompt: `اشرح لي بالتفصيل وبأمثلة واضحة ومبسطة في منهج ${s || 'الدراسي'}: ` },
+      { label: `حل مسألة أو سؤال`, prompt: `ساعدني في حل وتفصيل هذه المسألة في ${s || 'المنهج'}: ` },
+      { label: `اختبرني بسؤال تدريبي`, prompt: `اعطني سؤالاً تفاعلياً مهماً في منهج ${s || 'الدراسي'} لاختبار فهمي.` }
+    ];
+  };
+
   // Helper to render input form (centered or bottom)
   const renderInputForm = (isCentered: boolean) => {
     const targetGrade = user ? user.grade_level : chatGrade;
@@ -3891,51 +3984,34 @@ export default function App() {
           </div>
         )}
 
-        {/* Quick Fill Prompt Tags Directly Above Text Box (Explanation & Solution) */}
+        {/* Quick Fill Prompt Tags Directly Above Text Box (Dynamic Subject Suggestions) */}
         {isCentered && (
           <div className="composer-prompt-tags-wrapper">
             <span className="composer-prompt-tags-hint">
-              اقتراحات سريعة للمحادثة:
+              اقتراحات ذكية للبدء:
             </span>
-            <button
-              type="button"
-              onClick={() => {
-                const targetGrade = user ? user.grade_level : chatGrade;
-                const activeSubjs = getActiveSubjectsForGrade(targetGrade);
-                const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
-                if (currentSubj?.is_placeholder) {
-                  setPlaceholderModalCurriculum(currentSubj);
-                  return;
-                }
-                handleSuggestionClick(`اشرح لي بالتفصيل وبأمثلة واضحة في منهج ${chatSubject || 'الدراسي'}: `);
-              }}
-              className="composer-prompt-tag"
-              title="إدراج صيغة الشرح والتفصيل في مربع الكتابة أدناه"
-            >
-              <Plus size={13} className="prompt-tag-prefix-icon" />
-              <span className="prompt-tag-text">شرح وتفصيل درس</span>
-              <ArrowDown size={12} className="prompt-tag-arrow-icon" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                const targetGrade = user ? user.grade_level : chatGrade;
-                const activeSubjs = getActiveSubjectsForGrade(targetGrade);
-                const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
-                if (currentSubj?.is_placeholder) {
-                  setPlaceholderModalCurriculum(currentSubj);
-                  return;
-                }
-                handleSuggestionClick(`ساعدني في حل وتفصيل هذه المسألة في ${chatSubject || 'المنهج'}: `);
-              }}
-              className="composer-prompt-tag"
-              title="إدراج صيغة حل المسألة في مربع الكتابة أدناه"
-            >
-              <Plus size={13} className="prompt-tag-prefix-icon" />
-              <span className="prompt-tag-text">حل مسألة أو سؤال</span>
-              <ArrowDown size={12} className="prompt-tag-arrow-icon" />
-            </button>
+            {getSubjectPromptSuggestions(chatSubject).map((sug, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => {
+                  const targetGrade = user ? user.grade_level : chatGrade;
+                  const activeSubjs = getActiveSubjectsForGrade(targetGrade);
+                  const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
+                  if (currentSubj?.is_placeholder) {
+                    setPlaceholderModalCurriculum(currentSubj);
+                    return;
+                  }
+                  handleSuggestionClick(sug.prompt);
+                }}
+                className="composer-prompt-tag"
+                title={`إدراج "${sug.label}" في مربع الكتابة`}
+              >
+                <Sparkles size={12} className="prompt-tag-prefix-icon" style={{ color: 'var(--primary-color)' }} />
+                <span className="prompt-tag-text">{sug.label}</span>
+                <ArrowDown size={11} className="prompt-tag-arrow-icon" />
+              </button>
+            ))}
           </div>
         )}
 
@@ -7639,6 +7715,24 @@ export default function App() {
                           : <>منصتك التعليمية الذكية لمدارس ومناهج جمهورية مصر العربية.</>
                         }
                       </p>
+                      {user && !isUserSubscribed && (
+                        <div style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          background: 'var(--primary-light)',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: 'var(--radius-full)',
+                          padding: '3px 12px',
+                          fontSize: isMobile ? '0.7rem' : '0.76rem',
+                          color: 'var(--primary-color)',
+                          fontWeight: 700,
+                          marginTop: '4px'
+                        }}>
+                          <Sparkles size={12} />
+                          <span>رصيدك اليومي المجاني متاح للمذاكرة — اطرح أي سؤال أو حل مسألة</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Mobile PWA Install Banner */}
@@ -7868,7 +7962,37 @@ export default function App() {
                                   setExamTimeRemaining(durationSeconds);
                                   setActiveTab('exams');
                                 }}
-                                onAnswerSubmit={(_text: string) => {}}
+                                onAnswerSubmit={async (_text: string, isAnsCorrect?: boolean) => {
+                                  if (isAnsCorrect && user && token) {
+                                    triggerPointsAnim(2);
+                                    setPoints(prev => {
+                                      const nextPoints = prev + 2;
+                                      const storedUser = localStorage.getItem('egs_user');
+                                      if (storedUser) {
+                                        try {
+                                          const parsedUser = JSON.parse(storedUser);
+                                          parsedUser.points = nextPoints;
+                                          localStorage.setItem('egs_user', JSON.stringify(parsedUser));
+                                          setUser(parsedUser);
+                                        } catch (e) {}
+                                      }
+                                      return nextPoints;
+                                    });
+
+                                    try {
+                                      await fetch('/api/user/quiz-points', {
+                                        method: 'POST',
+                                        headers: {
+                                          'Content-Type': 'application/json',
+                                          'Authorization': `Bearer ${token}`
+                                        },
+                                        body: JSON.stringify({ points: 2 })
+                                      });
+                                    } catch (err) {
+                                      console.error('Failed to sync quiz points:', err);
+                                    }
+                                  }
+                                }}
                                 onGoToFlashcards={(subj: string) => {
                                   setActiveTab('flashcards');
                                   fetchSubjectCards(subj);

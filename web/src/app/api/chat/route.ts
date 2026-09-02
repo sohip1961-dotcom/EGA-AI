@@ -43,6 +43,32 @@ function parseMessage(msg: string): { cleanText: string; imageDesc?: string; ima
   return { cleanText, imageDesc, imageBase64, imageMime };
 }
 
+function isConversationalGreeting(text: string): boolean {
+  if (!text) return false;
+  const clean = text
+    .replace(/[؟?!.،,;:~`!@#$%^&*()_+\-=\[\]{}'"]/g, ' ')
+    .trim()
+    .toLowerCase();
+  if (!clean || clean.length > 60) return false;
+
+  const exactGreetings = new Set([
+    'سلام', 'سلام عليكم', 'السلام عليكم', 'وعليكم السلام', 'أهلا', 'اهلا', 'مرحبا', 'مرحباً',
+    'هاي', 'هلو', 'صباح الخير', 'مساء الخير', 'صباح النور', 'مساء النور', 'صباح الورد', 'مساء الورد',
+    'ازيك', 'ازي حضرتك', 'إزيك', 'عامل ايه', 'اخبارك', 'أخبارك', 'شخبارك', 'تمام', 'الحمد لله',
+    'مين انت', 'أنت مين', 'انت مين', 'مين حضرتك', 'عرفني بنفسك', 'بتعمل ايه', 'تقدر تساعدني ازاي',
+    'شكرا', 'شكراً', 'تسلم', 'جزاك الله خير', 'جزاك الله خيرا', 'ألف شكر', 'مشكور',
+    'عاوز اذاكر', 'عايز اذاكر', 'ممكن تساعدني', 'محتاج مساعدة', 'يلا نذاكر', 'ابدأ معايا',
+    'يا مستر', 'يا استاذ', 'يا باشا', 'يا دكتور', 'يا بشمهندس'
+  ]);
+
+  if (exactGreetings.has(clean)) return true;
+
+  const greetingPrefixes = [
+    'ازيك', 'إزيك', 'السلام عليكم', 'سلام عليكم', 'صباح الخير', 'مساء الخير', 'أهلا', 'اهلا', 'مرحبا'
+  ];
+  return greetingPrefixes.some(p => clean.startsWith(p) && clean.length < 30);
+}
+
 async function analyzeImageWithEdenAI(base64: string, mimeType: string): Promise<string> {
   const EDENAI_API_KEY = process.env.EDENAI_API_KEY || '';
   if (!EDENAI_API_KEY || !base64) return '';
@@ -303,7 +329,16 @@ export async function POST(req: NextRequest) {
           // ─── PHASE 1: Build RAG Context ─────────────────────────────────
           let ragContext = '';
 
-          if (isCurriculumActive) {
+          if (!imageBase64 && isConversationalGreeting(cleanText)) {
+            emitSearchStep('greeting', '✨', 'أهلاً بك يا بطل...');
+            const studentGreetingName = profile?.name && profile.name !== 'طالب جديد' ? profile.name : 'يا بطل';
+            ragContext = `أنت في محادثة ترحيبية افتتاحية مع الطالب (${studentGreetingName}).
+1. رحب بالطالب بلهجة مصرية تعليمية ودودة ومهذبة للغاية وبطاقة إيجابية عالية ("يا بطل" أو "يا دكتورة").
+2. عرف بنفسك باختصار شديد بأنك معلمه ومساعده الذكي في مادة "${subject_name}".
+3. وضّح له أنك جاهز لمساعدته في: شرح أي درس بالتفصيل، حل أصعب المسائل والتدريبات خطوة بخطوة، أو توليد اختبارات تدريبية سريعة.
+4. اقترح عليه البدء فوراً بسؤال محدد أو مسألة يواجه صعوبة فيها، أو مراجعة أول درس في المنهج.
+5. استثناء حاسم: يمنع منعاً باتاً إصدار أي تنبيه بأن المعلومة خارج المنهج للتحيات والترحيب.`;
+          } else if (isCurriculumActive) {
             emitSearchStep('analyzing', '🧠', 'أحلل سؤالك...');
 
             let intelligence: QueryIntelligence = {
