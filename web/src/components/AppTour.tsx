@@ -51,6 +51,9 @@ interface AppTourProps {
   onSelectSubjectPrompt?: () => void;
   onPrefillPrompt?: (text: string) => void;
   onSubmitTourMessage?: () => void;
+  onStartExamPrompt?: () => void;
+  onStartFlashcardPrompt?: () => void;
+  onNavigateToChat?: () => void;
   isMobile?: boolean;
 }
 
@@ -62,6 +65,9 @@ export function AppTour({
   onSelectSubjectPrompt,
   onPrefillPrompt,
   onSubmitTourMessage,
+  onStartExamPrompt,
+  onStartFlashcardPrompt,
+  onNavigateToChat,
   isMobile = false
 }: AppTourProps) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -77,7 +83,7 @@ export function AppTour({
       case 'chat':
         return [
           {
-            targetId: 'tour-chat-hero',
+            targetId: undefined,
             title: 'يلا ناخد جولة سريعة في المنصة!',
             badge: 'مرحباً بك في EGS AI',
             badgeIcon: <Sparkles size={14} />,
@@ -115,7 +121,7 @@ export function AppTour({
                 </div>
               </div>
             ),
-            actionButtonText: currentSubject ? 'تأكيد المادة والمتابعة' : 'اختر مادة للمتابعة'
+            actionButtonText: 'المتابعة للخطوة التالية'
           },
           {
             targetId: 'tour-composer-dock',
@@ -215,9 +221,9 @@ export function AppTour({
       case 'exams':
         return [
           {
-            targetId: 'tour-exams-header',
+            targetId: undefined,
             title: 'قسم الامتحانات والاختبارات الذكية',
-            badge: 'امتحانات الوزارة',
+            badge: 'امتحانات تفاعلية',
             badgeIcon: <FileText size={14} />,
             position: 'center',
             content: (
@@ -231,44 +237,52 @@ export function AppTour({
                 </div>
               </div>
             ),
-            actionButtonText: 'التالي: اختيار المنهج والدرس'
+            actionButtonText: 'يلا نبدأ الخطوات'
           },
           {
             targetId: 'tour-exams-create-btn',
-            title: 'توليد امتحان في درس محدد',
-            badge: 'تخصيص الامتحان',
+            title: '1. توليد امتحان مخصص في ثوانٍ',
+            badge: 'تخصيص المنهج',
             badgeIcon: <BookOpen size={14} />,
             position: 'bottom',
             content: (
               <div className="tour-content-body">
                 <p>
-                  اضغط على زر <strong>توليد امتحان جديد</strong>، واختار المادة والوحدة أو الدرس اللي عايز تمتحن فيه، وحدد عدد الأسئلة اللي تناسب وقتك.
+                  اضغط على زر <strong>توليد امتحان جديد</strong>، واختار مادتك والوحدة أو الدرس المحدد، أو اكتب أي موضوع تريده، وحدد عدد الأسئلة ونوعها بكل سهولة.
                 </p>
+                <div className="tour-highlight-box">
+                  <Lightbulb size={16} className="tour-highlight-icon" />
+                  <span>تقدر تضغط على زر توليد الامتحان أدناه للبدء فوراً!</span>
+                </div>
               </div>
             ),
-            actionButtonText: 'التالي: التصحيح الفوري'
+            actionButtonText: 'التالي: التصحيح الذكي والشرح'
           },
           {
             targetId: 'tour-exams-list',
-            title: 'التصحيح التلقائي والشرح الفوري',
+            title: '2. التصحيح الفوري والشرح التفصيلي',
             badge: 'التقييم الذكي',
             badgeIcon: <CheckCircle size={14} />,
             position: 'top',
             content: (
               <div className="tour-content-body">
                 <p>
-                  بعد ما تخلص إجابة كل سؤال، النظام هيصححلك فورياً ويعرفك درجتك، ويقدملك شرح تفصيلي لسبب كل إجابة صحيحة، وتضاف درجاتك لنقاط ترتيبك في لوحة المتصدرين!
+                  بعد ما تخلص إجابة كل سؤال، النظام هيصححلك فورياً ويعرفك درجتك بدقة، ويقدملك شرحاً نموذجياً لكل مسألة، وتضاف درجاتك لنقاط ترتيبك في لوحة المتصدرين!
                 </p>
+                <div className="tour-highlight-box success">
+                  <CheckCircle size={16} className="tour-highlight-icon" />
+                  <span>اضغط أدناه للبدء في تجهيز وتوليد أول امتحان لك!</span>
+                </div>
               </div>
             ),
-            actionButtonText: 'فهمت، جاهز للاختبارات!'
+            actionButtonText: 'ابدأ بتوليد امتحان الآن'
           }
         ];
 
       case 'flashcards':
         return [
           {
-            targetId: 'tour-flashcards-header',
+            targetId: undefined,
             title: 'المدرب الذكي والكروت التعليمية',
             badge: 'التكرار المتباعد',
             badgeIcon: <Layers size={14} />,
@@ -276,36 +290,59 @@ export function AppTour({
             content: (
               <div className="tour-content-body">
                 <p>
-                  طريقة عبقرية لحفظ وتثبيت أهم القوانين، التعريفات، والمفاهيم الأساسية باستخدام نظام <strong>التكرار المتباعد الذكي</strong> عشان متنساش أي معلومة.
+                  طريقة عبقرية لحفظ وتثبيت أهم القوانين، التعريفات، والمفاهيم الأساسية باستخدام نظام <strong>التكرار المتباعد الذكي</strong> عشان متنساش أي معلومة قبل الامتحان.
+                </p>
+                <div className="tour-highlight-box">
+                  <Brain size={16} className="tour-highlight-icon" />
+                  <span>تثبيت المعلومات في الذاكرة طويلة المدى بأقل مجهود يومي!</span>
+                </div>
+              </div>
+            ),
+            actionButtonText: 'يلا نبدأ الخطوات'
+          },
+          {
+            targetId: 'tour-flashcards-create-btn',
+            title: '1. إنشاء كروت المراجعة بالذكاء الاصطناعي',
+            badge: 'توليد ذكي فوري',
+            badgeIcon: <Sparkles size={14} />,
+            position: 'bottom',
+            content: (
+              <div className="tour-content-body">
+                <p>
+                  تقدر بنقرة واحدة تولّد مجموعة كروت ذكية على أي درس في منهجك تلقائياً بالذكاء الاصطناعي، أو تضيف كروتك وملاحظاتك الخاصة للمراجعة في أي وقت.
                 </p>
               </div>
             ),
-            actionButtonText: 'التالي: طريقة المذاكرة'
+            actionButtonText: 'التالي: طريقة المذاكرة وتقييم الحفظ'
           },
           {
             targetId: 'tour-flashcards-card',
-            title: 'اقلب الكارت وقيّم حفظك',
-            badge: 'تفاعل ذكي',
+            title: '2. اقلب الكارت وقيّم استدعاءك',
+            badge: 'تفاعل وتكرار ذكي',
             badgeIcon: <Brain size={14} />,
             position: 'bottom',
             content: (
               <div className="tour-content-body">
                 <p>
-                  اقرأ السؤال أو المفهوم، واضغط على الكارت عشان يتقلب ويظهرلك الشرح والإجابة النموذجية.
+                  اقرأ السؤال أو المفهوم، واضغط على الكارت ليتقلب ويظهرلك الشرح والإجابة النموذجية.
                 </p>
                 <p>
-                  بعدها قيّم نفسك (سهل، متوسط، صعب)، والمدرب الذكي هيبرمج إعادة ظهور الكارت في الوقت المناسب بالظبط قبل ما تنساه!
+                  بعدها قيّم مدى حفظك، والمدرب الذكي هيبرمج إعادة ظهور الكارت في الوقت المناسب بالظبط قبل ما تنساه!
                 </p>
+                <div className="tour-highlight-box success">
+                  <CheckCircle size={16} className="tour-highlight-icon" />
+                  <span>اضغط أدناه للبدء في إنشاء أو مراجعة أول مجموعة كروت!</span>
+                </div>
               </div>
             ),
-            actionButtonText: 'فهمت، يلا نراجع الكروت!'
+            actionButtonText: 'إنشاء أول مجموعة كروت الآن'
           }
         ];
 
       case 'leaderboard':
         return [
           {
-            targetId: 'tour-leaderboard-header',
+            targetId: undefined,
             title: 'المسابقة ولوحة المتصدرين',
             badge: 'تنافس الأبطال',
             badgeIcon: <Trophy size={14} />,
@@ -321,14 +358,44 @@ export function AppTour({
                 </div>
               </div>
             ),
-            actionButtonText: 'فهمت، يلا ننافس على الصدارة!'
+            actionButtonText: 'يلا نبدأ الخطوات'
+          },
+          {
+            targetId: 'tour-leaderboard-header',
+            title: '1. تصنيف صفي الدراسي والترتيب العام',
+            badge: 'الفلترة الذكية',
+            badgeIcon: <Trophy size={14} />,
+            position: 'bottom',
+            content: (
+              <div className="tour-content-body">
+                <p>
+                  تقدر تبدّل بنقرة واحدة بين قائمة متصدري صفك الدراسي فقط، أو الترتيب العام الشامل لكل الصفوف والمراحل على مستوى الجمهورية.
+                </p>
+              </div>
+            ),
+            actionButtonText: 'التالي: كيف تتصدر القائمة؟'
+          },
+          {
+            targetId: 'tour-leaderboard-list',
+            title: '2. كيف تصعد لقائمة أفضل 10 طلاب؟',
+            badge: 'نقاط الترتيب',
+            badgeIcon: <Zap size={14} />,
+            position: 'top',
+            content: (
+              <div className="tour-content-body">
+                <p>
+                  كل سؤال تسأله، كل امتحان تحله بدرجة عالية، وكل كارت تعليمي تراجعه بانتظام يضيف نقاطاً حقيقية لرصيد ترتيبك حتى تصعد لصدارة المتفوقين!
+                </p>
+              </div>
+            ),
+            actionButtonText: 'فهمت، جاهز للمنافسة والصدارة!'
           }
         ];
 
       case 'subscriptions':
         return [
           {
-            targetId: 'tour-subscriptions-header',
+            targetId: undefined,
             title: 'باقات الاشتراك وتفعيل Pro',
             badge: 'مميزات بلا حدود',
             badgeIcon: <CreditCard size={14} />,
@@ -336,14 +403,30 @@ export function AppTour({
             content: (
               <div className="tour-content-body">
                 <p>
-                  اشترك في باقة Pro لتفعيل تجديد الرصيد اليومي تلقائياً، إتاحة نماذج Pro الفائقة، وتوليد عدد غير محدود من الامتحانات الذكية.
+                  اشترك في باقة Pro لتفعيل تجديد الرصيد اليومي تلقائياً، إتاحة نماذج Pro الفائقة، وتوليد عدد غير محدود من الامتحانات الذكية وتفعيل ميزة التفكير العميق.
                 </p>
+                <div className="tour-highlight-box">
+                  <Sparkles size={16} className="tour-highlight-icon" />
+                  <span>تفعيل فوري وآمن بأسهل طرق الدفع المتاحة في مصر!</span>
+                </div>
+              </div>
+            ),
+            actionButtonText: 'يلا نبدأ الخطوات'
+          },
+          {
+            targetId: 'tour-subscriptions-plans',
+            title: '1. باقات مصممة للطلاب ودفع إلكتروني آمن',
+            badge: 'دفع محلي فوري',
+            badgeIcon: <CheckCircle size={14} />,
+            position: 'top',
+            content: (
+              <div className="tour-content-body">
                 <p>
-                  الدفع سهل وآمن عبر بوابة كاشير المعتمدة في مصر بواسطة فودافون كاش، محافظ المحمول، ميزة، وبطاقات فيزا وماستركارد.
+                  اختر الباقة المناسبة لاحتياجاتك (شهر، شهرين، أو 3 أشهر). الدفع سهل ومباشر عبر بوابة كاشير المعتمدة في مصر بواسطة فودافون كاش، محافظ المحمول، ميزة، وبطاقات فيزا وماستركارد.
                 </p>
               </div>
             ),
-            actionButtonText: 'فهمت المميزات'
+            actionButtonText: 'فهمت كل المميزات'
           }
         ];
 
@@ -360,8 +443,8 @@ export function AppTour({
   // Active target ID based on main step or sub-step
   const activeTargetId = activeSubStep?.targetId || currentStep?.targetId;
 
-  // Update target element positioning & spotlight
-  const updateTargetPosition = useCallback(() => {
+  // Measure target element position accurately
+  const measureTargetRect = useCallback(() => {
     if (!activeTargetId) {
       setTargetRect(null);
       return;
@@ -369,32 +452,51 @@ export function AppTour({
 
     const targetEl = document.getElementById(activeTargetId);
     if (targetEl) {
-      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
       const rect = targetEl.getBoundingClientRect();
-      setTargetRect(rect);
-    } else {
-      setTargetRect(null);
+      if (rect.width > 0 && rect.height > 0) {
+        setTargetRect(rect);
+        return;
+      }
     }
+    setTargetRect(null);
   }, [activeTargetId]);
 
   useEffect(() => {
     if (!isOpen) return;
 
-    // Small delay to allow layout animations and active elements to stabilize
-    const timer = setTimeout(() => {
-      updateTargetPosition();
-    }, 180);
+    if (activeTargetId) {
+      const targetEl = document.getElementById(activeTargetId);
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+      }
+    }
 
-    const handleResize = () => updateTargetPosition();
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('scroll', handleResize, true);
+    measureTargetRect();
+    const timer1 = setTimeout(measureTargetRect, 80);
+    const timer2 = setTimeout(measureTargetRect, 320);
+
+    const handleScrollOrResize = () => {
+      measureTargetRect();
+    };
+
+    window.addEventListener('resize', handleScrollOrResize);
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    if (typeof window !== 'undefined' && window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleScrollOrResize);
+      window.visualViewport.addEventListener('scroll', handleScrollOrResize);
+    }
 
     return () => {
-      clearTimeout(timer);
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('scroll', handleResize, true);
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      window.removeEventListener('resize', handleScrollOrResize);
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      if (typeof window !== 'undefined' && window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleScrollOrResize);
+        window.visualViewport.removeEventListener('scroll', handleScrollOrResize);
+      }
     };
-  }, [isOpen, currentStepIndex, subStepIndex, activeTargetId, updateTargetPosition]);
+  }, [isOpen, currentStepIndex, subStepIndex, activeTargetId, measureTargetRect]);
 
   // When opening Step 3 (Submit box) in Chat screen: automatically prefill the prompt!
   useEffect(() => {
@@ -453,7 +555,7 @@ export function AppTour({
     if (screen === 'chat') {
       if (currentStepIndex === 1) {
         // Step 2: Subject selector
-        if (onSelectSubjectPrompt) {
+        if (onSelectSubjectPrompt && !currentSubject) {
           onSelectSubjectPrompt();
         }
         handleNext();
@@ -461,10 +563,31 @@ export function AppTour({
       }
 
       if (currentStepIndex === 2 && isLastSubStep) {
-        // Step 3 final sub-step: Submit message
+        // Step 3 final sub-step: Submit message - Close tour immediately first so streaming is completely unobstructed!
+        onClose(true);
         if (onSubmitTourMessage) {
-          onSubmitTourMessage();
+          setTimeout(onSubmitTourMessage, 40);
         }
+        return;
+      }
+    } else if (screen === 'exams') {
+      if (isLastMainStep) {
+        onClose(true);
+        if (onStartExamPrompt) {
+          setTimeout(onStartExamPrompt, 150);
+        }
+        return;
+      }
+    } else if (screen === 'flashcards') {
+      if (isLastMainStep) {
+        onClose(true);
+        if (onStartFlashcardPrompt) {
+          setTimeout(onStartFlashcardPrompt, 150);
+        }
+        return;
+      }
+    } else if (screen === 'leaderboard' || screen === 'subscriptions') {
+      if (isLastMainStep) {
         onClose(true);
         return;
       }
@@ -475,27 +598,47 @@ export function AppTour({
 
   // Card positioning logic
   const getCardStyle = (): React.CSSProperties => {
+    const visualViewport = typeof window !== 'undefined' ? window.visualViewport : null;
+    const winW = visualViewport ? visualViewport.width : (typeof window !== 'undefined' ? window.innerWidth : 1200);
+    const winH = visualViewport ? visualViewport.height : (typeof window !== 'undefined' ? window.innerHeight : 800);
+    const offsetTop = visualViewport ? visualViewport.offsetTop : 0;
+
     if (isMobile) {
-      // On mobile, dock cleanly at bottom or top depending on spotlight position
-      if (targetRect && targetRect.top > window.innerHeight / 2) {
+      if (!targetRect || currentStep.position === 'center') {
         return {
           position: 'fixed',
-          top: '16px',
+          top: `calc(${offsetTop + winH / 2}px)`,
+          left: '12px',
+          right: '12px',
+          transform: 'translateY(-50%)',
+          margin: '0 auto',
+          maxWidth: '440px',
+          zIndex: 10002
+        };
+      }
+
+      // If target element is in bottom half of viewport (like composer dock), place card at top
+      if (targetRect.top > winH / 2) {
+        return {
+          position: 'fixed',
+          top: `calc(${offsetTop + 12}px + env(safe-area-inset-top, 0px))`,
           left: '12px',
           right: '12px',
           margin: '0 auto',
-          maxWidth: '480px',
-          zIndex: 10001
+          maxWidth: '440px',
+          zIndex: 10002
         };
       }
+
+      // If target element is in top half of viewport, place card at bottom
       return {
         position: 'fixed',
-        bottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
+        bottom: 'calc(12px + env(safe-area-inset-bottom, 0px))',
         left: '12px',
         right: '12px',
         margin: '0 auto',
-        maxWidth: '480px',
-        zIndex: 10001
+        maxWidth: '440px',
+        zIndex: 10002
       };
     }
 
@@ -508,7 +651,7 @@ export function AppTour({
         transform: 'translate(-50%, -50%)',
         maxWidth: '520px',
         width: '92%',
-        zIndex: 10001
+        zIndex: 10002
       };
     }
 
@@ -518,13 +661,13 @@ export function AppTour({
     let left = targetRect.left + (targetRect.width / 2) - (cardWidth / 2);
 
     // If target is low on screen, place card above target
-    if (targetRect.bottom + 320 > window.innerHeight) {
+    if (targetRect.bottom + 320 > winH) {
       top = Math.max(16, targetRect.top - 340);
     }
 
     // Horizontal bounds
-    if (left + cardWidth > window.innerWidth - 16) {
-      left = window.innerWidth - cardWidth - 16;
+    if (left + cardWidth > winW - 16) {
+      left = winW - cardWidth - 16;
     }
     if (left < 16) {
       left = 16;
@@ -535,35 +678,114 @@ export function AppTour({
       top: `${Math.round(top)}px`,
       left: `${Math.round(left)}px`,
       width: `${cardWidth}px`,
-      zIndex: 10001
+      zIndex: 10002
     };
   };
 
   return (
     <div className="tour-wrapper" style={{ direction: 'rtl' }}>
-      {/* Dimmed backdrop with cutout spotlight if target exists */}
-      <div className="tour-backdrop" onClick={handleSkip}>
-        {targetRect && (
-          <div
-            className="tour-spotlight"
-            style={{
-              top: `${Math.max(0, targetRect.top - 6)}px`,
-              left: `${Math.max(0, targetRect.left - 6)}px`,
-              width: `${targetRect.width + 12}px`,
-              height: `${targetRect.height + 12}px`
-            }}
-          />
-        )}
-      </div>
+      {/* Surround Backdrop Panels & Spotlight Ring */}
+      {(() => {
+        if (!targetRect) {
+          return (
+            <div
+              className="tour-full-backdrop"
+              onClick={handleSkip}
+            />
+          );
+        }
+
+        const pad = 6;
+        const winW = typeof window !== 'undefined' ? window.innerWidth : 1200;
+        const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
+
+        const t = Math.max(0, targetRect.top - pad);
+        const b = Math.min(winH, targetRect.bottom + pad);
+        const l = Math.max(0, targetRect.left - pad);
+        const r = Math.min(winW, targetRect.right + pad);
+        const w = Math.max(0, r - l);
+        const h = Math.max(0, b - t);
+
+        return (
+          <>
+            {/* Top Dark Panel */}
+            <div
+              className="tour-backdrop-panel"
+              style={{ top: 0, left: 0, right: 0, height: `${t}px` }}
+              onClick={handleSkip}
+            />
+
+            {/* Bottom Dark Panel */}
+            <div
+              className="tour-backdrop-panel"
+              style={{ top: `${b}px`, left: 0, right: 0, bottom: 0 }}
+              onClick={handleSkip}
+            />
+
+            {/* Left Dark Panel */}
+            <div
+              className="tour-backdrop-panel"
+              style={{ top: `${t}px`, left: 0, width: `${l}px`, height: `${h}px` }}
+              onClick={handleSkip}
+            />
+
+            {/* Right Dark Panel */}
+            <div
+              className="tour-backdrop-panel"
+              style={{ top: `${t}px`, left: `${r}px`, right: 0, height: `${h}px` }}
+              onClick={handleSkip}
+            />
+
+            {/* Spotlight Focus Ring around target: The inside area is 100% open, clear, unblurred, and interactive! */}
+            <div
+              className="tour-spotlight-ring"
+              style={{
+                top: `${t}px`,
+                left: `${l}px`,
+                width: `${w}px`,
+                height: `${h}px`,
+              }}
+            />
+          </>
+        );
+      })()}
 
       {/* Floating Tour Guide Card */}
       <div ref={cardRef} className="tour-card animate-scale-in" style={getCardStyle()} onClick={(e) => e.stopPropagation()}>
         
         {/* Header: Badge & Close button */}
         <div className="tour-card-header">
-          <div className="tour-badge">
-            {activeSubStep?.badgeIcon || currentStep.badgeIcon || <Sparkles size={13} />}
-            <span>{activeSubStep?.badge || currentStep.badge || `الخطوة ${currentStepIndex + 1} من ${totalMainSteps}`}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div className="tour-badge">
+              {activeSubStep?.badgeIcon || currentStep.badgeIcon || <Sparkles size={13} />}
+              <span>{activeSubStep?.badge || currentStep.badge || `الخطوة ${currentStepIndex + 1} من ${totalMainSteps}`}</span>
+            </div>
+            {screen !== 'chat' && onNavigateToChat && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose(false);
+                  onNavigateToChat();
+                }}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--primary-color)',
+                  borderRadius: '6px',
+                  padding: '2px 8px',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+                title="الانتقال لجولة المساعد الذكي الرئيسية (الدردشة)"
+              >
+                <span>جولة الدردشة الرئيسية</span>
+                <ChevronLeft size={12} />
+              </button>
+            )}
           </div>
 
           <button

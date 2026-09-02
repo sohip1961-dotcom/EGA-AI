@@ -87,7 +87,7 @@ export class QueueProcessor {
           // Normalize status of restored queue items
           this.queue = saved.queue.map((f) => {
             if (f.status === "processing") {
-              f.status = "paused";
+              f.status = this.settings.autoResumeOnStartup ? "pending" : "paused";
             }
             return f;
           });
@@ -95,6 +95,9 @@ export class QueueProcessor {
             "info",
             `تمت استعادة ${this.queue.length} كتب من سجل المحفوظات بنجاح.`
           );
+          if (this.settings.autoResumeOnStartup && this.queue.some((f) => f.status === "pending")) {
+            setTimeout(() => this.startProcessing(), 1500);
+          }
         }
       }
     } catch (err: any) {
@@ -389,36 +392,15 @@ export class QueueProcessor {
         file.currentOperation = `معالجة الصفحات [${currentBatch.join(", ")}]`;
         this.notifyProgress();
 
-        // Process batch concurrently
+        // Process batch concurrently with safety timeout and allSettled
         const batchPromises = currentBatch.map((pNo) =>
-          this.processSinglePage(file, docHandler, pNo)
+          this.processSinglePageWithSafetyTimeout(file, docHandler, pNo, startTime)
         );
 
-        await Promise.all(batchPromises);
+        await Promise.allSettled(batchPromises);
 
-        // Update progress counts
-        const updatedCp = loadCheckpoint(file.id);
-        if (updatedCp) {
-          const successCount = Object.values(updatedCp.completedPages).filter(
-            (p) => p.status === "success"
-          ).length;
-          const fails = Object.values(updatedCp.completedPages).filter(
-            (p) => p.status === "failed"
-          ).length;
-
-          file.processedPages = successCount;
-          file.failedPages = fails;
-          processedInThisRun += currentBatch.length;
-
-          // Calculate speed in pages per minute
-          const elapsedMinutes = (Date.now() - startTime) / 60000;
-          if (elapsedMinutes > 0) {
-            file.speedPagesPerMin = Number((processedInThisRun / elapsedMinutes).toFixed(1));
-          }
-        }
-
-        this.persistState();
-        this.notifyProgress();
+        processedInThisRun += currentBatch.length;
+        this.syncFileProgress(file, startTime, processedInThisRun);
 
         if (this.settings.delayBetweenBatchesMs > 0) {
           await new Promise((res) => setTimeout(res, this.settings.delayBetweenBatchesMs));
@@ -466,10 +448,83 @@ export class QueueProcessor {
     }
   }
 
+  private syncFileProgress(
+    file: FileQueueItem,
+    startTime?: number,
+    processedCount?: number
+  ) {
+    const cp = loadCheckpoint(file.id);
+    if (cp) {
+      const successCount = Object.values(cp.completedPages).filter(
+        (p) => p.status === "success"
+      ).length;
+      const fails = Object.values(cp.completedPages).filter(
+        (p) => p.status === "failed"
+      ).length;
+
+      file.processedPages = successCount;
+      file.failedPages = fails;
+
+      if (startTime) {
+        const count = processedCount !== undefined ? processedCount : (successCount + fails);
+        const elapsedMinutes = (Date.now() - startTime) / 60000;
+        if (elapsedMinutes > 0 && count > 0) {
+          file.speedPagesPerMin = Number((count / elapsedMinutes).toFixed(1));
+        }
+      }
+
+      this.persistState();
+      this.notifyProgress();
+    }
+  }
+
+  private async processSinglePageWithSafetyTimeout(
+    file: FileQueueItem,
+    docHandler: PDFDocumentHandler,
+    pageNumber: number,
+    startTime?: number
+  ): Promise<PageExtractionResult> {
+    const pageTimeoutMs = 90000;
+    let timer: NodeJS.Timeout | null = null;
+
+    const timeoutPromise = new Promise<PageExtractionResult>((resolve) => {
+      timer = setTimeout(() => {
+        this.log(
+          "warn",
+          `تجاوزت الصفحة ${pageNumber} مهلة المعالجة القصوى (90 ثانية)، سيتم الانتقال للصفحة التالية`,
+          file.id,
+          pageNumber
+        );
+        const timeoutResult: PageExtractionResult = {
+          pageNumber,
+          rawVisionText: "",
+          processedMarkdown: `<!-- تجاوزت الصفحة ${pageNumber} مهلة الاستخراج -->\n`,
+          status: "failed",
+          attempts: 1,
+          error: "Execution timeout",
+          timestamp: new Date().toISOString(),
+        };
+        savePageResult(file.id, timeoutResult);
+        this.syncFileProgress(file, startTime);
+        resolve(timeoutResult);
+      }, pageTimeoutMs);
+    });
+
+    try {
+      return await Promise.race([
+        this.processSinglePage(file, docHandler, pageNumber, startTime),
+        timeoutPromise,
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   private async processSinglePage(
     file: FileQueueItem,
     docHandler: PDFDocumentHandler,
-    pageNumber: number
+    pageNumber: number,
+    startTime?: number
   ): Promise<PageExtractionResult> {
     let attempts = 0;
     const maxRetries = Math.max(1, this.settings.maxRetries || 6);
@@ -531,6 +586,8 @@ export class QueueProcessor {
         };
 
         savePageResult(file.id, pageResult);
+        this.syncFileProgress(file, startTime);
+
         if (isBlank) {
           this.log("info", `تم تخطي الصفحة ${pageNumber} (صفحة فارغة أو بدون نصوص شرح)`, file.id, pageNumber);
         } else {
@@ -562,6 +619,7 @@ export class QueueProcessor {
             timestamp: new Date().toISOString(),
           };
           savePageResult(file.id, failedResult);
+          this.syncFileProgress(file, startTime);
           return failedResult;
         }
 
@@ -570,7 +628,7 @@ export class QueueProcessor {
       }
     }
 
-    return {
+    const exhaustedResult: PageExtractionResult = {
       pageNumber,
       rawVisionText: "",
       processedMarkdown: "",
@@ -579,6 +637,9 @@ export class QueueProcessor {
       error: "Exceeded max retries",
       timestamp: new Date().toISOString(),
     };
+    savePageResult(file.id, exhaustedResult);
+    this.syncFileProgress(file, startTime);
+    return exhaustedResult;
   }
 
   public getCurriculumMarkdown(fileId: string): string | null {

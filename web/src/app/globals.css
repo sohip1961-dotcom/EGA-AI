@@ -3620,32 +3620,42 @@ html[data-theme='light'] .scroll-bottom-fab svg {
   pointer-events: none;
 }
 
-.tour-backdrop {
+.tour-full-backdrop {
   position: fixed;
   inset: 0;
   z-index: 10000;
-  background: rgba(13, 27, 42, 0.78);
-  backdrop-filter: blur(2px);
-  pointer-events: auto;
-  cursor: pointer;
+  background: rgba(13, 27, 42, 0.65);
+  pointer-events: none;
   animation: fadeInFast 0.2s ease forwards;
 }
 
-.tour-spotlight {
+.tour-backdrop-panel {
   position: fixed;
-  border-radius: 16px;
-  box-shadow: 0 0 0 9999px rgba(13, 27, 42, 0.8), 0 0 0 2.5px var(--primary-color), 0 0 30px var(--primary-glow-strong);
+  z-index: 10000;
+  background: rgba(13, 27, 42, 0.68);
   pointer-events: none;
-  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tour-spotlight-ring {
+  position: fixed;
+  z-index: 10001;
+  border-radius: 14px;
+  border: 2.5px solid var(--primary-color);
+  box-shadow: 0 0 0 1px rgba(255, 183, 3, 0.3), 0 0 25px var(--primary-glow-strong);
+  pointer-events: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   animation: tourSpotlightPulse 2.2s infinite ease-in-out;
 }
 
 @keyframes tourSpotlightPulse {
   0%, 100% {
-    box-shadow: 0 0 0 9999px rgba(13, 27, 42, 0.8), 0 0 0 2.5px var(--primary-color), 0 0 20px var(--primary-glow);
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 1px rgba(255, 183, 3, 0.3), 0 0 20px var(--primary-glow);
   }
   50% {
-    box-shadow: 0 0 0 9999px rgba(13, 27, 42, 0.8), 0 0 0 3.5px var(--primary-color), 0 0 35px var(--primary-glow-strong);
+    border-color: #00B4D8;
+    box-shadow: 0 0 0 2px rgba(0, 180, 216, 0.4), 0 0 35px rgba(0, 180, 216, 0.6);
   }
 }
 

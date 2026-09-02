@@ -88,7 +88,9 @@ import {
   AlertTriangle,
   XCircle,
   ExternalLink,
-  HelpCircle
+  HelpCircle,
+  Network,
+  GitFork
 } from 'lucide-react';
 import AppTour, { TourScreen } from '@/components/AppTour';
 
@@ -1069,14 +1071,16 @@ const ThoughtBlock = ({
 
     const renderSearchStepIcon = (icon: string) => {
       if (!icon) return <Search size={14} style={{ color: 'var(--primary-color)' }} />;
-      if (icon.includes('🔍')) return <Search size={14} style={{ color: 'var(--primary-color)' }} />;
+      if (icon.includes('🔍') || icon.includes('search')) return <Search size={14} style={{ color: 'var(--primary-color)' }} />;
+      if (icon.includes('🧠') || icon.includes('brain')) return <Brain size={14} style={{ color: 'var(--primary-color)' }} />;
+      if (icon.includes('🕸️') || icon.includes('graph') || icon.includes('network')) return <Network size={14} style={{ color: 'var(--accent-cyan, #00B4D8)' }} />;
+      if (icon.includes('⚡') || icon.includes('fusion')) return <Layers size={14} style={{ color: 'var(--accent-amber, #FFB703)' }} />;
       if (icon.includes('🖼️') || icon.includes('image') || icon.includes('scan')) return <ImageIcon size={14} style={{ color: 'var(--primary-color)' }} />;
       if (icon.includes('📖') || icon.includes('📚')) return <BookOpen size={14} style={{ color: 'var(--primary-color)' }} />;
       if (icon.includes('✅') || icon.includes('✔️')) return <Check size={14} style={{ color: 'var(--success-color)' }} />;
       if (icon.includes('❌')) return <X size={14} style={{ color: 'var(--danger-color)' }} />;
       if (icon.includes('⏳') || icon.includes('⌛')) return <Loader2 size={14} className="animate-spin" style={{ color: 'var(--primary-color)' }} />;
-      // Fallback to text representation or strip emoji if needed, here we just return as span
-      return <span style={{ fontSize: '0.85rem' }}>{icon}</span>;
+      return <Sparkles size={14} style={{ color: 'var(--primary-color)' }} />;
     };
 
     const allSteps = steps || [];
@@ -2012,8 +2016,42 @@ export default function App() {
   // Platform App Tour State & Handlers
   const [tourScreen, setTourScreen] = useState<TourScreen>('chat');
   const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
+  const [pendingDeferredPopup, setPendingDeferredPopup] = useState<string | null>(null);
+
+  const getTourScreenForTab = (tab: string): TourScreen => {
+    if (tab === 'exams') return 'exams';
+    if (tab === 'flashcards') return 'flashcards';
+    if (tab === 'leaderboard') return 'leaderboard';
+    if (tab === 'subscriptions' || tab === 'beta') return 'subscriptions';
+    return 'chat';
+  };
 
   const startTour = (screenName: TourScreen) => {
+    // Force close any active popup windows, bottom sheets, menus, or drawers so tutorial has 100% focus
+    setShowAuthModal(false);
+    setShowOnboardingModal(false);
+    setShowGoogleGradeModal(false);
+    setShowSubjectSheet(false);
+    setShowModeSheet(false);
+    setShowModelSheet(false);
+    setShowUpgradeSheet(false);
+    setShowExamCreateModal(false);
+    setShowFlashcardCreateModal(false);
+    setShowIosInstallModal(false);
+    setShowNotifCenter(false);
+    setShowModelMenu(false);
+    setShowModeMenu(false);
+    setSidebarOpen(false);
+
+    // Synchronize activeTab to match the requested tour screen
+    if (screenName === 'subscriptions') {
+      if (activeTab !== 'subscriptions' && activeTab !== 'beta') {
+        setActiveTab('subscriptions');
+      }
+    } else if (activeTab !== screenName) {
+      setActiveTab(screenName);
+    }
+
     setTourScreen(screenName);
     setIsTourOpen(true);
   };
@@ -2022,6 +2060,21 @@ export default function App() {
     setIsTourOpen(false);
     if (typeof window !== 'undefined') {
       localStorage.setItem(`egs_tour_completed_${tourScreen}`, 'true');
+    }
+
+    // After tutorial finishes or is skipped, safely trigger any deferred popups
+    if (pendingDeferredPopup) {
+      const popupToOpen = pendingDeferredPopup;
+      setPendingDeferredPopup(null);
+      setTimeout(() => {
+        if (popupToOpen === 'pwa_banner') {
+          setShowMobileInstallBanner(true);
+        } else if (popupToOpen === 'ios_install') {
+          setShowIosInstallModal(true);
+        } else if (popupToOpen === 'upgrade') {
+          setShowUpgradeSheet(true);
+        }
+      }, 400);
     }
   };
 
@@ -3305,7 +3358,7 @@ export default function App() {
 
   // Helper to render non-intrusive mobile PWA install banner
   const renderMobileInstallBanner = () => {
-    if (!isMobileDevice || isStandalone || !showMobileInstallBanner) return null;
+    if (!isMobileDevice || isStandalone || !showMobileInstallBanner || isTourOpen) return null;
     return (
       <div 
         className="glass animate-fade-in"
@@ -3674,6 +3727,7 @@ export default function App() {
     }
 
     const toggleModelMenu = () => {
+      if (isTourOpen) return;
       if (isMobile) {
         setShowModelSheet(true);
       } else {
@@ -3987,7 +4041,7 @@ export default function App() {
             {/* Feature 1: Mode / Template Selector */}
             <button
               type="button"
-              onClick={() => setShowModeSheet(true)}
+              onClick={() => { if (!isTourOpen) setShowModeSheet(true); }}
               className={`composer-feature-pill ${chatMode !== 'detailed' ? 'active' : ''}`}
               title="تغيير نمط الشرح والتدريس"
             >
@@ -4001,6 +4055,10 @@ export default function App() {
               id="tour-thinking-controls"
               type="button"
               onClick={() => {
+                if (isTourOpen) {
+                  setThinkingEnabled(!thinkingEnabled);
+                  return;
+                }
                 if (!user) {
                   setAuthTab('register');
                   setShowAuthModal(true);
@@ -4013,14 +4071,14 @@ export default function App() {
             >
               <Brain size={13} />
               <span>{thinkingEnabled ? 'التفكير مفعل' : 'تفكير عميق'}</span>
-              {!user && <Lock size={10} style={{ opacity: 0.6 }} />}
+              {!user && !isTourOpen && <Lock size={10} style={{ opacity: 0.6 }} />}
             </button>
 
             {/* Feature 3: AI Model Selector */}
             <button
               id="tour-model-selector"
               type="button"
-              onClick={() => setShowModelSheet(true)}
+              onClick={() => { if (!isTourOpen) setShowModelSheet(true); }}
               className={`composer-feature-pill ${selectedModel === 'pro' ? 'active-gold' : ''}`}
               title="تبديل نموذج الذكاء الاصطناعي"
             >
@@ -4033,7 +4091,7 @@ export default function App() {
             {messages.length === 0 ? (
               <button
                 type="button"
-                onClick={() => setShowSubjectSheet(true)}
+                onClick={() => { if (!isTourOpen) setShowSubjectSheet(true); }}
                 className="composer-feature-pill"
                 title="تحديد المادة الدراسية"
               >
@@ -4052,7 +4110,7 @@ export default function App() {
             {!user && messages.length === 0 && (
               <button
                 type="button"
-                onClick={() => setShowSubjectSheet(true)}
+                onClick={() => { if (!isTourOpen) setShowSubjectSheet(true); }}
                 className="composer-feature-pill"
                 title="تحديد الصف الدراسي"
               >
@@ -4070,7 +4128,7 @@ export default function App() {
 
   // Teaching template / mode picker modal & sheet
   const renderModeSheet = () => {
-    if (!showModeSheet) return null;
+    if (!showModeSheet || isTourOpen) return null;
 
     return (
       <div className="bottom-sheet-overlay" onClick={() => setShowModeSheet(false)}>
@@ -4168,7 +4226,7 @@ export default function App() {
 
   // AI model picker modal & sheet
   const renderModelSheet = () => {
-    if (!showModelSheet) return null;
+    if (!showModelSheet || isTourOpen) return null;
 
     return (
       <div className="bottom-sheet-overlay" onClick={() => setShowModelSheet(false)}>
@@ -4264,7 +4322,7 @@ export default function App() {
 
   // Motivational Upgrade Bottom Sheet for Depleted Funds / Subscriptions
   const renderUpgradeSheet = () => {
-    if (!showUpgradeSheet || isUserSubscribed) return null;
+    if (!showUpgradeSheet || isUserSubscribed || isTourOpen) return null;
 
     return (
       <div className="bottom-sheet-overlay" onClick={() => setShowUpgradeSheet(false)}>
@@ -4388,7 +4446,7 @@ export default function App() {
 
   // Material picker — responsive modal and sheet of subject cards + grade options.
   const renderSubjectSheet = () => {
-    if (!showSubjectSheet) return null;
+    if (!showSubjectSheet || isTourOpen) return null;
 
     const targetGrade = user ? user.grade_level : chatGrade;
     const sheetSubjects = getActiveSubjectsForGrade(targetGrade);
@@ -5051,7 +5109,10 @@ export default function App() {
         }
       }
     } catch (err: any) {
-      setAuthError(err.message);
+      const msg = err.message === 'Failed to fetch'
+        ? 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت أو تشغيل الخادم والمحاولة مرة أخرى.'
+        : (err.message || 'حدث خطأ أثناء المصادقة');
+      setAuthError(msg);
     } finally {
       setAuthLoading(false);
     }
@@ -5125,7 +5186,10 @@ export default function App() {
         }
       }
     } catch (err: any) {
-      setAuthError(err.message);
+      const msg = err.message === 'Failed to fetch'
+        ? 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت أو تشغيل الخادم والمحاولة ثانية.'
+        : (err.message || 'فشل تسجيل الدخول بواسطة Google');
+      setAuthError(msg);
     } finally {
       setAuthLoading(false);
     }
@@ -5181,7 +5245,10 @@ export default function App() {
         startTour('chat');
       }, 500);
     } catch (err: any) {
-      setOnboardingError(err.message || 'حدث خطأ أثناء حفظ الإعدادات.');
+      const msg = err.message === 'Failed to fetch'
+        ? 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت أو تشغيل الخادم والمحاولة ثانية.'
+        : (err.message || 'حدث خطأ أثناء حفظ الإعدادات.');
+      setOnboardingError(msg);
     } finally {
       setOnboardingLoading(false);
     }
@@ -5331,6 +5398,11 @@ export default function App() {
   // Chat Operation
   const handleSendMessage = async (e?: React.FormEvent, customText?: string) => {
     if (e) e.preventDefault();
+
+    // If App Tour is running, close it immediately before streaming starts so student sees full response unobstructed
+    if (isTourOpen) {
+      handleTourClose(true);
+    }
 
     // Guest registration prompt gate: Unregistered students cannot submit questions
     if (!user) {
@@ -7061,9 +7133,7 @@ export default function App() {
                 icon: <Compass size={16} />,
                 label: 'جولة في المنصة',
                 action: () => {
-                  const validScreens: TourScreen[] = ['chat', 'exams', 'flashcards', 'leaderboard', 'subscriptions'];
-                  const targetScreen: TourScreen = validScreens.includes(activeTab as TourScreen) ? (activeTab as TourScreen) : (activeTab === 'beta' ? 'subscriptions' : 'chat');
-                  startTour(targetScreen);
+                  startTour(getTourScreenForTab(activeTab));
                   if (isMobile) setSidebarOpen(false);
                 },
                 isActive: false
@@ -7277,7 +7347,7 @@ export default function App() {
               <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px', order: isMobile ? 1 : 2 }}>
                 <button
                   type="button"
-                  onClick={() => setSidebarOpen(!sidebarOpen)}
+                  onClick={() => { if (!isTourOpen) setSidebarOpen(!sidebarOpen); }}
                   style={{
                     background: 'transparent',
                     border: 'none',
@@ -7361,7 +7431,7 @@ export default function App() {
                 )}
                 <div style={{ position: 'relative' }}>
                   <button
-                    onClick={() => setShowNotifCenter(prev => !prev)}
+                    onClick={() => { if (!isTourOpen) setShowNotifCenter(prev => !prev); }}
                     style={{
                       background: 'var(--alpha-white-4)',
                       color: 'var(--text-secondary)',
@@ -7381,7 +7451,7 @@ export default function App() {
                       <span style={{ position: 'absolute', top: '2px', left: '2px', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--danger-color)' }} />
                     )}
                   </button>
-                  {showNotifCenter && (
+                  {showNotifCenter && !isTourOpen && (
                     <div 
                       style={isMobile ? {
                         position: 'fixed',
@@ -7433,7 +7503,7 @@ export default function App() {
                 </div>
                 {/* App Tour Quick Guide Button */}
                 <button
-                  onClick={() => startTour('chat')}
+                  onClick={() => startTour(getTourScreenForTab(activeTab))}
                   style={{
                     background: 'var(--alpha-white-4)',
                     color: 'var(--primary-color)',
@@ -7506,6 +7576,7 @@ export default function App() {
                 ) : (
                   <button
                     onClick={() => {
+                      if (isTourOpen) return;
                       setAuthTab('login');
                       setShowAuthModal(true);
                     }}
@@ -7607,6 +7678,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => {
+                              if (isTourOpen) return;
                               setAuthTab('register');
                               setShowAuthModal(true);
                             }}
@@ -7633,6 +7705,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => {
+                              if (isTourOpen) return;
                               setAuthTab('login');
                               setShowAuthModal(true);
                             }}
@@ -7965,7 +8038,7 @@ export default function App() {
                   </div>
 
                   {/* Active Subscription Details Card */}
-                  <div className="glass" style={{ padding: isMobile ? '20px' : '32px', borderRadius: 'var(--radius-lg)', background: 'var(--card-bg)', border: '2px solid var(--primary-color)', position: 'relative', overflow: 'hidden' }}>
+                  <div id="tour-subscriptions-plans" className="glass" style={{ padding: isMobile ? '20px' : '32px', borderRadius: 'var(--radius-lg)', background: 'var(--card-bg)', border: '2px solid var(--primary-color)', position: 'relative', overflow: 'hidden' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
                       <div>
                         <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--primary-color)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>الباقة المفعلة</span>
@@ -8211,7 +8284,7 @@ export default function App() {
                   )}
 
                   {/* 3 Pricing Cards Grid */}
-                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '20px' }}>
+                  <div id="tour-subscriptions-plans" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '20px' }}>
                     
                     {/* Plan 1: 1 Month (60 EGP) */}
                     <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-lg)', background: 'var(--card-bg)', border: '2px solid var(--primary-color)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
@@ -10887,8 +10960,8 @@ export default function App() {
               </button>
             )}
             {!user ? (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', width: '100%', padding: '20px' }}>
-                <div className="glass text-center animate-scale-in" style={{
+              <div id="tour-exams-header" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', width: '100%', padding: '20px' }}>
+                <div id="tour-exams-list" className="glass text-center animate-scale-in" style={{
                   maxWidth: '460px',
                   padding: '40px 30px',
                   borderRadius: 'var(--radius-lg)',
@@ -10922,6 +10995,7 @@ export default function App() {
                   </p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
                     <button
+                      id="tour-exams-create-btn"
                       type="button"
                       onClick={() => {
                         setAuthTab('login');
@@ -11555,6 +11629,7 @@ export default function App() {
 
               {!selectedFlashcardSubject && (
                 <button
+                  id="tour-flashcards-create-btn"
                   onClick={() => {
                     const targetGrade = user?.grade_level || chatGrade || '1_high';
                     const activeSubjects = getActiveSubjectsForGrade(targetGrade);
@@ -12088,7 +12163,7 @@ export default function App() {
                     <Loader2 className="animate-spin" size={32} style={{ color: 'var(--primary-color)' }} />
                   </div>
                 ) : flashcardDecks.length === 0 ? (
-                  <div className="glass" style={{ padding: '60px 20px', borderRadius: '16px', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border-color)' }}>
+                  <div id="tour-flashcards-card" className="glass" style={{ padding: '60px 20px', borderRadius: '16px', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border-color)' }}>
                     <Brain size={48} style={{ color: 'var(--primary-color)', opacity: 0.5, marginBottom: '16px' }} />
                     <p style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>لا توجد كروت تعليمية بعد</p>
                     <p style={{ margin: '8px 0 0', fontSize: '0.85rem' }}>أنشئ أول مجموعة كروت بالذكاء الاصطناعي أو اكتبها بنفسك الآن!</p>
@@ -12144,7 +12219,7 @@ export default function App() {
         )}
 
         {/* Flashcards Creation Modal (AI or Manual) */}
-        {showFlashcardCreateModal && (
+        {showFlashcardCreateModal && !isTourOpen && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '12px' : '20px' }}>
             <div className="glass-strong animate-scale-in" style={{ maxWidth: '680px', width: '100%', borderRadius: '24px', padding: isMobile ? '20px 16px' : '28px 24px', background: 'var(--card-bg)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '18px', maxHeight: '92vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '14px' }}>
@@ -12468,11 +12543,11 @@ export default function App() {
                   <Loader2 className="animate-spin" size={36} style={{ color: 'var(--primary-color)' }} />
                 </div>
               ) : leaderboardData.length === 0 ? (
-                <div className="glass" style={{ padding: '40px', borderRadius: '16px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                <div id="tour-leaderboard-list" className="glass" style={{ padding: '40px', borderRadius: '16px', textAlign: 'center', color: 'var(--text-muted)' }}>
                   لا يوجد طلاب مسجلون في لوحة المتصدرين بعد.
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div id="tour-leaderboard-list" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   
                   {/* OUT-OF-TOP-10 STUDENT RANK BANNER (Prominent card at the top) */}
                   {user && userLeaderboardRank && (!leaderboardData.some(r => r.user_id === user.id) || userLeaderboardRank.rank_number > 10) && (
@@ -12742,7 +12817,7 @@ export default function App() {
       {renderUpgradeSheet()}
 
       {/* Mobile bottom tab bar — thumb-reachable primary navigation */}
-      {isMobile && !(activeTab === 'exams' && selectedExam && !examResult) && (
+      {isMobile && !isTourOpen && !(activeTab === 'exams' && selectedExam && !examResult) && (
         <nav className="bottom-nav" aria-label="التنقل السفلي" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)' }}>
           <button
             type="button"
@@ -12817,7 +12892,7 @@ export default function App() {
         </nav>
       )}
 
-      {showExamCreateModal && (
+      {showExamCreateModal && !isTourOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: isMobile ? '12px' : '20px', direction: 'rtl' }}>
           <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '680px', borderRadius: '24px', padding: isMobile ? '20px 16px' : '28px 24px', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontFamily: 'var(--font-arabic)', margin: isMobile ? '16px auto' : '32px auto', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '18px' }}>
             
@@ -13093,7 +13168,7 @@ export default function App() {
       )}
 
       {/* MODAL: Direct Mobile PWA Installation Guide */}
-      {showIosInstallModal && (
+      {showIosInstallModal && !isTourOpen && (
         <div 
           style={{
             position: 'fixed',
@@ -13219,7 +13294,7 @@ export default function App() {
       )}
 
       {/* MODAL 1: Authentication Overlay */}
-      {showAuthModal && (
+      {showAuthModal && !isTourOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px' }}>
           <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', margin: isMobile ? '20px auto' : '40px auto', flexShrink: 0 }}>
             
@@ -13478,7 +13553,7 @@ export default function App() {
       )}
 
       {/* SEQUENTIAL ONBOARDING MODAL (Step 1: Stage, Step 2: Name) */}
-      {showOnboardingModal && (
+      {showOnboardingModal && !isTourOpen && (
         <div style={{
           position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
           background: 'rgba(13, 27, 42, 0.85)', backdropFilter: 'blur(16px)',
@@ -14770,7 +14845,7 @@ export default function App() {
         }}
         onPrefillPrompt={(text) => {
           setInputMessage(text);
-          if (textareaRef.current) {
+          if (!isMobile && textareaRef.current) {
             textareaRef.current.focus();
           }
         }}
@@ -14779,7 +14854,48 @@ export default function App() {
           const activeSubjs = getActiveSubjectsForGrade(targetGrade);
           const subj = chatSubject || (activeSubjs[0]?.subject_name || 'الفيزياء');
           const prompt = inputMessage.trim() || `اشرحلي بالتفصيل وبأمثلة واضحة أول درس في منهج ${subj}`;
-          handleSendMessage(undefined, prompt);
+          handleTourClose(true);
+          setTimeout(() => {
+            handleSendMessage(undefined, prompt);
+          }, 40);
+        }}
+        onStartExamPrompt={() => {
+          if (!user) {
+            setAuthTab('register');
+            setShowAuthModal(true);
+            return;
+          }
+          const targetGrade = user.grade_level || chatGrade;
+          const activeSubjs = getActiveSubjectsForGrade(targetGrade);
+          const subj = examSubject || chatSubject || (activeSubjs[0]?.subject_name || '');
+          setExamSubject(subj);
+          setExamTopic('');
+          setSelectedExamLesson(null);
+          setLessonSearchQuery('');
+          setExamLessonTab('curriculum');
+          setShowExamCreateModal(true);
+          if (subj) fetchCurriculumStructure(targetGrade, subj);
+        }}
+        onStartFlashcardPrompt={() => {
+          if (!user) {
+            setAuthTab('register');
+            setShowAuthModal(true);
+            return;
+          }
+          const targetGrade = user.grade_level || chatGrade || '1_high';
+          const activeSubjects = getActiveSubjectsForGrade(targetGrade);
+          const subj = activeSubjects.length > 0 ? activeSubjects[0].subject_name : '';
+          setFlashcardSubject(subj);
+          setFlashcardTopic('');
+          setSelectedFlashcardLesson(null);
+          setLessonSearchQuery('');
+          setFlashcardLessonTab('curriculum');
+          setShowFlashcardCreateModal(true);
+          if (subj) fetchCurriculumStructure(targetGrade, subj);
+        }}
+        onNavigateToChat={() => {
+          setActiveTab('chat');
+          startTour('chat');
         }}
         isMobile={isMobile}
       />

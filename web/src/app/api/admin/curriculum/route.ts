@@ -100,14 +100,14 @@ export async function POST(req: NextRequest) {
 
     console.log(`[Curriculum Upload] Starting hierarchical chunking for ${subjectName || curriculumId}...`);
 
-    // Process hierarchical parent-child chunks and embeddings
-    const { parents, children, allChunks, embeddedCount, summaryContent } = await processCurriculumChunks(fileContent);
+    // Process hierarchical parent-child chunks, embeddings, and GraphRAG knowledge graph
+    const { parents, children, allChunks, embeddedCount, summaryContent, entities, relations } = await processCurriculumChunks(fileContent);
 
     if (parents.length === 0) {
       return NextResponse.json({ error: 'تعذر تجزئة الملف. يرجى التأكد من احتوائه على نص صالح.' }, { status: 400 });
     }
 
-    console.log(`[Curriculum Upload] Created ${parents.length} parent chunks, ${children.length} child chunks, ${embeddedCount} embeddings`);
+    console.log(`[Curriculum Upload] Created ${parents.length} parent chunks, ${children.length} child chunks, ${embeddedCount} embeddings, ${entities.length} graph entities`);
 
     let curriculum;
     if (curriculumId) {
@@ -124,15 +124,25 @@ export async function POST(req: NextRequest) {
       curriculum = await db.createCurriculum(gradeLevel, subjectName, file.name, allChunks, [], trackId, isElective);
     }
 
+    if (curriculum && curriculum.id && entities.length > 0) {
+      try {
+        await db.saveCurriculumGraph(curriculum.id, entities, relations);
+      } catch (graphErr) {
+        console.warn('Graph save notice:', graphErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      message: `تم معالجة ورفع المنهج بنجاح: ${parents.length} قسم رئيسي، ${children.length} وحدة بحث، ${embeddedCount} متجه دلالي.`,
+      message: `تم معالجة ورفع المنهج بنجاح: ${parents.length} قسم رئيسي، ${children.length} وحدة بحث، ${embeddedCount} متجه دلالي، ${entities.length} مفهوم في شبكة المعرفة.`,
       curriculum,
       stats: {
         parentChunks: parents.length,
         childChunks: children.length,
         embeddingsGenerated: embeddedCount,
-        hasSummary: !!summaryContent
+        hasSummary: !!summaryContent,
+        entitiesCount: entities.length,
+        relationsCount: relations.length
       }
     });
 

@@ -17,19 +17,26 @@ function ensureCheckpointDir() {
   }
 }
 
+const checkpointCache = new Map<string, JobCheckpoint>();
+
 export function getCheckpointPath(fileId: string): string {
   ensureCheckpointDir();
   return path.join(CHECKPOINT_DIR, `${fileId}.json`);
 }
 
 export function loadCheckpoint(fileId: string): JobCheckpoint | null {
+  if (checkpointCache.has(fileId)) {
+    return checkpointCache.get(fileId)!;
+  }
   try {
     const filePath = getCheckpointPath(fileId);
     if (!fs.existsSync(filePath)) {
       return null;
     }
     const data = fs.readFileSync(filePath, "utf-8");
-    return JSON.parse(data) as JobCheckpoint;
+    const cp = JSON.parse(data) as JobCheckpoint;
+    checkpointCache.set(fileId, cp);
+    return cp;
   } catch (error) {
     console.error(`Failed to load checkpoint for ${fileId}:`, error);
     return null;
@@ -64,11 +71,19 @@ export function initCheckpoint(file: FileQueueItem): JobCheckpoint {
 export function saveCheckpoint(checkpoint: JobCheckpoint): void {
   try {
     ensureCheckpointDir();
+    checkpointCache.set(checkpoint.fileId, checkpoint);
     checkpoint.lastUpdated = new Date().toISOString();
     const filePath = getCheckpointPath(checkpoint.fileId);
-    const tempPath = `${filePath}.tmp`;
+    const tempPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2, 6)}.tmp`;
     fs.writeFileSync(tempPath, JSON.stringify(checkpoint, null, 2), "utf-8");
-    fs.renameSync(tempPath, filePath);
+    try {
+      fs.renameSync(tempPath, filePath);
+    } catch {
+      fs.copyFileSync(tempPath, filePath);
+      try {
+        fs.unlinkSync(tempPath);
+      } catch {}
+    }
   } catch (error) {
     console.error(`Failed to save checkpoint for ${checkpoint.fileId}:`, error);
   }
@@ -88,6 +103,7 @@ export function savePageResult(
 
 export function deleteCheckpoint(fileId: string): void {
   try {
+    checkpointCache.delete(fileId);
     const filePath = getCheckpointPath(fileId);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);

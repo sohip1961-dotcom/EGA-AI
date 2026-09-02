@@ -1,5 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { getCairoDateString, toPreciseCoins } from './currency_verifier';
+import { CurriculumEntity, CurriculumRelation, extractEntitiesAndRelationsFromChunk } from './graph_rag';
+import { BM25Index } from './bm25';
+
+export type { CurriculumEntity, CurriculumRelation } from './graph_rag';
 
 // Types
 export interface Profile {
@@ -317,17 +321,53 @@ function initLocalDB() {
       flashcards: [],
       payment_transactions: [],
       free_trial_grants: [],
-      user_devices: []
+      user_devices: [],
+      curriculum_entities: [],
+      curriculum_relations: []
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf8');
   }
 }
 
-// Read local DB
-function readLocalDB() {
-  if (process.env.NEXT_RUNTIME === 'edge') {
-    return {
-      profiles: [],
+declare global {
+  var __egs_memory_db: any;
+}
+
+function getMemoryDB(): any {
+  if (!globalThis.__egs_memory_db) {
+    globalThis.__egs_memory_db = {
+      profiles: [
+        {
+          id: 'admin-id-1234567890',
+          phone: '01147814652',
+          email: 'admin@egsaiedu.com',
+          name: 'مدير النظام',
+          grade_level: '1_high',
+          plan_type: 'max',
+          role: 'admin',
+          password_hash: '343f7ea65b1d1ed5b5980d214808c2e06379a8b97586db4d6c97874d4440c174',
+          created_at: new Date().toISOString(),
+          coins: 1000.0,
+          last_active_date: new Date().toISOString().split('T')[0],
+          unlimited_credit: true
+        },
+        {
+          id: 'f0000000-0000-4000-a000-000000000001',
+          phone: '01000000000',
+          email: 'test@egsaiedu.com',
+          name: 'حساب اختباري (Test Account)',
+          grade_level: '1_high',
+          plan_type: 'max',
+          role: 'admin',
+          unlimited_credit: true,
+          coins: 10000,
+          points: 0,
+          study_streak: 1,
+          password_hash: 'pbkdf2$100000$h0SjDuidjcSD8T3EPG1nRA==$pKLZrAFUqLdoMTyheDcKFq9o02smj/kIrJu03RWzHM8=',
+          created_at: '2026-07-30T13:35:52.543Z',
+          last_active_date: new Date().toISOString().split('T')[0]
+        }
+      ],
       pending_registrations: [],
       password_resets: [],
       device_guests: [],
@@ -335,7 +375,9 @@ function readLocalDB() {
       curriculum_chunks: [],
       chat_history: [],
       chat_sessions: [],
-      system_settings: [],
+      system_settings: [
+        { key: 'website_link', value: 'http://localhost:3000' }
+      ],
       exams: [],
       exam_submissions: [],
       reports: [],
@@ -346,8 +388,18 @@ function readLocalDB() {
       payment_transactions: [],
       free_trial_grants: [],
       user_devices: [],
-      contact_messages: []
+      contact_messages: [],
+      curriculum_entities: [],
+      curriculum_relations: []
     };
+  }
+  return globalThis.__egs_memory_db;
+}
+
+// Read local DB
+function readLocalDB() {
+  if (process.env.NEXT_RUNTIME === 'edge') {
+    return getMemoryDB();
   }
   const fs = require('fs');
   const DB_FILE = './db_data.json';
@@ -448,6 +500,16 @@ function readLocalDB() {
       changed = true;
     }
 
+    if (!parsed.curriculum_entities) {
+      parsed.curriculum_entities = [];
+      changed = true;
+    }
+
+    if (!parsed.curriculum_relations) {
+      parsed.curriculum_relations = [];
+      changed = true;
+    }
+
     if (changed) {
       fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), 'utf8');
     }
@@ -495,7 +557,10 @@ function readLocalDB() {
 
 // Write local DB
 function writeLocalDB(data: any) {
-  if (process.env.NEXT_RUNTIME === 'edge') return;
+  if (process.env.NEXT_RUNTIME === 'edge') {
+    globalThis.__egs_memory_db = data;
+    return;
+  }
   const fs = require('fs');
   const DB_FILE = './db_data.json';
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
@@ -1231,6 +1296,245 @@ export const db = {
     }
   },
 
+  async getCurriculumRecord(gradeLevel: string, subjectName: string): Promise<Curriculum | null> {
+    const cleanGrade = gradeLevel.trim();
+    const cleanSubject = subjectName.trim();
+    if (supabase) {
+      const { data } = await supabase
+        .from('curriculums')
+        .select('*')
+        .eq('grade_level', cleanGrade)
+        .eq('subject_name', cleanSubject)
+        .limit(1)
+        .maybeSingle();
+      return data || null;
+    } else {
+      const data = readLocalDB();
+      return data.curriculums.find((c: Curriculum) =>
+        c.grade_level === cleanGrade && c.subject_name === cleanSubject
+      ) || null;
+    }
+  },
+
+  async getAllChunksForCurriculum(gradeLevel: string, subjectName: string): Promise<CurriculumChunk[]> {
+    const cleanGrade = gradeLevel.trim();
+    const cleanSubject = subjectName.trim();
+    if (supabase) {
+      const { data: currList } = await supabase
+        .from('curriculums')
+        .select('id')
+        .eq('grade_level', cleanGrade)
+        .eq('subject_name', cleanSubject);
+      if (!currList || currList.length === 0) return [];
+      const curriculumIds = currList.map(c => c.id);
+
+      const { data: chunks, error } = await supabase
+        .from('curriculum_chunks')
+        .select('id, content, heading, curriculum_id, chunk_level, parent_id, position_index')
+        .in('curriculum_id', curriculumIds)
+        .neq('heading', '__CURRICULUM_SUMMARY__')
+        .order('position_index', { ascending: true })
+        .limit(1000);
+      if (error) return [];
+      return chunks || [];
+    } else {
+      const data = readLocalDB();
+      const curr = data.curriculums.find((c: Curriculum) =>
+        c.grade_level === cleanGrade && c.subject_name === cleanSubject
+      );
+      if (!curr) return [];
+      return (data.curriculum_chunks || []).filter(
+        (cc: CurriculumChunk) => cc.curriculum_id === curr.id && cc.heading !== '__CURRICULUM_SUMMARY__'
+      );
+    }
+  },
+
+  async saveCurriculumGraph(
+    curriculumId: string,
+    entities: CurriculumEntity[],
+    relations: CurriculumRelation[]
+  ): Promise<boolean> {
+    if (supabase) {
+      await supabase.from('curriculum_relations').delete().eq('curriculum_id', curriculumId);
+      await supabase.from('curriculum_entities').delete().eq('curriculum_id', curriculumId);
+
+      if (entities.length > 0) {
+        for (let i = 0; i < entities.length; i += 50) {
+          const batch = entities.slice(i, i + 50).map(e => ({
+            id: e.id,
+            curriculum_id: curriculumId,
+            name: e.name,
+            normalized_name: e.normalized_name,
+            category: e.category,
+            description: e.description,
+            aliases: e.aliases || [],
+            chunk_ids: e.chunk_ids || [],
+            importance_score: e.importance_score || 0.5
+          }));
+          const { error } = await supabase.from('curriculum_entities').insert(batch);
+          if (error) {
+            console.error('Error inserting curriculum_entities batch:', error);
+          }
+        }
+      }
+
+      if (relations.length > 0) {
+        for (let i = 0; i < relations.length; i += 50) {
+          const batch = relations.slice(i, i + 50).map(r => ({
+            id: r.id,
+            curriculum_id: curriculumId,
+            source_entity_id: r.source_entity_id,
+            target_entity_id: r.target_entity_id,
+            relation_type: r.relation_type,
+            description: r.description,
+            weight: r.weight || 0.7
+          }));
+          const { error } = await supabase.from('curriculum_relations').insert(batch);
+          if (error) {
+            console.error('Error inserting curriculum_relations batch:', error);
+          }
+        }
+      }
+      return true;
+    } else {
+      const data = readLocalDB();
+      data.curriculum_entities = (data.curriculum_entities || []).filter((e: any) => e.curriculum_id !== curriculumId);
+      data.curriculum_relations = (data.curriculum_relations || []).filter((r: any) => r.curriculum_id !== curriculumId);
+      data.curriculum_entities.push(...entities);
+      data.curriculum_relations.push(...relations);
+      writeLocalDB(data);
+      return true;
+    }
+  },
+
+  async getCurriculumGraph(
+    gradeLevel: string,
+    subjectName: string
+  ): Promise<{ entities: CurriculumEntity[]; relations: CurriculumRelation[] }> {
+    const cleanGrade = gradeLevel.trim();
+    const cleanSubject = subjectName.trim();
+
+    if (supabase) {
+      const { data: currList } = await supabase
+        .from('curriculums')
+        .select('id')
+        .eq('grade_level', cleanGrade)
+        .eq('subject_name', cleanSubject);
+
+      if (!currList || currList.length === 0) return { entities: [], relations: [] };
+      const curriculumId = currList[0].id;
+
+      const [entRes, relRes] = await Promise.all([
+        supabase
+          .from('curriculum_entities')
+          .select('id, curriculum_id, name, normalized_name, category, description, aliases, chunk_ids, importance_score')
+          .eq('curriculum_id', curriculumId)
+          .limit(500),
+        supabase
+          .from('curriculum_relations')
+          .select('id, curriculum_id, source_entity_id, target_entity_id, relation_type, description, weight')
+          .eq('curriculum_id', curriculumId)
+          .limit(1000)
+      ]);
+
+      let entities = (entRes.data || []) as CurriculumEntity[];
+      let relations = (relRes.data || []) as CurriculumRelation[];
+
+      // Auto-Backfill: If curriculum has chunks but graph hasn't been built yet, auto-extract from existing parent chunks!
+      if (entities.length === 0) {
+        const chunks = await this.getAllChunksForCurriculum(cleanGrade, cleanSubject);
+        const parentChunks = chunks.filter(c => c.chunk_level === 'parent' && c.heading !== '__CURRICULUM_SUMMARY__');
+        if (parentChunks.length > 0) {
+          const allEntities: CurriculumEntity[] = [];
+          const allRelations: CurriculumRelation[] = [];
+          const entityMap = new Map<string, CurriculumEntity>();
+
+          for (const parent of parentChunks) {
+            const extracted = extractEntitiesAndRelationsFromChunk(
+              parent.content,
+              parent.heading,
+              parent.id,
+              curriculumId
+            );
+            for (const ent of extracted.entities) {
+              if (!entityMap.has(ent.normalized_name)) {
+                entityMap.set(ent.normalized_name, ent);
+                allEntities.push(ent);
+              } else {
+                const existing = entityMap.get(ent.normalized_name)!;
+                if (!existing.chunk_ids.includes(parent.id)) {
+                  existing.chunk_ids.push(parent.id);
+                }
+              }
+            }
+            allRelations.push(...extracted.relations);
+          }
+
+          if (allEntities.length > 0) {
+            await this.saveCurriculumGraph(curriculumId, allEntities, allRelations);
+            entities = allEntities;
+            relations = allRelations;
+          }
+        }
+      }
+
+      return { entities, relations };
+    } else {
+      const data = readLocalDB();
+      const curr = data.curriculums.find((c: Curriculum) =>
+        c.grade_level === cleanGrade && c.subject_name === cleanSubject
+      );
+      if (!curr) return { entities: [], relations: [] };
+      let entities = (data.curriculum_entities || []).filter((e: any) => e.curriculum_id === curr.id);
+      let relations = (data.curriculum_relations || []).filter((r: any) => r.curriculum_id === curr.id);
+
+      // Auto-Backfill for local mode as well
+      if (entities.length === 0) {
+        const chunks = (data.curriculum_chunks || []).filter((c: CurriculumChunk) =>
+          c.curriculum_id === curr.id && c.chunk_level !== 'child' && c.heading !== '__CURRICULUM_SUMMARY__'
+        );
+        if (chunks.length > 0) {
+          const allEntities: CurriculumEntity[] = [];
+          const allRelations: CurriculumRelation[] = [];
+          const entityMap = new Map<string, CurriculumEntity>();
+
+          for (const parent of chunks) {
+            const extracted = extractEntitiesAndRelationsFromChunk(
+              parent.content,
+              parent.heading,
+              parent.id,
+              curr.id
+            );
+            for (const ent of extracted.entities) {
+              if (!entityMap.has(ent.normalized_name)) {
+                entityMap.set(ent.normalized_name, ent);
+                allEntities.push(ent);
+              } else {
+                const existing = entityMap.get(ent.normalized_name)!;
+                if (!existing.chunk_ids.includes(parent.id)) {
+                  existing.chunk_ids.push(parent.id);
+                }
+              }
+            }
+            allRelations.push(...extracted.relations);
+          }
+
+          if (allEntities.length > 0) {
+            data.curriculum_entities = (data.curriculum_entities || []).filter((e: any) => e.curriculum_id !== curr.id);
+            data.curriculum_relations = (data.curriculum_relations || []).filter((r: any) => r.curriculum_id !== curr.id);
+            data.curriculum_entities.push(...allEntities);
+            data.curriculum_relations.push(...allRelations);
+            writeLocalDB(data);
+            entities = allEntities;
+            relations = allRelations;
+          }
+        }
+      }
+
+      return { entities, relations };
+    }
+  },
+
   // ─── Legscy RAG search (kept for backward compat) ──────────────────────────
   async searchCurriculum(gradeLevel: string, subjectName: string, queryKeywords: string[]): Promise<CurriculumChunk[]> {
     return this.bm25SearchCurriculum(gradeLevel, subjectName, queryKeywords, []);
@@ -1301,9 +1605,26 @@ export const db = {
         return [];
       }
 
+      const bm25Docs = fetchedChunks.map(c => ({
+        id: c.id,
+        heading: c.heading,
+        content: c.content,
+        parent_id: c.parent_id,
+        position_index: c.position_index
+      }));
+      const bm25 = new BM25Index(bm25Docs);
+      const queryStr = [...cleanArabic, ...cleanEnglish].join(' ');
+      const bm25Hits = bm25.search(queryStr, 8);
+      if (bm25Hits.length > 0) {
+        const hitMap = new Map(bm25Hits.map(h => [h.doc.id, h.score]));
+        return fetchedChunks
+          .filter(c => hitMap.has(c.id))
+          .sort((a, b) => (hitMap.get(b.id) || 0) - (hitMap.get(a.id) || 0));
+      }
+
       return rankChunksV2(fetchedChunks, arabicKeywords, englishKeywords);
     } else {
-      // Local JSON mode: score all chunks against keywords
+      // Local JSON mode: score all chunks using BM25 with fallback
       const data = readLocalDB();
       const curr = data.curriculums.find((c: Curriculum) =>
         c.grade_level === cleanGrade && c.subject_name === cleanSubject
@@ -1313,7 +1634,25 @@ export const db = {
       const allChunks = data.curriculum_chunks.filter(
         (cc: CurriculumChunk) => cc.curriculum_id === curr.id
       );
-      // In local mode, score all chunks with priority to rich context
+      if (allChunks.length === 0) return [];
+
+      const bm25Docs = allChunks.map((c: CurriculumChunk) => ({
+        id: c.id,
+        heading: c.heading,
+        content: c.content,
+        parent_id: c.parent_id,
+        position_index: c.position_index
+      }));
+      const bm25 = new BM25Index(bm25Docs);
+      const queryStr = [...arabicKeywords, ...englishKeywords].join(' ');
+      const bm25Hits = bm25.search(queryStr, 8);
+      if (bm25Hits.length > 0) {
+        const hitMap = new Map(bm25Hits.map(h => [h.doc.id, h.score]));
+        return allChunks
+          .filter((c: CurriculumChunk) => hitMap.has(c.id))
+          .sort((a: CurriculumChunk, b: CurriculumChunk) => (hitMap.get(b.id) || 0) - (hitMap.get(a.id) || 0));
+      }
+
       return rankChunksV2(allChunks, arabicKeywords, englishKeywords).slice(0, 8);
     }
   },

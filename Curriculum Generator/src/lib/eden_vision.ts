@@ -1,3 +1,9 @@
+import dns from "dns";
+
+try {
+  dns.setServers(["8.8.8.8", "1.1.1.1"]);
+} catch (e) {}
+
 export interface VisionExtractionOptions {
   geminiApiKey?: string;
   edenAiApiKey?: string;
@@ -135,6 +141,11 @@ export async function extractWithEdenAI(
               if (ocrText && ocrText.trim().length > 0) {
                 return ocrText.trim();
               }
+
+              // If OCR found no text in image, but page already has digital text, use it directly
+              if (extractedText && extractedText.trim().length > 25) {
+                return extractedText.trim();
+              }
             } else {
               ocrErrorDetail = await ocrResponse.text();
             }
@@ -150,6 +161,11 @@ export async function extractWithEdenAI(
             throw new Error("مفتاح EdenAI غير صالح أو غير معتمد (401 Unauthorized)");
           }
 
+          // If digital text is available, skip expensive and slow VQA
+          if (extractedText && extractedText.trim().length > 25) {
+            return extractedText.trim();
+          }
+
           // Step 3: EdenAI VQA API fallback
           try {
             const fileBlob = new Blob([new Uint8Array(imageBuffer)], { type: "image/jpeg" });
@@ -163,7 +179,7 @@ export async function extractWithEdenAI(
             );
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 60000);
+            const timeoutId = setTimeout(() => controller.abort(), 20000);
 
             const vqaResponse = await fetch("https://api.edenai.run/v2/image/question_answer", {
               method: "POST",

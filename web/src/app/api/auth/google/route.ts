@@ -3,6 +3,64 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { generateSessionToken, parseDeviceMetadata } from '@/lib/auth_helpers';
 
+// In-memory cache for Google's public JWK certs (1-hour TTL)
+let cachedJwks: { keys: any[]; expiresAt: number } | null = null;
+
+async function getGoogleJwks(): Promise<any[]> {
+  const now = Date.now();
+  if (cachedJwks && cachedJwks.expiresAt > now && cachedJwks.keys.length > 0) {
+    return cachedJwks.keys;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    const jwksRes = await fetch('https://www.googleapis.com/oauth2/v3/certs', {
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (jwksRes.ok) {
+      const data = await jwksRes.json();
+      if (Array.isArray(data?.keys) && data.keys.length > 0) {
+        cachedJwks = {
+          keys: data.keys,
+          expiresAt: now + 60 * 60 * 1000
+        };
+        return data.keys;
+      }
+    }
+  } catch (err) {
+    if (cachedJwks && cachedJwks.keys.length > 0) {
+      return cachedJwks.keys;
+    }
+    throw new Error('فشل الحصول على مفاتيح Google العامة للتحقق. يرجى التحقق من اتصال الإنترنت والمحاولة ثانية.');
+  }
+
+  if (cachedJwks && cachedJwks.keys.length > 0) {
+    return cachedJwks.keys;
+  }
+  throw new Error('فشل الحصول على مفاتيح Google العامة للتحقق');
+}
+
+function base64UrlToUint8Array(str: string): Uint8Array {
+  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) base64 += '=';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function base64UrlDecodeJson(str: string): any {
+  const bytes = base64UrlToUint8Array(str);
+  const text = new TextDecoder().decode(bytes);
+  return JSON.parse(text);
+}
+
 // Cryptographically verify Google ID Token signature and claims
 async function verifyGoogleIdToken(token: string, clientId: string): Promise<any> {
   const parts = token.split('.');
@@ -12,18 +70,11 @@ async function verifyGoogleIdToken(token: string, clientId: string): Promise<any
 
   const [headerB64, payloadB64, signatureB64] = parts;
 
-  // Helper: Decode Base64URL string
-  const base64UrlDecode = (str: string) => {
-    let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-    while (base64.length % 4) base64 += '=';
-    return Buffer.from(base64, 'base64');
-  };
-
   let header: any;
   let payload: any;
   try {
-    header = JSON.parse(base64UrlDecode(headerB64).toString('utf-8'));
-    payload = JSON.parse(base64UrlDecode(payloadB64).toString('utf-8'));
+    header = base64UrlDecodeJson(headerB64);
+    payload = base64UrlDecodeJson(payloadB64);
   } catch (err) {
     throw new Error('فشل فك تشفير وتفسير محتويات رمز الدخول');
   }
@@ -52,14 +103,7 @@ async function verifyGoogleIdToken(token: string, clientId: string): Promise<any
     throw new Error('لم يتم العثور على معرف المفتاح (kid) في رأس الرمز');
   }
 
-  // Fetch Google's public JWK certs
-  const jwksRes = await fetch('https://www.googleapis.com/oauth2/v3/certs', {
-    next: { revalidate: 3600 } // cache public certs for 1 hour
-  });
-  if (!jwksRes.ok) {
-    throw new Error('فشل الحصول على مفاتيح Google العامة للتحقق');
-  }
-  const { keys } = await jwksRes.json();
+  const keys = await getGoogleJwks();
   const jwk = keys.find((k: any) => k.kid === kid);
   if (!jwk) {
     throw new Error('مفتاح التحقق المطابق لمعرف الرمز غير متوفر');
@@ -82,12 +126,12 @@ async function verifyGoogleIdToken(token: string, clientId: string): Promise<any
   // Reconstruct signing data and verify signature
   const encoder = new TextEncoder();
   const signingData = encoder.encode(`${headerB64}.${payloadB64}`);
-  const signatureBytes = base64UrlDecode(signatureB64);
+  const signatureBytes = base64UrlToUint8Array(signatureB64);
 
   const isValid = await crypto.subtle.verify(
     'RSASSA-PKCS1-v1_5',
     publicKey,
-    signatureBytes,
+    signatureBytes as unknown as BufferSource,
     signingData
   );
 

@@ -10,6 +10,7 @@ import {
   classifyEngagement,
   QueryIntelligence
 } from '@/lib/gemini';
+import { runHybridTriFusionRetrieval } from '@/lib/hybrid_retriever';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -335,143 +336,90 @@ export async function POST(req: NextRequest) {
             }
 
             emitSearchStep('searching', '🔍', intelligence.searchAnnouncement);
+            emitSearchStep('graph_traversal', '🕸️', 'استكشاف شبكة المفاهيم والعلاقات الأكاديمية (GraphRAG)...');
 
-            const [hydeEmbedding, bm25Chunks] = await Promise.all([
-              generateEmbedding(intelligence.hydePassage).catch(e => {
-                console.error('HyDE embedding failed:', e);
-                return [] as number[];
-              }),
-              db.bm25SearchCurriculum(activeGrade, activeSubject, intelligence.arabicKeywords, intelligence.englishKeywords)
-            ]);
-
-            let vectorChunks: CurriculumChunk[] = [];
-            if (hydeEmbedding.length > 0) {
-              try {
-                vectorChunks = await db.vectorSearchCurriculum(activeGrade, activeSubject, hydeEmbedding);
-              } catch (vecErr) {
-                console.error('Vector search failed, using BM25 only:', vecErr);
-              }
-            }
-
-            // RRF fusion (k=60) with metadata boosting
-            const scores = new Map<string, { chunk: CurriculumChunk; score: number }>();
-            
-            vectorChunks.forEach((chunk, rank) => {
-              const score = 1 / (60 + rank + 1);
-              scores.set(chunk.id, { chunk, score });
+            const hydeEmbedding = await generateEmbedding(intelligence.hydePassage).catch(e => {
+              console.error('HyDE embedding failed:', e);
+              return [] as number[];
             });
-            
-            bm25Chunks.forEach((chunk, rank) => {
-              const score = 1 / (60 + rank + 1);
-              const existing = scores.get(chunk.id);
-              scores.set(chunk.id, { chunk, score: (existing?.score || 0) + score });
-            });
-            
-            if (intelligence.metadata?.unit || intelligence.metadata?.chapter) {
-              const unitTerm = intelligence.metadata.unit?.trim().toLowerCase();
-              const chapterTerm = intelligence.metadata.chapter?.trim().toLowerCase();
-              
-              for (const [id, item] of scores.entries()) {
-                const heading = (item.chunk.heading || '').toLowerCase();
-                let boost = 1.0;
-                if (unitTerm && heading.includes(unitTerm)) boost += 1.5;
-                if (chapterTerm && heading.includes(chapterTerm)) boost += 1.5;
-                if (boost > 1.0) {
-                  item.score = item.score * boost;
-                }
+
+            emitSearchStep('fusion', '⚡', 'دمج وتصنيف أفضل نتائج البحث (Tri-Fusion RRF)...');
+
+            const retrievalResult = await runHybridTriFusionRetrieval(
+              activeGrade,
+              activeSubject,
+              promptText,
+              hydeEmbedding,
+              [...intelligence.arabicKeywords, ...intelligence.englishKeywords],
+              {
+                topK: 8,
+                rrfK: 60,
+                weightVector: 1.0,
+                weightBM25: 1.0,
+                weightGraph: 0.85
               }
-            }
+            );
 
-            const fusedChildChunks = Array.from(scores.values())
-              .sort((a, b) => b.score - a.score)
-              .map(({ chunk }) => chunk)
-              .slice(0, 8);
-
-            let contextChunks: CurriculumChunk[] = [];
-            const parentIds = [...new Set(
-              fusedChildChunks
-                .map(c => c.parent_id)
-                .filter((id): id is string => !!id)
-            )];
-
-            if (parentIds.length > 0) {
-              contextChunks = await db.getParentChunks(parentIds);
-            }
-
-            if (contextChunks.length === 0 && fusedChildChunks.length > 0) {
-              contextChunks = fusedChildChunks;
-            }
-
-            let outlineHeader = '';
-            if (Array.isArray(targetCurr.units) && targetCurr.units.length > 0) {
-              const unitMap = targetCurr.units.map((u: any, uIdx: number) => {
-                const lessonTitles = (u.lessons || []).map((l: any, lIdx: number) => `      - ${l.title || `الدرس ${lIdx + 1}`}`).join('\n');
-                return `  * ${u.title || `الوحدة ${uIdx + 1}`}:\n${lessonTitles}`;
-              }).join('\n');
-              outlineHeader = `خريطة وحدات ودروس المنهج الدراسي:\n${unitMap}\n\n`;
-            }
+            let contextChunks = retrievalResult.parentChunks;
+            let fusedChildChunks = retrievalResult.childChunks;
+            ragContext = retrievalResult.formattedContext;
 
             if (intelligence.queryType === 'overview') {
-              emitSearchStep('summary', '📚', 'سأستعرض محتوى المنهج الكامل...');
+              emitSearchStep('summary', '📚', 'سأستعرض محتوى المنهج الشامل...');
               const [summary, outline] = await Promise.all([
                 db.getCurriculumSummary(activeGrade, activeSubject),
                 db.getFullCurriculumOutline(activeGrade, activeSubject)
               ]);
+              let overviewPrefix = '';
               if (summary) {
-                ragContext = `ملخص المنهج الشامل:\n${summary}\n\n`;
+                overviewPrefix += `ملخص المنهج الشامل:\n${summary}\n\n`;
               }
               if (outline.length > 0) {
-                ragContext += `محاور المنهج الدراسي:\n${outline.map((h, i) => `${i + 1}. ${h}`).join('\n')}\n\n`;
-              } else if (outlineHeader) {
-                ragContext += outlineHeader;
+                overviewPrefix += `محاور المنهج الدراسي:\n${outline.map((h, i) => `${i + 1}. ${h}`).join('\n')}\n\n`;
               }
-              ragContext += buildHierarchicalContextString(contextChunks.slice(0, 6), fusedChildChunks);
-
-            } else if (intelligence.queryType === 'direct' && contextChunks.length >= 3) {
-              ragContext = (outlineHeader ? outlineHeader : '') + buildHierarchicalContextString(contextChunks.slice(0, 8), fusedChildChunks);
-
-            } else {
-              ragContext = (outlineHeader ? outlineHeader : '') + buildHierarchicalContextString(contextChunks.slice(0, 8), fusedChildChunks);
-
-              if (contextChunks.length < 3) {
-                emitSearchStep('assessing', '📊', 'أتحقق من كفاية المعلومات المسترجعة...');
-
-                try {
-                  const gap = await assessContextGap(promptText, ragContext);
-
-                  if (!gap.sufficient && gap.missingTopics.length > 0) {
-                    for (const topic of gap.missingTopics.slice(0, 2)) {
-                      emitSearchStep('followup', '🔍', `سأبحث أيضاً عن: ${topic}`);
-                      try {
-                        const extraChunks = await db.bm25SearchCurriculum(
-                          activeGrade, activeSubject, [topic], [topic]
-                        );
-                        const existingIds = new Set(contextChunks.map(c => c.id));
-                        const newChunks = extraChunks.filter(c => !existingIds.has(c.id));
-                        contextChunks.push(...newChunks.slice(0, 3));
-                        fusedChildChunks.push(...extraChunks.slice(0, 3));
-                      } catch (extraErr) {
-                        console.error(`Round 2 search for "${topic}" failed:`, extraErr);
+              ragContext = overviewPrefix + ragContext;
+            } else if (contextChunks.length < 3) {
+              emitSearchStep('assessing', '📊', 'أتحقق من كفاية المعلومات المسترجعة...');
+              try {
+                const gap = await assessContextGap(promptText, ragContext);
+                if (!gap.sufficient && gap.missingTopics.length > 0) {
+                  for (const topic of gap.missingTopics.slice(0, 2)) {
+                    emitSearchStep('followup', '🔍', `سأبحث أيضاً عن: ${topic}`);
+                    try {
+                      const extraResult = await runHybridTriFusionRetrieval(
+                        activeGrade,
+                        activeSubject,
+                        topic,
+                        [],
+                        [topic],
+                        { topK: 3 }
+                      );
+                      const existingIds = new Set(contextChunks.map(c => c.id));
+                      const newChunks = extraResult.parentChunks.filter(c => !existingIds.has(c.id));
+                      if (newChunks.length > 0) {
+                        contextChunks.push(...newChunks);
+                        fusedChildChunks.push(...extraResult.childChunks);
+                        ragContext += `\n\n` + extraResult.formattedContext;
                       }
-                    }
-                    ragContext = (outlineHeader ? outlineHeader : '') + buildHierarchicalContextString(contextChunks.slice(0, 8), fusedChildChunks);
-                  }
-
-                  if (!gap.sufficient && contextChunks.length < 2) {
-                    emitSearchStep('summary', '📚', 'سأراجع ملخص المنهج الكامل...');
-                    const summary = await db.getCurriculumSummary(activeGrade, activeSubject);
-                    if (summary) {
-                      ragContext = `ملخص المنهج:\n${summary}\n\n${ragContext}`;
+                    } catch (extraErr) {
+                      console.error(`Round 2 search for "${topic}" failed:`, extraErr);
                     }
                   }
-                } catch (gapErr) {
-                  console.error('Gap analysis failed, continuing with available context:', gapErr);
                 }
+              } catch (gapErr) {
+                console.error('Gap analysis notice:', gapErr);
               }
             }
 
             const foundCount = contextChunks.length;
-            emitSearchStep('found', '✅', `وجدت ${foundCount} ${foundCount === 1 ? 'قسماً' : 'أقسام'} ذات صلة من المنهج`);
+            const entityCount = retrievalResult.subgraph.entities.length;
+            emitSearchStep(
+              'found',
+              '✅',
+              entityCount > 0
+                ? `وجدت ${foundCount} ${foundCount === 1 ? 'قسماً' : 'أقسام'} و ${entityCount} ${entityCount === 1 ? 'مفهوماً مرتبطاً' : 'مفاهيم مرتبطة'}`
+                : `وجدت ${foundCount} ${foundCount === 1 ? 'قسماً' : 'أقسام'} ذات صلة من المنهج`
+            );
 
             if (!ragContext.trim()) {
               ragContext = 'لا يوجد ملف منهج دراسي مرفوع حالياً لهذه المادة والسنة الدراسية. يجب عليك تنبيه الطالب بأن هذه المعلومة خارج المنهج المقرر في بداية إجابتك.';

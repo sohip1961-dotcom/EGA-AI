@@ -75,8 +75,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'المحتوى لا يمكن أن يكون فارغاً' }, { status: 400 });
     }
 
-    // Process hierarchical chunks and generate embeddings
-    const { parents, children, allChunks, embeddedCount, summaryContent } = await processCurriculumChunks(content);
+    // Process hierarchical chunks, generate embeddings, and extract GraphRAG knowledge graph
+    const { parents, children, allChunks, embeddedCount, summaryContent, entities, relations } = await processCurriculumChunks(content, id);
 
     if (parents.length === 0) {
       return NextResponse.json({ error: 'تعذر تجزئة الملف. يرجى التأكد من احتوائه على نص صالح.' }, { status: 400 });
@@ -89,14 +89,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'فشل تحديث محتوى المنهج' }, { status: 500 });
     }
 
+    if (entities.length > 0) {
+      try {
+        await db.saveCurriculumGraph(id, entities, relations);
+      } catch (graphErr) {
+        console.warn('Graph save notice in detail route:', graphErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      message: `تم تحديث المنهج الدراسي وإعادة فهرسته بنجاح: ${parents.length} قسم رئيسي، ${children.length} وحدة بحث، ${embeddedCount} متجه دلالي.`,
+      message: `تم تحديث المنهج الدراسي وإعادة فهرسته بنجاح: ${parents.length} قسم رئيسي، ${children.length} وحدة بحث، ${embeddedCount} متجه دلالي، ${entities.length} مفهوم في شبكة المعرفة.`,
       stats: {
         parentChunks: parents.length,
         childChunks: children.length,
         embeddingsGenerated: embeddedCount,
-        hasSummary: !!summaryContent
+        hasSummary: !!summaryContent,
+        entitiesCount: entities.length,
+        relationsCount: relations.length
       }
     });
 

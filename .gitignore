@@ -35,3 +35,8 @@ dist/
 # Vercel
 .vercel/
 
+# Curriculum Generator debug files & cache
+Curriculum Generator/debug_page_*.jpg
+Curriculum Generator/debug_pymupdf_*.jpg
+Curriculum Generator/page_images_cache/
+

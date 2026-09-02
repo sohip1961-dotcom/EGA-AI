@@ -21,7 +21,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'جلسة العمل منتهية أو غير صالحة. يرجى تسجيل الدخول.' }, { status: 401 });
     }
 
-    const { action, name, otp, new_password } = await req.json();
+    const body = await req.json();
+    const { action, name, otp, new_password, grade_level, track_id, elective_subject } = body;
 
     if (!action) {
       return NextResponse.json({ error: 'حقل الإجراء مطلوب' }, { status: 400 });
@@ -67,11 +68,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'complete-onboarding') {
-      const body = await req.json().catch(() => ({}));
-      const cleanName = (name || body.name || '').trim();
-      const targetGrade = body.grade_level || profile.grade_level;
-      const targetTrack = body.track_id !== undefined ? body.track_id : profile.track_id;
-      const targetElective = body.elective_subject !== undefined ? body.elective_subject : profile.elective_subject;
+      const cleanName = (name || '').trim();
+      const targetGrade = grade_level || profile.grade_level;
+      const targetTrack = track_id !== undefined ? track_id : profile.track_id;
+      const targetElective = elective_subject !== undefined ? elective_subject : profile.elective_subject;
 
       const validGrades = ['1_middle', '2_middle', '3_middle', '1_high', '2_high'];
       if (!targetGrade || !validGrades.includes(targetGrade)) {

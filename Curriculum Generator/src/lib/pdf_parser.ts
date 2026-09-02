@@ -1,6 +1,8 @@
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
-import { createCanvas } from "@napi-rs/canvas";
 import fs from "fs";
+import path from "path";
+import crypto from "crypto";
+import { execSync } from "child_process";
 
 export interface PDFPageContent {
   pageNumber: number;
@@ -14,9 +16,13 @@ export class PDFDocumentHandler {
   private pdfDoc: any = null;
   private filePath: string;
   private totalPages: number = 0;
+  private cacheDir: string;
 
   constructor(filePath: string) {
     this.filePath = filePath;
+    const fileHash = crypto.createHash("md5").update(filePath).digest("hex").slice(0, 12);
+    const baseName = path.basename(filePath, path.extname(filePath)).replace(/[^a-zA-Z0-9_\u0600-\u06FF]/g, "_");
+    this.cacheDir = path.join(process.cwd(), "page_images_cache", `${baseName}_${fileHash}`);
   }
 
   public async init(): Promise<number> {
@@ -33,7 +39,6 @@ export class PDFDocumentHandler {
 
       this.pdfDoc = await loadingTask.promise;
       this.totalPages = this.pdfDoc.numPages;
-      return this.totalPages;
     } catch (error: any) {
       console.warn(`Fallback page count for ${this.filePath}:`, error.message);
       try {
@@ -41,11 +46,66 @@ export class PDFDocumentHandler {
         const pdfString = fileBuffer.toString("binary");
         const matches = pdfString.match(/\/Type\s*\/Page\b/g);
         this.totalPages = matches && matches.length > 0 ? matches.length : 1;
-        return this.totalPages;
       } catch {
         this.totalPages = 1;
-        return 1;
       }
+    }
+
+    // High-Speed Batch Render all pages to cache if not already rendered
+    this.preRenderAllPagesBatch();
+
+    return this.totalPages;
+  }
+
+  /**
+   * Pre-renders all PDF pages to high-resolution JPEG images in one batch using PyMuPDF (fitz)
+   * Runs in ~1-2 seconds for an entire 100-page book.
+   */
+  private preRenderAllPagesBatch(): void {
+    try {
+      if (!fs.existsSync(this.cacheDir)) {
+        fs.mkdirSync(this.cacheDir, { recursive: true });
+      }
+
+      // Check if all pages are already rendered
+      let allCached = true;
+      for (let p = 1; p <= this.totalPages; p++) {
+        if (!fs.existsSync(path.join(this.cacheDir, `page_${p}.jpg`))) {
+          allCached = false;
+          break;
+        }
+      }
+
+      if (allCached) return;
+
+      const escapedFilePath = this.filePath.replace(/\\/g, "\\\\");
+      const escapedCacheDir = this.cacheDir.replace(/\\/g, "\\\\");
+
+      const pyScript = `
+import fitz
+import os
+
+pdf_path = r'''${escapedFilePath}'''
+out_dir = r'''${escapedCacheDir}'''
+os.makedirs(out_dir, exist_ok=True)
+
+try:
+    doc = fitz.open(pdf_path)
+    for i, page in enumerate(doc):
+        page_path = os.path.join(out_dir, f'page_{i+1}.jpg')
+        if not os.path.exists(page_path):
+            pix = page.get_pixmap(dpi=180)
+            pix.save(page_path)
+except Exception as e:
+    print('Batch render error:', e)
+`;
+
+      execSync(`python -c "${pyScript.replace(/\n/g, " ").replace(/"/g, '\\"')}"`, {
+        timeout: 120000,
+        stdio: "ignore",
+      });
+    } catch (e: any) {
+      console.warn("Batch pre-render notice (will render on-demand):", e.message);
     }
   }
 
@@ -53,7 +113,42 @@ export class PDFDocumentHandler {
     return this.totalPages;
   }
 
+  private extractLock: Promise<void> = Promise.resolve();
+
   public async extractPage(pageNumber: number): Promise<PDFPageContent> {
+    const currentLock = this.extractLock;
+    let releaseLock: () => void = () => {};
+    this.extractLock = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+
+    await currentLock;
+    try {
+      return await this.extractPageInternalWithTimeout(pageNumber);
+    } finally {
+      releaseLock();
+    }
+  }
+
+  private async extractPageInternalWithTimeout(pageNumber: number): Promise<PDFPageContent> {
+    return Promise.race([
+      this.extractPageInternal(pageNumber),
+      new Promise<PDFPageContent>((_, reject) =>
+        setTimeout(() => reject(new Error(`Extraction timeout on page ${pageNumber}`)), 20000)
+      ),
+    ]).catch((err) => {
+      console.warn(`Fallback for page ${pageNumber}: ${err.message}`);
+      return {
+        pageNumber,
+        extractedText: "",
+        hasText: false,
+        imageBuffer: null,
+        mimeType: "image/jpeg",
+      };
+    });
+  }
+
+  private async extractPageInternal(pageNumber: number): Promise<PDFPageContent> {
     if (!this.pdfDoc) {
       await this.init();
     }
@@ -62,104 +157,60 @@ export class PDFDocumentHandler {
       throw new Error(`Page ${pageNumber} out of range (1-${this.totalPages})`);
     }
 
-    let page: any = null;
-    try {
-      page = await this.pdfDoc.getPage(pageNumber);
-
-      // 1. Digital text layer extraction
-      let pageText = "";
+    let pageText = "";
+    if (this.pdfDoc) {
+      let page: any = null;
       try {
+        page = await this.pdfDoc.getPage(pageNumber);
         const textContent = await page.getTextContent();
         const textItems = textContent.items.map((item: any) => item.str || "");
         pageText = textItems.join(" ").trim();
       } catch (textErr: any) {
         console.warn(`Text extraction warning on page ${pageNumber}:`, textErr.message);
-      }
-
-      // 2. High-speed image extraction
-      let imageBuffer: Buffer | null = null;
-
-      try {
-        const operatorList = await page.getOperatorList();
-        for (let i = 0; i < operatorList.fnArray.length; i++) {
-          const fn = operatorList.fnArray[i];
-          const args = operatorList.argsArray[i];
-
-          if (
-            fn === pdfjsLib.OPS.paintImageXObject ||
-            fn === pdfjsLib.OPS.paintInlineImageXObject ||
-            fn === (pdfjsLib.OPS as any).paintJpegXObject ||
-            fn === (pdfjsLib.OPS as any).paintXObject
-          ) {
-            const imgName = args[0];
-            const imgObj = await new Promise<any>((resolve) => {
-              page.objs.get(imgName, (obj: any) => resolve(obj));
-            });
-
-            if (imgObj && imgObj.width && imgObj.height && imgObj.data) {
-              const canvas = createCanvas(imgObj.width, imgObj.height);
-              const ctx = canvas.getContext("2d");
-              const imgData = ctx.createImageData(imgObj.width, imgObj.height);
-
-              const srcData = imgObj.data;
-              const destData = imgData.data;
-
-              if (srcData.length === imgObj.width * imgObj.height * 4) {
-                destData.set(srcData);
-              } else if (srcData.length === imgObj.width * imgObj.height * 3) {
-                let j = 0;
-                for (let k = 0; k < srcData.length; k += 3) {
-                  destData[j] = srcData[k];
-                  destData[j + 1] = srcData[k + 1];
-                  destData[j + 2] = srcData[k + 2];
-                  destData[j + 3] = 255;
-                  j += 4;
-                }
-              } else if (srcData.length === imgObj.width * imgObj.height) {
-                let j = 0;
-                for (let k = 0; k < srcData.length; k++) {
-                  const val = srcData[k];
-                  destData[j] = val;
-                  destData[j + 1] = val;
-                  destData[j + 2] = val;
-                  destData[j + 3] = 255;
-                  j += 4;
-                }
-              }
-
-              ctx.putImageData(imgData, 0, 0);
-              imageBuffer = canvas.toBuffer("image/jpeg");
-              break;
-            }
-          }
+      } finally {
+        if (page && typeof page.cleanup === "function") {
+          try {
+            page.cleanup();
+          } catch {}
         }
-      } catch (imgErr: any) {
-        console.warn(`Image extraction warning on page ${pageNumber}:`, imgErr.message);
-      }
-
-      return {
-        pageNumber,
-        extractedText: pageText,
-        hasText: pageText.length > 25,
-        imageBuffer,
-        mimeType: "image/jpeg",
-      };
-    } catch (error: any) {
-      console.error(`Error in extractPage(${pageNumber}):`, error.message);
-      return {
-        pageNumber,
-        extractedText: "",
-        hasText: false,
-        imageBuffer: null,
-        mimeType: "image/jpeg",
-      };
-    } finally {
-      if (page && typeof page.cleanup === "function") {
-        try {
-          page.cleanup();
-        } catch {}
       }
     }
+
+    // Check text validity: if digital text contains replacement characters or high noise, treat as unreliable
+    const hasReplacementChars = (pageText.match(/\ufffd/g) || []).length > 2;
+    const isTextReadable = pageText.length > 30 && !hasReplacementChars;
+
+    // Load full-page rendered image from cache or on-demand
+    let imageBuffer: Buffer | null = null;
+    const cachedImgPath = path.join(this.cacheDir, `page_${pageNumber}.jpg`);
+    const legacyCachePath = path.join(process.cwd(), "page_images_cache", `page_${pageNumber}.jpg`);
+
+    if (fs.existsSync(cachedImgPath)) {
+      imageBuffer = fs.readFileSync(cachedImgPath);
+    } else if (fs.existsSync(legacyCachePath)) {
+      imageBuffer = fs.readFileSync(legacyCachePath);
+    } else {
+      try {
+        const escapedFilePath = this.filePath.replace(/\\/g, "\\\\");
+        const escapedOut = cachedImgPath.replace(/\\/g, "\\\\");
+        const pyCmd = `python -c "import fitz; doc=fitz.open(r'''${escapedFilePath}'''); pix=doc[${pageNumber - 1}].get_pixmap(dpi=180); pix.save(r'''${escapedOut}''')"`;
+        if (!fs.existsSync(this.cacheDir)) fs.mkdirSync(this.cacheDir, { recursive: true });
+        execSync(pyCmd, { timeout: 15000 });
+        if (fs.existsSync(cachedImgPath)) {
+          imageBuffer = fs.readFileSync(cachedImgPath);
+        }
+      } catch (imgErr: any) {
+        console.warn(`On-demand render warning on page ${pageNumber}:`, imgErr.message);
+      }
+    }
+
+    return {
+      pageNumber,
+      extractedText: isTextReadable ? pageText : "",
+      hasText: isTextReadable,
+      imageBuffer,
+      mimeType: "image/jpeg",
+    };
   }
 
   public async destroy(): Promise<void> {

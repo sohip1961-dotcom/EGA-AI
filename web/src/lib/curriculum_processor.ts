@@ -1,5 +1,10 @@
 import { CurriculumChunk } from './db';
 import { generateEmbeddingBatch, generateCurriculumSummary } from './gemini';
+import {
+  extractEntitiesAndRelationsFromChunk,
+  CurriculumEntity,
+  CurriculumRelation
+} from './graph_rag';
 
 export function countTokens(text: string): number {
   if (!text) return 0;
@@ -200,12 +205,17 @@ function createSlidingWindowChunks(
   }];
 }
 
-export async function processCurriculumChunks(fileContent: string): Promise<{
+export async function processCurriculumChunks(
+  fileContent: string,
+  curriculumId: string = 'curriculum_pending'
+): Promise<{
   parents: ParentChunk[];
   children: ChildChunk[];
   allChunks: Omit<CurriculumChunk, 'curriculum_id'>[];
   summaryContent: string;
   embeddedCount: number;
+  entities: CurriculumEntity[];
+  relations: CurriculumRelation[];
 }> {
   const { parents, children } = chunkMarkdownHierarchical(fileContent);
 
@@ -272,6 +282,34 @@ export async function processCurriculumChunks(fileContent: string): Promise<{
     });
   }
 
+  // Extract Knowledge Graph entities & relationships
+  const allEntities: CurriculumEntity[] = [];
+  const allRelations: CurriculumRelation[] = [];
+  const entityMap = new Map<string, CurriculumEntity>();
+
+  for (const parent of parentWithIds) {
+    const { entities, relations } = extractEntitiesAndRelationsFromChunk(
+      parent.content,
+      parent.heading,
+      parent.id,
+      curriculumId
+    );
+
+    for (const ent of entities) {
+      if (!entityMap.has(ent.normalized_name)) {
+        entityMap.set(ent.normalized_name, ent);
+        allEntities.push(ent);
+      } else {
+        const existing = entityMap.get(ent.normalized_name)!;
+        if (!existing.chunk_ids.includes(parent.id)) {
+          existing.chunk_ids.push(parent.id);
+        }
+      }
+    }
+
+    allRelations.push(...relations);
+  }
+
   const embeddedCount = embeddings.filter(e => e.length > 0).length;
 
   return {
@@ -279,6 +317,8 @@ export async function processCurriculumChunks(fileContent: string): Promise<{
     children,
     allChunks,
     summaryContent,
-    embeddedCount
+    embeddedCount,
+    entities: allEntities,
+    relations: allRelations
   };
 }

@@ -2,7 +2,7 @@
 
 > **Purpose of this file:** Single source of truth for the entire project. It is written so that an AI agent (or a new developer) can understand the whole product, architecture, data model, API surface, UI, and known issues **without reading the codebase first**. Read this file and `CODING_GUIDELINES.md` (same folder) before making any change.
 >
-> **Last updated:** 2026-09-02 (Interactive Multi-Screen Guided App Tour System: Implemented an intelligent, responsive App Tour triggered on first-time registration and per-screen first visits across Chat, Exams, Flashcards, Leaderboard, and Subscriptions. The Chat tour follows a strict 3-stage instructional sequence: 1) Welcome & screen definition, 2) Subject selector spotlight encouraging selection, and 3) Multi-stage interactive Submit Box walkthrough featuring automated question prefill ['اشرحلي بالتفصيل وبأمثلة واضحة أول درس في منهج...'], Deep Thinking & study mode explanation, AI model differentiation [Fast vs. Pro reasoning], and one-click Submit action to experience live AI streaming; all in authentic Egyptian Arabic with zero emojis and header/sidebar tour replay triggers).
+> **Last updated:** 2026-09-02 (Advanced Hybrid RAG v4 System: Implemented GraphRAG Knowledge Graph extraction & relational subgraph traversal, Arabic-optimized Okapi BM25 retrieval engine with morphological tokenization, and Tri-Fusion Weighted Reciprocal Rank Fusion combining Dense Vectors, BM25, and Graph signals into context injection with Lucide icon UI stream indicators).
 >
 > **MANDATORY MAINTENANCE RULE:** upon completing ANY task that adds, modifies, or removes anything in this project (feature, API route, schema, screen, protocol tag, env var, setting, dependency, known issue), update the corresponding section(s) of this file and the "Last updated" date **in the same session**, so this document always matches the codebase. See CODING_GUIDELINES.md rule 8. A task is not complete until this file reflects it.
 
@@ -271,7 +271,37 @@ Trigger: `curriculum_chunks_update_fts` (BEFORE INSERT/UPDATE) recomputes both t
 
 RPC function: `hybrid_search_curriculum(p_curriculum_id, p_query_embedding VECTOR(768), p_arabic_query TEXT, p_english_query TEXT, p_match_count INT DEFAULT 8, p_rrf_k INT DEFAULT 60)` — Reciprocal Rank Fusion over (vector cosine, Arabic BM25, English BM25), each top-50, child chunks only, returns top N with `rrf_score`.
 
-### 6.6 `system_settings`
+### 6.6 `curriculum_entities` (GraphRAG Knowledge Graph Entities)
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID | PK `gen_random_uuid()` |
+| curriculum_id | UUID | FK → curriculums, CASCADE delete |
+| name | TEXT | Entity / concept name (e.g. 'قانون نيوتن الثاني') |
+| normalized_name | TEXT | Normalized for morphological matching |
+| category | TEXT | `'law'`, `'concept'`, `'definition'`, `'formula'`, `'rule'`, `'person'`, `'event'` |
+| description | TEXT | Academic definition or statement |
+| aliases | JSONB | Array of synonyms and alternative names |
+| chunk_ids | JSONB | Array of associated chunk UUIDs |
+| importance_score | NUMERIC | Degree centrality / syllabus weight (0.0–1.0) |
+| created_at | TIMESTAMPTZ | default NOW() |
+
+Indexes: on `curriculum_id`, `(curriculum_id, normalized_name)`, and `category`.
+
+### 6.7 `curriculum_relations` (GraphRAG Knowledge Graph Relations)
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID | PK `gen_random_uuid()` |
+| curriculum_id | UUID | FK → curriculums, CASCADE delete |
+| source_entity_id | UUID | FK → curriculum_entities, CASCADE delete |
+| target_entity_id | UUID | FK → curriculum_entities, CASCADE delete |
+| relation_type | TEXT | `'requires'`, `'part_of'`, `'leads_to'`, `'contrasts_with'`, `'exemplifies'`, `'applies_to'` |
+| description | TEXT | Human-readable explanation of relationship |
+| weight | NUMERIC | Edge strength / confidence (0.0–1.0) |
+| created_at | TIMESTAMPTZ | default NOW() |
+
+Indexes: on `curriculum_id`, `source_entity_id`, `target_entity_id`, and `relation_type`.
+
+### 6.8 `system_settings`
 `key TEXT PK`, `value TEXT NOT NULL`. Known keys: `website_link` (seed `http://localhost:3000`), `active_grade_levels` (JSON array of enabled grades), `active_tracks` (JSON array of enabled Baccalaureate tracks: `['medicine_life_sciences', 'engineering_cs', 'business', 'arts_literature']`), `active_curriculum_ids` (JSON array).
 
 ### 6.7 `chat_sessions`
@@ -353,7 +383,7 @@ Constraints & Indexes:
 Indexes on `status`, `created_at DESC`, `user_id`.
 
 ### 6.18 Local-dev fallback
-`web/src/lib/db.ts` uses `./db_data.json` when Supabase env vars are absent AND not on edge runtime. It mirrors the tables above and seeds a hardcoded admin. On edge without Supabase, all reads return empty — **Supabase is mandatory in deployment**.
+`web/src/lib/db.ts` uses `./db_data.json` in Node.js runtime and an in-memory database store (`globalThis.__egs_memory_db`) in Edge runtime when Supabase env vars are absent. It mirrors the tables above and seeds default admin and test accounts. On deployment, **Supabase is mandatory** (`NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in environment).
 
 ---
 
@@ -366,18 +396,18 @@ All routes under `web/src/app/api/`. Conventions:
 - Nearly all routes declare `export const runtime = 'edge'` (exception: `chat/upload-image`, Node runtime).
 - **No request rate limiting exists anywhere.** Error messages are Arabic.
 
-### 7.1 Auth & Device Management
+### 7.1 Authentication & Profile
 | Route | Method | Body / Params | Behavior |
 |---|---|---|---|
 | `/api/auth/register` | POST | `{email, password, terms_accepted, name?, grade_level?, track_id?, elective_subject?}` | Simplified signup: requires **email and password only** (+ terms). Validates email regex + terms; PBKDF2 password hash; 6-digit OTP (`crypto.getRandomValues`), 10-min expiry; sends Resend email (RTL Egyptian Arabic template, green branding) via `src/lib/email.ts`; **on email failure returns 502 (no fallback OTP)**; upserts `pending_registrations` with `grade_level` defaulting to `'unselected'` and `name` to `'طالب جديد'`. 400/502/500. |
 | `/api/auth/otp` | POST | `{email, otp, has_registered_before, device_id?, browser_fingerprint?, platform?}` | Verifies OTP strictly against stored code; expired OTPs (10 min) are rejected and pending row deleted. Creates profile (`grade_level: 'unselected'` if not set), registers device session under `user_devices` (enforcing max 3 devices limit), deletes pending row, returns `{token, user, is_new_user: true}` to launch the post-registration sequential onboarding wizard. |
 | `/api/auth/login` | POST | `{email, password, device_id?, browser_fingerprint?, platform?}` | Verifies via `verifyPassword` (PBKDF2; legacy sha256 accepted and transparently re-hashed to PBKDF2 on success); registers device under `user_devices`. **Max 3 devices limit enforcement**: if user already has 3 active devices, all previous devices are automatically revoked (`is_active = false`) and only this new device becomes active (activeCount = 1). Returns `{token, user}`. |
-| `/api/auth/google` | POST | `{credential, grade_level?, track_id?, elective_subject?, device_id?, browser_fingerprint?, platform?}` | Full server-side Google ID-token verification (exp/iss/aud + RSA signature via JWKS, 1h cache). **Quick Registration**: if new user, creates profile directly (`grade_level: 'unselected'`, `name: googleName`, `password_hash: ''`), registers device, grants trial coins, and returns `{token, user, is_new_user: true}` without pre-login modal blocking; triggers the post-registration sequential onboarding wizard inside the platform. |
+| `/api/auth/google` | POST | `{credential, grade_level?, track_id?, elective_subject?, device_id?, browser_fingerprint?, platform?}` | Full server-side Google ID-token verification (exp/iss/aud + RSA signature via JWKS with 1h in-memory cache and 8s abort timeout, standard WebCrypto Base64URL parsing). **Quick Registration**: if new user, creates profile directly (`grade_level: 'unselected'`, `name: googleName`, `password_hash: ''`), registers device, grants trial coins, and returns `{token, user, is_new_user: true}` without pre-login modal blocking; triggers the post-registration sequential onboarding wizard inside the platform. |
 | `/api/auth/devices` | GET (Bearer) | `?device_id=` | Returns active devices list (`{id, device_id, device_name, device_type, ip_address, last_active_at, is_current_device}`) and active count (`count`). Checks if current device is revoked → 401 `device_session_revoked`. |
 | `/api/auth/devices` | DELETE (Bearer) | `?device_id=` or `?action=logout_all_others` or `?action=logout_all` | Deactivates target device or all other devices. Returns `{success: true}`. |
 | `/api/auth/logout` | POST (Bearer) | `{device_id?}` | Deactivates the specified device session (`is_active = false`) on user logout. |
 | `/api/auth/update-grade` | POST (Bearer) | `{grade_level, track_id?, elective_subject?}` | Whitelist-validated grade update (5 valid grades); persists `track_id` and `elective_subject` for `2_high` (Baccalaureate). |
-| `/api/auth/update-profile` | POST (Bearer) | `{action, ...}` | `update-name`; `complete-onboarding` (atomically updates `grade_level`, `track_id`, `elective_subject`, and `name`); `send-otp` (generates crypto-random OTP, emails it via Resend, stores in `password_resets` with 10-min expiry); `verify-otp` (validates stored OTP + expiry) + `new_password` (PBKDF2), deactivates all other devices on password change for security, deletes the reset row on success. |
+| `/api/auth/update-profile` | POST (Bearer) | `{action, ...}` | `update-name`; `complete-onboarding` (single-parse request payload atomically updating `grade_level`, `track_id`, `elective_subject`, and `name`); `send-otp` (generates crypto-random OTP, emails it via Resend, stores in `password_resets` with 10-min expiry); `verify-otp` (validates stored OTP + expiry) + `new_password` (PBKDF2), deactivates all other devices on password change for security, deletes the reset row on success. |
 | `/api/auth/delete-account` | POST (Public / Bearer) | `{action: 'send-otp'|'verify-otp'|'delete-current', email?, otp?}` | Public email OTP deletion or direct Bearer deletion. Permanently cascades/deletes profile, user devices, chat history, exams, submissions, flashcards, reports, and active subscriptions. |
 
 ### 7.2 Chat
@@ -435,6 +465,7 @@ All routes under `web/src/app/api/`. Conventions:
 | `/api/admin/curriculum` | GET / POST / PATCH `{id, subject_name}` / DELETE `{id}` | POST supports two modes: (1) Multipart upload (`file`, `grade_level`, `subject_name`, `track_id?`, `is_elective?`) or attaching to existing placeholder (`curriculum_id`, `file`), running hierarchical parent-child chunking & vector embedding; (2) JSON/multipart placeholder creation (`is_placeholder: true`, `grade_level`, `subject_name`, `track_id?`, `is_elective?`) without a file. |
 | `/api/admin/curriculum/detail` | GET `?id=` / POST `{id, grade_level, subject_name, content}` | GET reassembles Markdown from chunks; POST re-chunks and generates batch embeddings using the unified hierarchical v2 pipeline (`processCurriculumChunks`), preserving full parent-child hierarchy in the database. |
 | `/api/admin/curriculum/units` | POST / PUT (Admin) | Body `{id: curriculumId, units: CurriculumUnit[]}`. Updates and persists manually authored units and lessons for a curriculum. |
+| `/api/admin/curriculum/graph` | GET (Admin) | `?grade_level=&subject_name=`. Returns the curriculum's extracted Knowledge Graph (`{success, gradeLevel, subjectName, entityCount, relationCount, entities, relations}`) for visual inspection and debugging. |
 
 ### 7.7 Kashier Payment Gateway (Live Checkout)
 | Route | Method | Behavior |
@@ -452,7 +483,7 @@ All routes under `web/src/app/api/`. Conventions:
 
 ---
 
-## 8. AI Pipeline (RAG v3 & Curriculum Awareness)
+## 8. AI Pipeline (RAG v4: GraphRAG + Okapi BM25 Hybrid Retrieval)
 
 ### 8.1 Providers & Token Optimization Architecture
 - **DeepSeek** `https://api.deepseek.com/v1/chat/completions` — `deepseek-chat` ("flash"), `deepseek-reasoner` ("pro"). Real-time streaming with `stream_options.include_usage`, `thinking:{type: enabled|disabled}`, `Accept-Encoding: identity`.
@@ -471,18 +502,27 @@ Persona "EGS AI" — master Egyptian teacher with deep familiarity with the offi
 7. Calibrated Out-of-curriculum warning: Answers are primarily derived from the injected curriculum context. When answering queries genuinely beyond the curriculum, the response begins on the very first line with: `"تنبيه: هذه المعلومة خارج المنهج المقرر عليك يا بطل، ولكنها تفيدك في فهم الدرس..."`.
 8. Mode-specific behavioral block (`MODE_INSTRUCTIONS`): **socratic** (scaffolded guiding questions without immediate final answers), **detailed** (default comprehensive textbook explanations), **summary** (high-yield exam review bullet points).
 
-### 8.3 RAG flow (RAG v3 per chat message, with live `search_step` SSE events)
+### 8.3 RAG flow (RAG v4 Hybrid Tri-Fusion per chat message, with live `search_step` SSE events)
 1. `analyzeQueryIntelligence` (1 Gemini call, ≤600 tokens) → `{queryType: direct|inferential|overview|problem_solving, arabicKeywords ≤8, englishKeywords ≤5, hydePassage, searchAnnouncement, metadata}` with Arabic stop-word removal fallback. Dynamic grade/subject routing if explicitly indicated.
-2. Parallel: embed HyDE passage (768-d) + full-curriculum BM25/FTS search (`rankChunksV2` in JS with Arabic diacritic stripping, Alef unification, Hamza preservation `ء`, and prefix-aware variants `ال`, `وال`, `فال`, `كال`, `بال`, `لل`, `و`, `ف`, `ب`, `ك`).
-3. Vector search via RPC (top 30) when embedding exists.
-4. `applyRRF(vector, bm25, k=60)` with unit/chapter metadata boosting → top 8 child chunks → **parent expansion** (`getParentChunks`) with full hierarchical breadcrumbs.
-5. Injected Context: includes curriculum outline (unit and lesson map) + full parent section text without redundant duplicated sentence highlights.
-6. Routing: `overview` → curriculum summary + full outline + 6 chunks; `direct` with ≥3 chunks → 8 chunks straight; otherwise `assessContextGap` (Gemini) → follow-up BM25 searches for missing topics.
+2. Parallel Tri-Fusion Retrieval (`runHybridTriFusionRetrieval` in `hybrid_retriever.ts`):
+   - **Dense Vector Search**: Semantic cosine similarity on Google `text-embedding-004` (768-dim) HyDE embedding (`vectorSearchCurriculum`).
+   - **Arabic Okapi BM25 Search**: Lexical retrieval (`BM25Index` in `bm25.ts`) with Arabic morphological analyzer (tashkeel/tatweel removal, Alef/Yaa/Ta-Marbuta normalization, clitic prefix and suffix peeling), Robertson-Spärck Jones IDF, and 3.0x breadcrumb heading boost.
+   - **GraphRAG Traversal**: Knowledge Graph sub-graph exploration (`KnowledgeGraphEngine` in `graph_rag.ts`) using entity linking from query terms + 2-hop spreading activation traversal with edge decay (γ = 0.65). Retrieves connected concepts, formulas, laws, and dependencies.
+3. Weighted Reciprocal Rank Fusion (W-RRF):
+   $$W\text{-}RRF(d) = w_v \cdot \frac{1}{k + rank_v(d)} + w_b \cdot \frac{1}{k + rank_b(d)} + w_g \cdot \frac{1}{k + rank_g(d)}$$
+   (weights $w_v = 1.0, w_b = 1.0, w_g = 0.85, k = 60$) over child chunks, selecting top 8 candidates.
+4. **Parent Expansion & Context Assembly**:
+   - Expanded into full parent sections with breadcrumb hierarchy (`# Unit > ## Lesson > ### Subtitle`).
+   - Injects: (a) Curriculum Unit/Lesson Outline, (b) Knowledge Graph Concept & Relational Map, (c) Full parent textbook sections.
+5. Routing & Gap Assessment:
+   - `overview` → prepends curriculum summary + full outline.
+   - If retrieved parent chunks < 3 → `assessContextGap` triggers secondary targeted searches for missing sub-topics.
+6. Real-time SSE Stream (`search_step`): Emits `analyzing`, `searching`, `graph_traversal` (`Network` icon), `fusion` (`Layers` icon), and `found` (`Check` icon), adhering strictly to zero-emoji design guidelines via Lucide icons on the web client.
 7. Real-time DeepSeek streaming: `reasoning_content` → `thought` events, `content` → `content` events; usage tokens captured for billing.
 
 ### 8.4 Curriculum ingestion pipeline (`curriculum_processor.ts`)
 Unified for initial upload (`/api/admin/curriculum`) and detail edits (`/api/admin/curriculum/detail`):
-Markdown → split into **parents** with full breadcrumb hierarchy (`# Unit > ## Lesson > ### Subtitle`; PARENT_MAX 500 tokens) → **children** via sentence-aware sliding window (CHILD_MAX 120 tokens, 24-token overlap, Arabic `؟` aware) → batch embeddings (20 per EdenAI call via `text-embedding-004`) → Gemini curriculum summary stored as parent chunk `__CURRICULUM_SUMMARY__` (position −1) → batch insert with parent-child ID mapping.
+Markdown → split into **parents** with full breadcrumb hierarchy (`# Unit > ## Lesson > ### Subtitle`; PARENT_MAX 500 tokens) → **children** via sentence-aware sliding window (CHILD_MAX 120 tokens, 24-token overlap, Arabic `؟` aware) → batch embeddings (20 per EdenAI call via `text-embedding-004`) → Gemini curriculum summary stored as parent chunk `__CURRICULUM_SUMMARY__` (position −1) → **Knowledge Graph Entity & Relation Extraction** (`extractEntitiesAndRelationsFromChunk` extracting laws, concepts, formulas, definitions, and relational edges) → batch insert chunks and graph records with parent-child ID mapping.
 
 ### 8.5 Fallback chain
 Gemini intelligence fails → regex stop-word-filtered keywords; embedding fails → BM25-only; RPC fails → BM25 full-curriculum scan; gap check fails → fail-open (proceed); VQA google fails → openai.
@@ -601,7 +641,7 @@ Single client component `web/src/app/page.tsx`. Static routes for `/terms`, `/pr
 11. **Admin:** see section 15.
 12. **Mobile bottom nav (5 thumb-reachable tabs):** دردشة (Chat), الامتحانات (Exams), المسابقة (Competition with Trophy icon), المدرب (Smart Coach), حسابي (Profile). 62px + safe-area insets, `backdrop-filter: blur(24px)`, active scale-down (`:active { transform: scale(0.92); }`), and top active pill indicator. All tabs employ `.mobile-main-with-nav` with `calc(84px + env(safe-area-inset-bottom, 0px))` bottom padding so content scrolls completely clear above the bar.
 13. **Universal Modal & Sheet Pickers:** `renderSubjectSheet` (subject + grade picker), `renderModeSheet` (detailed explanation vs socratic scaffolding vs quick summary capsules), `renderModelSheet` (Flash vs Pro reasoner), `renderUpgradeSheet` (instant plan selection with Egyptian e-wallets, InstaPay, Meeza, Visa/Mastercard, and 3-day refund guarantee; returns `null` for active subscribers).
-14. **App Tour System (Interactive Guided Walkthrough):** Lightweight, zero-dependency, RTL-native guided tour engine (`AppTour.tsx`) featuring animated cutout spotlight overlays, target auto-scroll into view, dynamic multi-tier positioning (with mobile bottom-docking), step progress indicators, and authentic Egyptian Arabic instructions for all primary screens (`chat`, `exams`, `flashcards`, `leaderboard`, `subscriptions`). On the main chat screen, delivers a non-fatiguing 4-part progressive micro-stepper for the composer dock (pre-filled sample prompt, Deep Thinking toggle & modes, Fast vs. Pro model capabilities, and instant submit action). Includes per-screen localStorage persistence (`egs_tour_completed_{screen}`), automatic triggers upon first-time onboarding completion, skippable actions at every step, and top header/sidebar replay shortcuts.
+14. **App Tour System (Interactive Guided Walkthrough, Mobile Keyboard Adaptation & Streaming Isolation):** Lightweight, zero-dependency, RTL-native guided tour engine (`AppTour.tsx`) featuring a 4-panel surround cutout backdrop architecture that leaves spotlighted elements 100% uncovered, crystal clear, unblurred, and directly clickable (framed with an animated glowing focus ring `.tour-spotlight-ring`), target auto-scroll into view, and dynamic positioning. Features mobile virtual keyboard adaptation via real-time `window.visualViewport` tracking (`resize` and `scroll` listeners) to keep the docked annotation card perfectly visible above software keyboards with non-blocking overlay panels (`pointer-events: none` on dark backdrops, `pointer-events: auto` exclusively on spotlight and card). Course selection (Step 2) includes an always-active fallback 'المتابعة للخطوة التالية' button in the card so students never experience UI freezing if DOM clicks lag. To ensure unobstructed AI interaction, the tour automatically force-closes immediately upon message submission before SSE streaming begins, displaying the typewriter stream with zero blackout. Strictly isolates the tutorial lifecycle from all application popups and sheets: automatically force-closes all open modals, dropdowns, and drawers upon tour launch; suppresses all bottom sheets, PWA install banners, mobile bottom nav tabs, and auth/modal overlays while `isTourOpen` is active; and queues deferred popups (`pendingDeferredPopup`) to display safely and sequentially only after the tutorial has fully concluded. Includes per-screen localStorage persistence (`egs_tour_completed_{screen}`), automatic triggers upon first-time onboarding completion, skippable actions at every step, and top header/sidebar replay shortcuts.
 
 ### 12.4 localStorage keys
 `egs_theme`, `egs_token`, `egs_user` (JSON, coins kept in sync), `egs_device_id`, `egs_browser_id`, `egs_dismissed_notifications`, `egs_registered_before`, `egs_chat_mode`, `egs_pwa_banner_dismissed`, `egs_tour_completed_{screen}`, `egs_just_registered`. No sessionStorage.
@@ -702,7 +742,7 @@ Web only (`activeTab==='admin'`, `role==='admin'`). Six primary sections:
 
 ## 16. Deployment and Environments
 
-- **Production Hosting:** Vercel (`web/`). Deployed via `vercel --prod` to `https://www.egsaiedu.com` (`https://web-cw8lyrzdj-sohaib5.vercel.app`).
+- **Production Hosting:** Vercel (`web/`). Deployed via `vercel --prod` to `https://www.egsaiedu.com` (`https://web-ndzlkrz8c-sohaib5.vercel.app`).
 - **Target:** Next.js on Vercel platform. Build pipeline uses Next.js Turbopack compiler (`next build`).
 - Nearly all API routes are edge runtime; `chat/upload-image` is Node (edge removed in commit 63a6dcb).
 - Local dev: `npm run dev` in `web/` (works without Supabase using `db_data.json`).
@@ -782,8 +822,9 @@ Fixed (2026-08-31, Launch Security Hardening):
 - Closed IDOR vulnerabilities in flashcards API (`/api/flashcards/card`, `/api/flashcards/review`) by validating user ownership of decks before all update, delete, and review operations.
 - Implemented sliding-window rate limiting (`rate_limiter.ts`) across authentication endpoints (`login`, `register`, `otp`, `delete-account`) and resource-intensive endpoints (`upload-image`).
 - Sanitized admin user search input against PostgREST filter injection.
-- Added comprehensive HTTP security headers (`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`, `Strict-Transport-Security`) in `next.config.ts`.
 - Patched path traversal vulnerability in Curriculum Generator download handler.
+- Fixed infinite hang in Curriculum Generator PDF parser where unresolved page resources (`page.objs.get`) blocked extraction indefinitely; added 2000ms object resolution timeout, `commonObjs` check, sequential mutex for `PDFDocumentProxy`, 90s per-page safety timeouts, and digital text bypass for non-text OCR in EdenAI. Validated by extracting all 88 pages of 2nd Year Secondary Egyptian History textbook without errors.
+- Fixed heading hierarchy, address order, and hallucinated sections in Curriculum Generator output for 2nd Year Secondary Egyptian History (`Egyptian History.md`, `التاريخ المصري.md`, `تاريخ  مصري.md`); restored full structure into 3 Units and 12 complete Lessons, clamped false lesson numbers > 8 in `curriculum_cleaner.ts`, prevented subheadings from overriding active lessons, and replaced sparse OCR hallucinated content with authentic textbook material.
 
 Mitigations already in place (preserve them): PBKDF2 password hashing with transparent legacy upgrade; crypto-random expiring OTPs; server-side Google ID-token signature verification; constant-time HMAC token comparison; DOMPurify + prompt-level SVG whitelisting on web; payload caps on report/log/notification fields; admin role checks on all admin routes; session ownership checks; self-delete prevention; KaTeX `trust:false`; exam answers withheld until submission; auth + metering on the image-analysis proxy.
 
