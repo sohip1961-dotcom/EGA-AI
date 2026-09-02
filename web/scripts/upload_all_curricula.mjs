@@ -51,23 +51,55 @@ function chunkMarkdownHierarchical(markdownText) {
   const lines = markdownText.split('\n');
   const rawSections = [];
 
+  let currentUnit = '';
+  let currentLesson = '';
   let currentHeading = 'مقدمة المنهج';
   let currentLines = [];
 
   for (const line of lines) {
-    const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
-    if (headingMatch) {
+    const unitMatch = line.match(/^#\s+(.+)$/);
+    const lessonMatch = line.match(/^##\s+(.+)$/);
+    const subMatch = line.match(/^###\s+(.+)$/);
+    const genericHeadingMatch = line.match(/^(#{4,6})\s+(.+)$/);
+
+    if (unitMatch) {
       if (currentLines.join('\n').trim().length > 10) {
-        rawSections.push({ heading: currentHeading, contentLines: [...currentLines] });
+        const fullBreadcrumb = [currentUnit, currentLesson, currentHeading].filter(Boolean).join(' > ') || currentHeading;
+        rawSections.push({ heading: fullBreadcrumb, contentLines: [...currentLines] });
       }
-      currentHeading = headingMatch[2].trim();
+      currentUnit = unitMatch[1].trim();
+      currentLesson = '';
+      currentHeading = currentUnit;
+      currentLines = [];
+    } else if (lessonMatch) {
+      if (currentLines.join('\n').trim().length > 10) {
+        const fullBreadcrumb = [currentUnit, currentLesson, currentHeading].filter(Boolean).join(' > ') || currentHeading;
+        rawSections.push({ heading: fullBreadcrumb, contentLines: [...currentLines] });
+      }
+      currentLesson = lessonMatch[1].trim();
+      currentHeading = currentLesson;
+      currentLines = [];
+    } else if (subMatch) {
+      if (currentLines.join('\n').trim().length > 10) {
+        const fullBreadcrumb = [currentUnit, currentLesson, currentHeading].filter(Boolean).join(' > ') || currentHeading;
+        rawSections.push({ heading: fullBreadcrumb, contentLines: [...currentLines] });
+      }
+      currentHeading = subMatch[1].trim();
+      currentLines = [];
+    } else if (genericHeadingMatch) {
+      if (currentLines.join('\n').trim().length > 10) {
+        const fullBreadcrumb = [currentUnit, currentLesson, currentHeading].filter(Boolean).join(' > ') || currentHeading;
+        rawSections.push({ heading: fullBreadcrumb, contentLines: [...currentLines] });
+      }
+      currentHeading = genericHeadingMatch[2].trim();
       currentLines = [];
     } else {
       currentLines.push(line);
     }
   }
   if (currentLines.join('\n').trim().length > 10) {
-    rawSections.push({ heading: currentHeading, contentLines: currentLines });
+    const fullBreadcrumb = [currentUnit, currentLesson, currentHeading].filter(Boolean).join(' > ') || currentHeading;
+    rawSections.push({ heading: fullBreadcrumb, contentLines: currentLines });
   }
 
   const parents = [];

@@ -1236,7 +1236,7 @@ export const db = {
     return this.bm25SearchCurriculum(gradeLevel, subjectName, queryKeywords, []);
   },
 
-  // ─── v2 RAG: BM25 keyword search (dual-language) ─────────────────────────
+  // ─── v3 RAG: BM25 / FTS keyword search (dual-language) ───────────────────
   async bm25SearchCurriculum(
     gradeLevel: string,
     subjectName: string,
@@ -1245,8 +1245,6 @@ export const db = {
   ): Promise<CurriculumChunk[]> {
     const cleanGrade = gradeLevel.trim();
     const cleanSubject = subjectName.trim();
-    const arabicQuery = arabicKeywords.join(' ');
-    const englishQuery = englishKeywords.join(' ');
 
     if (supabase) {
       const { data: currList } = await supabase
@@ -1258,25 +1256,52 @@ export const db = {
       if (!currList || currList.length === 0) return [];
       const curriculumIds = currList.map(c => c.id);
 
-      // Fetch child chunks that match Arabic or English keywords
-      const { data: chunks } = await supabase
-        .from('curriculum_chunks')
-        .select('id, content, heading, curriculum_id, chunk_level, parent_id, position_index')
-        .in('curriculum_id', curriculumIds)
-        .eq('chunk_level', 'child')
-        .limit(50);
+      const cleanArabic = arabicKeywords.map(k => k.trim()).filter(k => k.length > 1);
+      const cleanEnglish = englishKeywords.map(k => k.trim()).filter(k => k.length > 1);
 
-      if (!chunks || chunks.length === 0) {
-        // Fallback: return parent chunks if no children exist (old data)
-        const { data: parents } = await supabase
+      let fetchedChunks: CurriculumChunk[] = [];
+
+      // 1. Try full-text search with OR query if keywords are available
+      if (cleanArabic.length > 0) {
+        try {
+          const orQuery = cleanArabic.slice(0, 8).map(k => normalizeArabicForSearch(k)).filter(Boolean).join(' | ');
+          if (orQuery) {
+            const { data: ftsResults, error: ftsErr } = await supabase
+              .from('curriculum_chunks')
+              .select('id, content, heading, curriculum_id, chunk_level, parent_id, position_index')
+              .in('curriculum_id', curriculumIds)
+              .textSearch('fts_arabic', orQuery, { config: 'simple' })
+              .limit(100);
+
+            if (!ftsErr && ftsResults && ftsResults.length > 0) {
+              fetchedChunks = ftsResults;
+            }
+          }
+        } catch (ftsException) {
+          console.warn('FTS query error, falling back to full chunk scan:', ftsException);
+        }
+      }
+
+      // 2. If FTS returned few or no chunks, fetch chunks across the curriculum for JavaScript rankChunksV2
+      if (fetchedChunks.length < 5) {
+        const { data: allChunks } = await supabase
           .from('curriculum_chunks')
           .select('id, content, heading, curriculum_id, chunk_level, parent_id, position_index')
           .in('curriculum_id', curriculumIds)
-          .limit(20);
-        return rankChunksV2(parents || [], arabicKeywords, englishKeywords);
+          .limit(300);
+
+        if (allChunks && allChunks.length > 0) {
+          const existingIds = new Set(fetchedChunks.map(c => c.id));
+          const additional = allChunks.filter(c => !existingIds.has(c.id));
+          fetchedChunks.push(...additional);
+        }
       }
 
-      return rankChunksV2(chunks, arabicKeywords, englishKeywords);
+      if (fetchedChunks.length === 0) {
+        return [];
+      }
+
+      return rankChunksV2(fetchedChunks, arabicKeywords, englishKeywords);
     } else {
       // Local JSON mode: score all chunks against keywords
       const data = readLocalDB();
@@ -1288,10 +1313,8 @@ export const db = {
       const allChunks = data.curriculum_chunks.filter(
         (cc: CurriculumChunk) => cc.curriculum_id === curr.id
       );
-      // In local mode, prioritize parent chunks for better context
-      const parentChunks = allChunks.filter((c: CurriculumChunk) => c.chunk_level !== 'child');
-      const toRank = parentChunks.length > 0 ? parentChunks : allChunks;
-      return rankChunksV2(toRank, arabicKeywords, englishKeywords).slice(0, 8);
+      // In local mode, score all chunks with priority to rich context
+      return rankChunksV2(allChunks, arabicKeywords, englishKeywords).slice(0, 8);
     }
   },
 
@@ -3785,13 +3808,13 @@ export function normalizeArabicForSearch(str: string): string {
   return str
     .replace(/[\u064B-\u065F\u0670]/g, '') // strip Tashkeel (diacritics)
     .replace(/\u0640/g, '')                 // strip Tatweel (kashida)
-    .replace(/[أإآء]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
-    .replace(/ؤ/g, 'و')
-    .replace(/ئ/g, 'ي')
+    .replace(/[أإآٱ]/g, 'ا')                // unify Alef variants (preserves standalone hamza 'ء')
+    .replace(/ة/g, 'ه')                     // unify Taa Marbuta
+    .replace(/[ىي]/g, 'ي')                 // unify Yaa / Alef Maksura
+    .replace(/ؤ/g, 'و')                     // unify Waw with Hamza
+    .replace(/ئ/g, 'ي')                     // unify Yaa with Hamza
     .replace(/[ـ\-_]/g, ' ')
-    .replace(/[^\w\u0621-\u064A\s]/g, ' ')
+    .replace(/[^\w\u0621-\u064A0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
@@ -3828,7 +3851,7 @@ function rankChunks(chunks: CurriculumChunk[], keywords: string[]): CurriculumCh
         if (textToSearch.includes(variant)) {
           score += 2;
           if (normHeading.includes(variant)) {
-            score += 5;
+            score += 6;
           }
         }
       }
@@ -3851,7 +3874,7 @@ function escapeRegExp(string: string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// v2: Enhanced ranking with separate Arabic and English keyword scoring + morphological normalization
+// v3: Enhanced ranking with breadcrumb hierarchy weighting, exact phrase bonuses, and term-frequency scoring
 function rankChunksV2(
   chunks: CurriculumChunk[],
   arabicKeywords: string[],
@@ -3860,6 +3883,9 @@ function rankChunksV2(
   const allKeywords = [...arabicKeywords, ...englishKeywords].filter(k => k.trim().length > 0);
   if (allKeywords.length === 0) return chunks.slice(0, 8);
 
+  const cleanArabic = arabicKeywords.map(k => k.trim()).filter(Boolean);
+  const arabicPhrase = cleanArabic.length > 1 ? normalizeArabicForSearch(cleanArabic.join(' ')) : '';
+
   const scored = chunks.map(chunk => {
     let score = 0;
     const normHeading = normalizeArabicForSearch(chunk.heading);
@@ -3867,17 +3893,22 @@ function rankChunksV2(
     const rawHeadingLower = (chunk.heading || '').toLowerCase();
     const rawContentLower = (chunk.content || '').toLowerCase();
 
+    // High bonus for exact multi-word phrase match in heading or content
+    if (arabicPhrase) {
+      if (normHeading.includes(arabicPhrase)) score += 30;
+      else if (normContent.includes(arabicPhrase)) score += 15;
+    }
+
     // Score Arabic keywords with normalization and prefix-stripping
-    arabicKeywords.forEach(keyword => {
-      if (!keyword.trim()) return;
+    cleanArabic.forEach(keyword => {
       const variants = getArabicKeywordVariants(keyword);
       for (const variant of variants) {
         if (!variant) continue;
+        if (normHeading.includes(variant)) {
+          score += 15; // High bonus for heading/breadcrumb match
+        }
         if (normContent.includes(variant)) {
           score += 4;
-        }
-        if (normHeading.includes(variant)) {
-          score += 12; // High bonus for heading matches
         }
       }
     });
@@ -3886,11 +3917,11 @@ function rankChunksV2(
     englishKeywords.forEach(keyword => {
       const cleanEng = keyword.trim().toLowerCase();
       if (!cleanEng) return;
-      if (rawContentLower.includes(cleanEng)) {
-        score += 3;
-      }
       if (rawHeadingLower.includes(cleanEng)) {
-        score += 8;
+        score += 10;
+      }
+      if (rawContentLower.includes(cleanEng)) {
+        score += 4;
       }
     });
 

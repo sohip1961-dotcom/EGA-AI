@@ -153,8 +153,8 @@ export async function analyzeQueryIntelligence(
   subject: string,
   grade: string
 ): Promise<QueryIntelligence> {
-  const prompt = `You are an expert Query Intelligence and Metadata Extractor specialized in the Egyptian National Curriculum (Middle & High School).
-Analyze the student query against the curriculum context to extract metadata, search terms, and a hypothetical textbook answer (HyDE).
+  const prompt = `You are an expert Query Intelligence and Curriculum Search Engine specialized in the Egyptian National Curriculum for Preparatory and Secondary stages (المناهج المصرية للإعدادية والثانوية).
+Analyze the student's question against the curriculum subject to extract precise textbook keywords, search terms, and a hypothetical textbook paragraph (HyDE).
 
 Active Subject: "${subject}"
 Active Grade Level: "${grade}"
@@ -163,22 +163,22 @@ Student Query: "${query}"
 Return strict JSON ONLY (no markdown fences, no conversational text):
 {
   "queryType": "direct|inferential|overview|problem_solving",
-  "arabicKeywords": ["core scientific terms, laws, and concepts in Arabic"],
-  "englishKeywords": ["corresponding English scientific terms if applicable"],
-  "hydePassage": "A 2-3 sentence hypothetical textbook passage written in formal Arabic as if extracted directly from the Egyptian curriculum textbook to answer the question",
-  "searchAnnouncement": "سأبحث الآن عن: [الموضوع المحدد]",
+  "arabicKeywords": ["list of 3-7 core academic, scientific, or historical keywords directly from the Egyptian curriculum textbook without conversational words"],
+  "englishKeywords": ["corresponding scientific terms in English if relevant, e.g. acceleration, isotope, atom"],
+  "hydePassage": "A 2-3 sentence hypothetical textbook passage written in formal Arabic as if extracted directly from the official Egyptian Ministry of Education textbook to answer the query accurately",
+  "searchAnnouncement": "سأبحث الآن عن: [الموضوع أو المفهوم المحدد]",
   "metadata": {
-    "gradeLevel": "Grade level if explicitly mentioned by student ('1_middle'|'2_middle'|'3_middle'|'1_high'|'2_high') or null",
-    "subject": "Subject name in Arabic if explicitly stated (e.g. 'الفيزياء', 'الكيمياء') or null",
-    "unit": "Unit name/number if mentioned (e.g. 'الوحدة الأولى') or null",
-    "chapter": "Lesson/chapter name if mentioned (e.g. 'الدرس الأول', 'قانون نيوتن') or null"
+    "gradeLevel": "Explicit grade mentioned ('1_middle'|'2_middle'|'3_middle'|'1_high'|'2_high') or null",
+    "subject": "Explicit subject mentioned in Arabic or null",
+    "unit": "Unit title or number if specified (e.g. 'الوحدة الأولى') or null",
+    "chapter": "Lesson or chapter title if specified (e.g. 'الدرس الأول: تركيب الذرة') or null"
   }
 }
 
-Rules:
-- queryType: 'overview' (whole curriculum summary), 'direct' (specific definition/law), 'inferential' (conceptual application/relation), 'problem_solving' (math/physics/chemistry problem).
-- hydePassage: Must be in authentic Arabic curriculum textbook language so vector cosine similarity against textbook chunks is maximized.
-- searchAnnouncement: Short friendly Arabic UI phrase telling the student what topic is being searched.`;
+Guidelines:
+- arabicKeywords: Extract substantive curriculum terms (e.g. 'قانون نيوتن الثاني', 'القوة', 'الكتلة', 'التسارع', 'الروابط التساهمية', 'مندليف', 'كوش', 'المفعول المطلق'). Exclude stop words and conversational filler.
+- hydePassage: Must use genuine textbook terminology, laws, and definitions matching Egyptian curriculum standards.
+- searchAnnouncement: Polite, encouraging phrase in Egyptian educational Arabic informing the student of the targeted search.`;
 
   try {
     const raw = await callGeminiFlash(prompt, 600);
@@ -208,10 +208,21 @@ Rules:
     };
   } catch (err) {
     console.error('analyzeQueryIntelligence failed, using fallback:', err);
-    const words = query.replace(/[؟?!.،,]/g, '').split(/\s+/).filter(w => w.length > 2);
+    const STOP_WORDS = new Set([
+      'ما', 'ماذا', 'هو', 'هي', 'هم', 'هن', 'كيف', 'لماذا', 'علل', 'بما', 'تفسر',
+      'اشرح', 'وضح', 'معنى', 'مفهوم', 'عرف', 'قارن', 'ممكن', 'السؤال', 'في', 'من',
+      'على', 'عن', 'مع', 'هل', 'يا', 'ده', 'دي', 'عايز', 'اعرف', 'قولي', 'ايه',
+      'لو', 'سمحت', 'اريد', 'حل', 'مسألة', 'سؤال'
+    ]);
+    const words = query
+      .replace(/[؟?!.،,;:]/g, ' ')
+      .split(/\s+/)
+      .map(w => w.trim())
+      .filter(w => w.length > 1 && !STOP_WORDS.has(w));
+
     return {
       queryType: 'direct',
-      arabicKeywords: words.slice(0, 6),
+      arabicKeywords: words.length > 0 ? words.slice(0, 7) : [query.slice(0, 30)],
       englishKeywords: [],
       hydePassage: query,
       searchAnnouncement: `سأبحث الآن في منهج ${subject}...`

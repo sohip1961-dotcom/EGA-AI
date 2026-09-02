@@ -66,6 +66,59 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    if (action === 'complete-onboarding') {
+      const body = await req.json().catch(() => ({}));
+      const cleanName = (name || body.name || '').trim();
+      const targetGrade = body.grade_level || profile.grade_level;
+      const targetTrack = body.track_id !== undefined ? body.track_id : profile.track_id;
+      const targetElective = body.elective_subject !== undefined ? body.elective_subject : profile.elective_subject;
+
+      const validGrades = ['1_middle', '2_middle', '3_middle', '1_high', '2_high'];
+      if (!targetGrade || !validGrades.includes(targetGrade)) {
+        return NextResponse.json({ error: 'يرجى تحديد مرحلة دراسية صالحة.' }, { status: 400 });
+      }
+
+      if (cleanName) {
+        await db.updateProfileName(userId, cleanName);
+      }
+
+      const updated = await db.updateProfileGradeLevel(
+        userId,
+        targetGrade,
+        targetGrade === '2_high' ? (targetTrack || null) : null,
+        targetGrade === '2_high' ? (targetElective || null) : null
+      );
+
+      if (!updated) {
+        return NextResponse.json({ error: 'فشل حفظ إعدادات الحساب' }, { status: 500 });
+      }
+
+      const freshProfile = await db.getProfile(userId) || updated;
+
+      return NextResponse.json({
+        success: true,
+        message: 'تم إعداد حسابك بنجاح. نوّرت المنصة!',
+        user: {
+          id: freshProfile.id,
+          phone: freshProfile.phone,
+          email: freshProfile.email,
+          name: freshProfile.name,
+          grade_level: freshProfile.grade_level,
+          track_id: freshProfile.track_id || null,
+          elective_subject: freshProfile.elective_subject || null,
+          plan_type: freshProfile.plan_type,
+          subscription_status: freshProfile.subscription_status || (freshProfile.plan_type && freshProfile.plan_type !== 'free' ? 'active' : 'inactive'),
+          subscription_start_date: freshProfile.subscription_start_date,
+          subscription_end_date: freshProfile.subscription_end_date,
+          subscription_plan_id: freshProfile.subscription_plan_id,
+          role: freshProfile.role,
+          coins: freshProfile.coins === undefined ? 15.0 : freshProfile.coins,
+          points: freshProfile.points || 0,
+          study_streak: freshProfile.study_streak || 1
+        }
+      });
+    }
+
     if (action === 'send-otp') {
       if (!profile.email) {
         return NextResponse.json({ error: 'لا يوجد بريد إلكتروني مسجل لهذا الحساب.' }, { status: 400 });

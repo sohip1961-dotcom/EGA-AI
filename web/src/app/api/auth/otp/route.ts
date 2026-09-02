@@ -79,8 +79,8 @@ export async function POST(req: NextRequest) {
     const profile = await db.createProfile({
       id: userId,
       email: pending.email,
-      name: pending.name,
-      grade_level: pending.grade_level,
+      name: pending.name || 'طالب جديد',
+      grade_level: pending.grade_level || 'unselected',
       track_id: pending.track_id || null,
       elective_subject: pending.elective_subject || null,
       plan_type: 'free',
@@ -112,6 +112,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       token,
+      is_new_user: true,
       device_id: deviceResult.device.device_id,
       active_devices_count: deviceResult.activeCount,
       devices_revoked: deviceResult.devicesRevoked,

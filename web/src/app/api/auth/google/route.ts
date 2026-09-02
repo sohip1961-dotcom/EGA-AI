@@ -128,19 +128,10 @@ export async function POST(req: NextRequest) {
 
     // Find profile by email
     let profile = await db.getProfileByEmail(email);
+    let isNewUser = false;
 
     if (!profile) {
-      // If profile does not exist, they need to sign up.
-      // If no grade level is provided in the request, prompt the frontend to request it.
-      if (!grade_level) {
-        return NextResponse.json({
-          requires_grade_level: true,
-          email,
-          name,
-          google_id: googleId
-        });
-      }
-
+      isNewUser = true;
       // Anti-Abuse Tracking (IP, User-Agent, Browser Fingerprint, Device ID)
       const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
                         req.headers.get('cf-connecting-ip') ||
@@ -163,12 +154,12 @@ export async function POST(req: NextRequest) {
         hasRegisteredBefore: !!has_registered_before
       });
 
-      // Create new user profile
+      // Create new user profile directly
       profile = await db.createProfile({
         id: userId,
         email,
-        name,
-        grade_level,
+        name: name || 'طالب جديد',
+        grade_level: grade_level || 'unselected',
         track_id: track_id || null,
         elective_subject: elective_subject || null,
         plan_type: 'free',
@@ -207,6 +198,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       token,
+      is_new_user: isNewUser || profile.grade_level === 'unselected',
       device_id: deviceResult.device.device_id,
       active_devices_count: deviceResult.activeCount,
       devices_revoked: deviceResult.devicesRevoked,

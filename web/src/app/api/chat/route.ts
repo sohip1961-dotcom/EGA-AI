@@ -100,16 +100,12 @@ function buildPromptText(cleanText: string, imageDesc?: string): string {
   return text;
 }
 
-function buildHierarchicalContextString(parentChunks: CurriculumChunk[], childChunks: CurriculumChunk[]): string {
+function buildHierarchicalContextString(parentChunks: CurriculumChunk[], childChunks: CurriculumChunk[] = []): string {
   if (parentChunks.length === 0) return '';
   return parentChunks
     .map((parent, index) => {
-      const matchedChildren = childChunks.filter(c => c.parent_id === parent.id);
-      const childHighlights = matchedChildren.map(c => `  - جزء مطابق دقيق: ${c.content}`).join('\n');
-      
       return `--- القسم ${index + 1}: [${parent.heading}] ---\n` +
-             `محتوى الدرس الكامل:\n${parent.content}\n` +
-             (matchedChildren.length > 0 ? `\nمطابقات الجمل المحددة:\n${childHighlights}\n` : '') +
+             `محتوى الدرس:\n${parent.content}\n` +
              `-----------------------------------------`;
     })
     .join('\n\n');
@@ -406,6 +402,15 @@ export async function POST(req: NextRequest) {
               contextChunks = fusedChildChunks;
             }
 
+            let outlineHeader = '';
+            if (Array.isArray(targetCurr.units) && targetCurr.units.length > 0) {
+              const unitMap = targetCurr.units.map((u: any, uIdx: number) => {
+                const lessonTitles = (u.lessons || []).map((l: any, lIdx: number) => `      - ${l.title || `الدرس ${lIdx + 1}`}`).join('\n');
+                return `  * ${u.title || `الوحدة ${uIdx + 1}`}:\n${lessonTitles}`;
+              }).join('\n');
+              outlineHeader = `خريطة وحدات ودروس المنهج الدراسي:\n${unitMap}\n\n`;
+            }
+
             if (intelligence.queryType === 'overview') {
               emitSearchStep('summary', '📚', 'سأستعرض محتوى المنهج الكامل...');
               const [summary, outline] = await Promise.all([
@@ -417,14 +422,16 @@ export async function POST(req: NextRequest) {
               }
               if (outline.length > 0) {
                 ragContext += `محاور المنهج الدراسي:\n${outline.map((h, i) => `${i + 1}. ${h}`).join('\n')}\n\n`;
+              } else if (outlineHeader) {
+                ragContext += outlineHeader;
               }
-              ragContext += buildHierarchicalContextString(contextChunks.slice(0, 4), fusedChildChunks);
+              ragContext += buildHierarchicalContextString(contextChunks.slice(0, 6), fusedChildChunks);
 
             } else if (intelligence.queryType === 'direct' && contextChunks.length >= 3) {
-              ragContext = buildHierarchicalContextString(contextChunks.slice(0, 8), fusedChildChunks);
+              ragContext = (outlineHeader ? outlineHeader : '') + buildHierarchicalContextString(contextChunks.slice(0, 8), fusedChildChunks);
 
             } else {
-              ragContext = buildHierarchicalContextString(contextChunks.slice(0, 8), fusedChildChunks);
+              ragContext = (outlineHeader ? outlineHeader : '') + buildHierarchicalContextString(contextChunks.slice(0, 8), fusedChildChunks);
 
               if (contextChunks.length < 3) {
                 emitSearchStep('assessing', '📊', 'أتحقق من كفاية المعلومات المسترجعة...');
@@ -447,7 +454,7 @@ export async function POST(req: NextRequest) {
                         console.error(`Round 2 search for "${topic}" failed:`, extraErr);
                       }
                     }
-                    ragContext = buildHierarchicalContextString(contextChunks.slice(0, 8), fusedChildChunks);
+                    ragContext = (outlineHeader ? outlineHeader : '') + buildHierarchicalContextString(contextChunks.slice(0, 8), fusedChildChunks);
                   }
 
                   if (!gap.sufficient && contextChunks.length < 2) {

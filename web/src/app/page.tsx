@@ -38,6 +38,8 @@ import {
   Sun,
   Moon,
   ArrowRight,
+  ArrowLeft,
+  ArrowDown,
   Image as ImageIcon,
   Mic,
   GraduationCap,
@@ -88,6 +90,7 @@ import {
   ExternalLink,
   HelpCircle
 } from 'lucide-react';
+import AppTour, { TourScreen } from '@/components/AppTour';
 
 interface SearchStep {
   step: string;
@@ -143,7 +146,8 @@ const GRADE_NAMES: Record<string, string> = {
   '2_middle': 'الصف الثاني الإعدادي',
   '3_middle': 'الصف الثالث الإعدادي',
   '1_high': 'الصف الأول الثانوي',
-  '2_high': 'السنة الثانية بكالوريا (الصف الثاني الثانوي)'
+  '2_high': 'السنة الثانية بكالوريا (الصف الثاني الثانوي)',
+  'unselected': 'لم يتم تحديد المرحلة'
 };
 
 export interface BaccalaureateTrack {
@@ -2005,6 +2009,22 @@ export default function App() {
     localStorage.setItem('egs_dismissed_notifications', JSON.stringify(updated));
   };
 
+  // Platform App Tour State & Handlers
+  const [tourScreen, setTourScreen] = useState<TourScreen>('chat');
+  const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
+
+  const startTour = (screenName: TourScreen) => {
+    setTourScreen(screenName);
+    setIsTourOpen(true);
+  };
+
+  const handleTourClose = (_completed: boolean) => {
+    setIsTourOpen(false);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`egs_tour_completed_${tourScreen}`, 'true');
+    }
+  };
+
   // Phase 2: Flashcards & Leaderboard States
   const [flashcardDecks, setFlashcardDecks] = useState<any[]>([]);
   const [loadingDecks, setLoadingDecks] = useState(false);
@@ -2751,6 +2771,16 @@ export default function App() {
   const [googleSelectedTrack, setGoogleSelectedTrack] = useState('medicine_life_sciences');
   const [googleSelectedElective, setGoogleSelectedElective] = useState('');
 
+  // Post-Registration Sequential Onboarding States
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState<'stage' | 'name'>('stage');
+  const [onboardingGrade, setOnboardingGrade] = useState('1_high');
+  const [onboardingTrack, setOnboardingTrack] = useState('engineering_cs');
+  const [onboardingElective, setOnboardingElective] = useState('');
+  const [onboardingName, setOnboardingName] = useState('');
+  const [onboardingLoading, setOnboardingLoading] = useState(false);
+  const [onboardingError, setOnboardingError] = useState('');
+
   // Chat State
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
@@ -3138,6 +3168,38 @@ export default function App() {
     }
   }, [activeTab, token]);
 
+  // Screen-specific App Tour auto-trigger
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (isInitialLoading) return;
+    if (showAuthModal || showOnboardingModal) return;
+
+    const tourScreens: TourScreen[] = ['chat', 'exams', 'flashcards', 'leaderboard', 'subscriptions'];
+    const currentScreen = (activeTab === 'beta' ? 'subscriptions' : activeTab) as TourScreen;
+
+    if (tourScreens.includes(currentScreen)) {
+      const hasSeenTour = localStorage.getItem(`egs_tour_completed_${currentScreen}`) === 'true';
+      if (!hasSeenTour) {
+        if (currentScreen === 'chat') {
+          const justRegistered = localStorage.getItem('egs_just_registered') === 'true';
+          if (justRegistered) {
+            localStorage.removeItem('egs_just_registered');
+            const timer = setTimeout(() => {
+              startTour('chat');
+            }, 600);
+            return () => clearTimeout(timer);
+          }
+        } else if (user) {
+          const timer = setTimeout(() => {
+            startTour(currentScreen);
+          }, 500);
+          return () => clearTimeout(timer);
+        }
+      }
+    }
+  }, [activeTab, user, isInitialLoading, showAuthModal, showOnboardingModal]);
+
+
   // Kashier Payment Result Listener (from redirect)
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -3218,6 +3280,12 @@ export default function App() {
     setTimeout(() => {
       if (textareaRef.current) {
         textareaRef.current.focus();
+        const len = text.length;
+        try {
+          textareaRef.current.setSelectionRange(len, len);
+        } catch {
+          // ignore if not supported
+        }
       }
     }, 50);
   };
@@ -3350,6 +3418,7 @@ export default function App() {
               </div>
             </div>
             <div 
+              id="tour-subject-selector"
               className="subject-cards-grid"
               style={isMobile ? {
                 display: 'flex',
@@ -3416,145 +3485,92 @@ export default function App() {
           </div>
         )}
 
-        {/* Practical Study Mode Cards (2x2 Neat Square Grid on Mobile) */}
+        {/* Feature Cards: "Quizs" and "Cards" as wide cards with outward-pointing arrow */}
         <div>
-          <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '8px', letterSpacing: '0.02em' }}>
-            ماذا تود أن تنجز الآن؟
+          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '10px', letterSpacing: '0.02em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Sparkles size={14} color="var(--primary-color)" />
+            <span>ماذا تريد أن تفعل الآن؟</span>
           </div>
-          <div 
-            className="study-mode-cards-grid"
-            style={isMobile ? {
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '8px',
-              width: '100%'
-            } : {}}
-          >
-            {[
-              {
-                icon: <BookOpen size={isMobile ? 16 : 18} />,
-                title: 'شرح وتفصيل درس',
-                desc: 'شرح مبسط مع أمثلة وتوضيح المفاهيم الصعبة',
-                action: () => {
-                  const targetGrade = user ? user.grade_level : chatGrade;
-                  const activeSubjs = getActiveSubjectsForGrade(targetGrade);
-                  const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
-                  if (currentSubj?.is_placeholder) {
-                    setPlaceholderModalCurriculum(currentSubj);
-                    return;
-                  }
-                  handleSuggestionClick(`اشرح لي بالتفصيل وبأمثلة واضحة في منهج ${chatSubject || 'الدراسي'}: `);
+          <div className="study-feature-cards-grid">
+            {/* Quiz Feature Card */}
+            <div
+              onClick={() => {
+                if (!user) {
+                  setAuthTab('register');
+                  setShowAuthModal(true);
+                  return;
                 }
-              },
-              {
-                icon: <Sparkles size={isMobile ? 16 : 18} />,
-                title: 'حل مسألة أو سؤال',
-                desc: 'تحليل المسائل المعقدة واستخراج الإجابات النموذجية',
-                action: () => {
-                  const targetGrade = user ? user.grade_level : chatGrade;
-                  const activeSubjs = getActiveSubjectsForGrade(targetGrade);
-                  const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
-                  if (currentSubj?.is_placeholder) {
-                    setPlaceholderModalCurriculum(currentSubj);
-                    return;
-                  }
-                  handleSuggestionClick(`ساعدني في حل وتفصيل هذه المسألة في ${chatSubject || 'المنهج'}: `);
+                const targetGrade = user ? user.grade_level : chatGrade;
+                const activeSubjs = getActiveSubjectsForGrade(targetGrade);
+                const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
+                if (currentSubj?.is_placeholder) {
+                  setPlaceholderModalCurriculum(currentSubj);
+                  return;
                 }
-              },
-              {
-                icon: <FileText size={isMobile ? 16 : 18} />,
-                title: 'امتحان تقييمي',
-                desc: 'توليد اختبار ذكي بالذكاء الاصطناعي مع التصحيح الفوري',
-                action: () => {
-                  if (!user) {
-                    setAuthTab('register');
-                    setShowAuthModal(true);
-                    return;
-                  }
-                  const targetGrade = user ? user.grade_level : chatGrade;
-                  const activeSubjs = getActiveSubjectsForGrade(targetGrade);
-                  const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
-                  if (currentSubj?.is_placeholder) {
-                    setPlaceholderModalCurriculum(currentSubj);
-                    return;
-                  }
-                  const subj = chatSubject || (activeSubjs[0]?.subject_name || '');
-                  setExamSubject(subj);
-                  setExamTopic('');
-                  setSelectedExamLesson(null);
-                  setLessonSearchQuery('');
-                  setExamLessonTab('curriculum');
-                  setShowExamCreateModal(true);
-                  if (subj) fetchCurriculumStructure(targetGrade, subj);
-                }
-              },
-              {
-                icon: <Brain size={isMobile ? 16 : 18} />,
-                title: 'المدرب الذكي والكروت',
-                desc: 'مراجعة المفاهيم بطريقة التكرار المتباعد الذكية',
-                action: () => {
-                  if (!user) {
-                    setAuthTab('register');
-                    setShowAuthModal(true);
-                    return;
-                  }
-                  const targetGrade = user ? user.grade_level : chatGrade;
-                  const activeSubjs = getActiveSubjectsForGrade(targetGrade);
-                  const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
-                  if (currentSubj?.is_placeholder) {
-                    setPlaceholderModalCurriculum(currentSubj);
-                    return;
-                  }
-                  setActiveTab('flashcards');
-                  if (chatSubject) fetchSubjectCards(chatSubject);
-                }
-              }
-            ].map((card, idx) => (
-              <div
-                key={idx}
-                onClick={card.action}
-                className="study-mode-card-item"
-                style={isMobile ? {
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  textAlign: 'center',
-                  padding: '12px 6px',
-                  borderRadius: '14px',
-                  minHeight: '70px',
-                  gap: '6px'
-                } : {}}
-              >
-                <div 
-                  className="study-mode-card-icon"
-                  style={isMobile ? {
-                    width: '30px',
-                    height: '30px',
-                    borderRadius: '8px',
-                    margin: 0
-                  } : {}}
-                >
-                  {card.icon}
+                const subj = chatSubject || (activeSubjs[0]?.subject_name || '');
+                setExamSubject(subj);
+                setExamTopic('');
+                setSelectedExamLesson(null);
+                setLessonSearchQuery('');
+                setExamLessonTab('curriculum');
+                setShowExamCreateModal(true);
+                if (subj) fetchCurriculumStructure(targetGrade, subj);
+              }}
+              className="study-feature-card study-feature-card-quiz"
+              role="button"
+              tabIndex={0}
+            >
+              <div className="study-feature-card-body">
+                <div className="study-feature-card-icon quiz">
+                  <FileText size={isMobile ? 18 : 22} />
                 </div>
-                <div style={isMobile ? { textAlign: 'center', width: '100%' } : {}}>
-                  <div 
-                    className="study-mode-card-title"
-                    style={isMobile ? {
-                      fontSize: '0.76rem',
-                      fontWeight: 800,
-                      lineHeight: 1.25,
-                      whiteSpace: 'nowrap',
-                      margin: 0,
-                      textAlign: 'center'
-                    } : {}}
-                  >
-                    {card.title}
-                  </div>
-                  {!isMobile && <div className="study-mode-card-desc">{card.desc}</div>}
+                <div className="study-feature-card-content">
+                  <div className="study-feature-card-title">امتحان تقييمي ذكي</div>
+                  <div className="study-feature-card-desc">توليد اختبار منهجي مخصص بالذكاء الاصطناعي مع التصحيح والتقييم الفوري</div>
                 </div>
               </div>
-            ))}
+              <div className="study-feature-card-cta">
+                <span>ابدأ الاختبار الآن</span>
+                <ArrowLeft size={15} className="feature-card-arrow" />
+              </div>
+            </div>
+
+            {/* Smart Coach Flashcards Feature Card */}
+            <div
+              onClick={() => {
+                if (!user) {
+                  setAuthTab('register');
+                  setShowAuthModal(true);
+                  return;
+                }
+                const targetGrade = user ? user.grade_level : chatGrade;
+                const activeSubjs = getActiveSubjectsForGrade(targetGrade);
+                const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
+                if (currentSubj?.is_placeholder) {
+                  setPlaceholderModalCurriculum(currentSubj);
+                  return;
+                }
+                setActiveTab('flashcards');
+                if (chatSubject) fetchSubjectCards(chatSubject);
+              }}
+              className="study-feature-card study-feature-card-cards"
+              role="button"
+              tabIndex={0}
+            >
+              <div className="study-feature-card-body">
+                <div className="study-feature-card-icon cards">
+                  <Brain size={isMobile ? 18 : 22} />
+                </div>
+                <div className="study-feature-card-content">
+                  <div className="study-feature-card-title">المدرب الذكي والكروت</div>
+                  <div className="study-feature-card-desc">مراجعة وتثبيت المفاهيم والقوانين بنظام التكرار المتباعد الذكي</div>
+                </div>
+              </div>
+              <div className="study-feature-card-cta">
+                <span>ابدأ المراجعة الآن</span>
+                <ArrowLeft size={15} className="feature-card-arrow" />
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -3821,7 +3837,55 @@ export default function App() {
           </div>
         )}
 
-        <div className="composer-dock-container">
+        {/* Quick Fill Prompt Tags Directly Above Text Box (Explanation & Solution) */}
+        {isCentered && (
+          <div className="composer-prompt-tags-wrapper">
+            <span className="composer-prompt-tags-hint">
+              اقتراحات سريعة للمحادثة:
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const targetGrade = user ? user.grade_level : chatGrade;
+                const activeSubjs = getActiveSubjectsForGrade(targetGrade);
+                const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
+                if (currentSubj?.is_placeholder) {
+                  setPlaceholderModalCurriculum(currentSubj);
+                  return;
+                }
+                handleSuggestionClick(`اشرح لي بالتفصيل وبأمثلة واضحة في منهج ${chatSubject || 'الدراسي'}: `);
+              }}
+              className="composer-prompt-tag"
+              title="إدراج صيغة الشرح والتفصيل في مربع الكتابة أدناه"
+            >
+              <Plus size={13} className="prompt-tag-prefix-icon" />
+              <span className="prompt-tag-text">شرح وتفصيل درس</span>
+              <ArrowDown size={12} className="prompt-tag-arrow-icon" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const targetGrade = user ? user.grade_level : chatGrade;
+                const activeSubjs = getActiveSubjectsForGrade(targetGrade);
+                const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
+                if (currentSubj?.is_placeholder) {
+                  setPlaceholderModalCurriculum(currentSubj);
+                  return;
+                }
+                handleSuggestionClick(`ساعدني في حل وتفصيل هذه المسألة في ${chatSubject || 'المنهج'}: `);
+              }}
+              className="composer-prompt-tag"
+              title="إدراج صيغة حل المسألة في مربع الكتابة أدناه"
+            >
+              <Plus size={13} className="prompt-tag-prefix-icon" />
+              <span className="prompt-tag-text">حل مسألة أو سؤال</span>
+              <ArrowDown size={12} className="prompt-tag-arrow-icon" />
+            </button>
+          </div>
+        )}
+
+        <div id="tour-composer-dock" className="composer-dock-container">
           {/* Main Input + Buttons Row */}
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', direction: 'rtl' }}>
             
@@ -3866,7 +3930,7 @@ export default function App() {
 
             {/* Auto-growing Textarea */}
             <textarea
-              ref={isCentered ? null : textareaRef}
+              ref={textareaRef}
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyDown={(e) => {
@@ -3898,6 +3962,7 @@ export default function App() {
 
             {/* Send Button */}
             <button
+              id="tour-send-button"
               type="submit"
               disabled={isDisabled || (!hasMessage && !pendingImage)}
               className={`send-button ${(hasMessage || pendingImage) && !isDisabled ? 'active' : ''}`}
@@ -3933,6 +3998,7 @@ export default function App() {
 
             {/* Feature 2: Deep Thinking (CoT) Toggle */}
             <button
+              id="tour-thinking-controls"
               type="button"
               onClick={() => {
                 if (!user) {
@@ -3952,6 +4018,7 @@ export default function App() {
 
             {/* Feature 3: AI Model Selector */}
             <button
+              id="tour-model-selector"
               type="button"
               onClick={() => setShowModelSheet(true)}
               className={`composer-feature-pill ${selectedModel === 'pro' ? 'active-gold' : ''}`}
@@ -4588,6 +4655,13 @@ export default function App() {
         if (parsedUser.points !== undefined) {
           setPoints(parsedUser.points);
         }
+        if (parsedUser.grade_level === 'unselected' || !parsedUser.grade_level) {
+          setShowOnboardingModal(true);
+          setOnboardingStep('stage');
+          if (parsedUser.name && parsedUser.name !== 'طالب جديد' && parsedUser.name !== 'Google User') {
+            setOnboardingName(parsedUser.name);
+          }
+        }
       } catch (e) {}
     } else if (storedToken) {
       setToken(storedToken);
@@ -4888,7 +4962,7 @@ export default function App() {
         const data = await res.json();
         
         if (!res.ok) {
-          throw new Error(data.error || 'فشل تسجيل الدخول');
+          throw new Error(data.error || 'فشل تسجيل الدخول. يرجى التأكد من البريد وكلمة السر.');
         }
 
         // Save session
@@ -4902,24 +4976,26 @@ export default function App() {
         resetAuthForm();
         loadNotifications(data.token);
 
+        // If user has not completed onboarding
+        if (data.user.grade_level === 'unselected' || !data.user.grade_level) {
+          setShowOnboardingModal(true);
+          setOnboardingStep('stage');
+          if (data.user.name && data.user.name !== 'طالب جديد') {
+            setOnboardingName(data.user.name);
+          }
+        }
+
       } else {
-        // Register step 1: Send registration details
+        // Register step 1: Send registration details (Email & Password ONLY)
         if (!otpStep) {
           if (!termsAccepted) {
-            throw new Error('يجب الموافقة على سياسة الخصوصية وشروط الاستخدام لإتمام التسجيل.');
-          }
-          if (gradeLevel === '2_high' && !selectedTrack) {
-            throw new Error('يرجى اختيار المسار الدراسي لطلاب البكالوريا.');
+            throw new Error('لازم توافق على سياسة الخصوصية وشروط الاستخدام أولاً عشان تقدر تسجل.');
           }
           const res = await fetch('/api/auth/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               email,
-              name,
-              grade_level: gradeLevel,
-              track_id: gradeLevel === '2_high' ? selectedTrack : undefined,
-              elective_subject: gradeLevel === '2_high' ? selectedElective : undefined,
               password,
               terms_accepted: true
             })
@@ -4959,13 +5035,19 @@ export default function App() {
           localStorage.setItem('egs_registered_before', 'true');
           setToken(data.token);
           setUser(data.user);
-          if (data.user?.track_id) setSelectedTrack(data.user.track_id);
-          if (data.user?.elective_subject) setSelectedElective(data.user.elective_subject);
           setCoins(data.user.coins === undefined ? 15.0 : data.user.coins);
           setPoints(data.user.points || 0);
           setShowAuthModal(false);
           resetAuthForm();
           loadNotifications(data.token);
+
+          // Prompt user for Stage and Name sequentially
+          setShowOnboardingModal(true);
+          setOnboardingStep('stage');
+          setOnboardingName('');
+          setOnboardingGrade('1_high');
+          setOnboardingTrack('engineering_cs');
+          setOnboardingElective('');
         }
       }
     } catch (err: any) {
@@ -5002,7 +5084,7 @@ export default function App() {
       }
 
       if (data.requires_grade_level) {
-        // Show grade selection modal
+        // Fallback for legacy responses
         setGoogleTempUser({ credential, email: data.email, name: data.name });
         setShowGoogleGradeModal(true);
         setShowAuthModal(false);
@@ -5022,11 +5104,86 @@ export default function App() {
         setGoogleTempUser(null);
         resetAuthForm();
         loadNotifications(data.token);
+
+        // If new user or grade_level unselected, open sequential onboarding!
+        if (data.is_new_user || data.user.grade_level === 'unselected' || !data.user.grade_level) {
+          setShowOnboardingModal(true);
+          setOnboardingStep('stage');
+          setOnboardingGrade('1_high');
+          setOnboardingTrack('engineering_cs');
+          setOnboardingElective('');
+          if (data.user.name && data.user.name !== 'طالب جديد' && data.user.name !== 'Google User') {
+            setOnboardingName(data.user.name);
+          }
+        } else if (data.is_new_user) {
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('egs_just_registered', 'true');
+          }
+          setTimeout(() => {
+            startTour('chat');
+          }, 500);
+        }
       }
     } catch (err: any) {
       setAuthError(err.message);
     } finally {
       setAuthLoading(false);
+    }
+  };
+
+  const handleCompleteOnboarding = async () => {
+    if (!onboardingName.trim()) {
+      setOnboardingError('اكتب اسمك الكريم عشان نقدر نجهّز لك حسابك.');
+      return;
+    }
+    if (onboardingGrade === '2_high' && !onboardingTrack) {
+      setOnboardingError('اختر شعبتك ومسارك الدراسي لطلاب البكالوريا.');
+      return;
+    }
+
+    setOnboardingLoading(true);
+    setOnboardingError('');
+    try {
+      const activeToken = token || localStorage.getItem('egs_token');
+      const res = await fetch('/api/auth/update-profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${activeToken}`
+        },
+        body: JSON.stringify({
+          action: 'complete-onboarding',
+          name: onboardingName.trim(),
+          grade_level: onboardingGrade,
+          track_id: onboardingGrade === '2_high' ? onboardingTrack : null,
+          elective_subject: onboardingGrade === '2_high' ? onboardingElective : null
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'فشل حفظ البيانات. يرجى المحاولة مجدداً.');
+
+      // Update user state & storage
+      localStorage.setItem('egs_user', JSON.stringify(data.user));
+      setUser(data.user);
+      setProfileName(data.user.name || onboardingName.trim());
+      setChatGrade(data.user.grade_level);
+      if (data.user.track_id) setSelectedTrack(data.user.track_id);
+      if (data.user.elective_subject) setSelectedElective(data.user.elective_subject);
+
+      setShowOnboardingModal(false);
+
+      // First-time registered user: trigger Chat tour
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('egs_just_registered', 'true');
+      }
+      setTimeout(() => {
+        startTour('chat');
+      }, 500);
+    } catch (err: any) {
+      setOnboardingError(err.message || 'حدث خطأ أثناء حفظ الإعدادات.');
+    } finally {
+      setOnboardingLoading(false);
     }
   };
 
@@ -5042,7 +5199,7 @@ export default function App() {
 
   // Google One-Tap & Sign-In Button integration
   useEffect(() => {
-    if (showAuthModal) {
+    if (showAuthModal && !otpStep) {
       const timer = setTimeout(() => {
         const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '868945795931-v00sqknb9qsgcq7hid3t2rkps2vu1348.apps.googleusercontent.com';
         if (typeof window !== 'undefined' && (window as any).google?.accounts?.id) {
@@ -5055,6 +5212,7 @@ export default function App() {
             });
             const btnContainer = document.getElementById("google-signin-button");
             if (btnContainer) {
+              btnContainer.innerHTML = '';
               (window as any).google.accounts.id.renderButton(btnContainer, {
                 theme: "outline",
                 size: "large",
@@ -5069,7 +5227,7 @@ export default function App() {
       }, 150);
       return () => clearTimeout(timer);
     }
-  }, [showAuthModal]);
+  }, [showAuthModal, authTab, otpStep]);
 
   const handleLogout = () => {
     const currentDevId = localStorage.getItem('egs_device_id');
@@ -6898,7 +7056,18 @@ export default function App() {
               ] : []),
               ...(user?.role === 'admin' ? [{ icon: <Settings size={16} />, label: 'لوحة التحكم', action: () => { setActiveTab('admin'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'admin' }] : []),
               { icon: <Phone size={16} />, label: 'تواصل معنا', action: () => { window.location.href = '/contact'; }, isActive: false },
-              { icon: <Download size={16} />, label: 'تحميل وتثبيت التطبيق', action: () => { window.location.href = '/download'; }, isActive: false }
+              { icon: <Download size={16} />, label: 'تحميل وتثبيت التطبيق', action: () => { window.location.href = '/download'; }, isActive: false },
+              {
+                icon: <Compass size={16} />,
+                label: 'جولة في المنصة',
+                action: () => {
+                  const validScreens: TourScreen[] = ['chat', 'exams', 'flashcards', 'leaderboard', 'subscriptions'];
+                  const targetScreen: TourScreen = validScreens.includes(activeTab as TourScreen) ? (activeTab as TourScreen) : (activeTab === 'beta' ? 'subscriptions' : 'chat');
+                  startTour(targetScreen);
+                  if (isMobile) setSidebarOpen(false);
+                },
+                isActive: false
+              }
             ].map((item, idx) => (
               <button
                 key={idx}
@@ -7262,6 +7431,27 @@ export default function App() {
                     </div>
                   )}
                 </div>
+                {/* App Tour Quick Guide Button */}
+                <button
+                  onClick={() => startTour('chat')}
+                  style={{
+                    background: 'var(--alpha-white-4)',
+                    color: 'var(--primary-color)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '50%',
+                    width: isMobile ? '32px' : '34px',
+                    height: isMobile ? '32px' : '34px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    transition: 'var(--transition-fast)'
+                  }}
+                  title="جولة تعريفية في المنصة"
+                  aria-label="جولة سريعة في المنصة"
+                >
+                  <HelpCircle size={15} />
+                </button>
                 {/* Theme Switcher Button on Main Interface */}
                 <button
                   onClick={toggleTheme}
@@ -7345,7 +7535,7 @@ export default function App() {
             >
               {messages.length === 0 ? (
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', width: '100%', padding: isMobile ? '12px 4px' : '24px 12px' }}>
-                  <div className="animate-scale-in" style={{
+                  <div id="tour-chat-hero" className="animate-scale-in" style={{
                     width: '100%',
                     maxWidth: '820px',
                     margin: 'auto',
@@ -7756,7 +7946,7 @@ export default function App() {
                 <span>العودة للدردشة</span>
               </button>
             )}
-            <div style={{ maxWidth: '920px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '32px' }} className="animate-scale-in">
+            <div id="tour-subscriptions-header" style={{ maxWidth: '920px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '32px' }} className="animate-scale-in">
 
               {isUserSubscribed ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -10797,7 +10987,7 @@ export default function App() {
               <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '30px', width: '100%' }} className="animate-scale-in">
               
               {/* Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '20px' }}>
+              <div id="tour-exams-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '20px' }}>
                 <div>
                   <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--text-main)' }}>الامتحانات والاختبارات التقييمية</h2>
                   <p style={{ color: 'var(--text-muted)', marginTop: '4px', fontSize: '0.92rem' }}>
@@ -10807,6 +10997,7 @@ export default function App() {
                 
                 {!selectedExam && (
                   <button
+                    id="tour-exams-create-btn"
                     onClick={() => {
                       const targetGrade = user ? user.grade_level : chatGrade;
                       const activeSubjs = getActiveSubjectsForGrade(targetGrade);
@@ -11217,7 +11408,7 @@ export default function App() {
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 0.8fr', gap: '24px' }}>
                   
                   {/* Column 1: Available Exams */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div id="tour-exams-list" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <h3 style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-main)' }}>الامتحانات المتوفرة</h3>
                     
                     {loadingExams ? (
@@ -11356,7 +11547,7 @@ export default function App() {
         {/* Flashcards (Subject-Level Stacked Active Recall) Tab */}
         {activeTab === 'flashcards' && (
           <div className="mobile-main-with-nav" style={{ flex: 1, padding: isMobile ? '16px' : '32px', display: 'flex', flexDirection: 'column', gap: '24px', direction: 'rtl', fontFamily: 'var(--font-arabic)', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
+            <div id="tour-flashcards-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
               <div>
                 <h2 style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--primary-color)', margin: 0 }}>المدرب الذكي (Flashcards)</h2>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', margin: '4px 0 0' }}>مجموعات مراجعة مجمعة حسب المواد الدراسية بنظام الكروت المتراكمة</p>
@@ -11903,7 +12094,7 @@ export default function App() {
                     <p style={{ margin: '8px 0 0', fontSize: '0.85rem' }}>أنشئ أول مجموعة كروت بالذكاء الاصطناعي أو اكتبها بنفسك الآن!</p>
                   </div>
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+                  <div id="tour-flashcards-card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
                     {(() => {
                       const subjectGroups: Record<string, { subject_name: string; decks: any[]; total_count: number; due_count: number }> = {};
                       flashcardDecks.forEach(deck => {
@@ -12201,7 +12392,7 @@ export default function App() {
             <div className="leaderboard-container">
               
               {/* Leaderboard Header & Filter Controls */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+              <div id="tour-leaderboard-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <button 
                     onClick={() => setActiveTab('chat')}
@@ -13079,152 +13270,178 @@ export default function App() {
                 </div>
               )}
 
-              {/* Sign up details / Login details */}
+              {/* Form Body: Sign up / Login / OTP */}
               {!otpStep ? (
                 <>
-                  {authTab === 'register' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                      <label className="form-label">الاسم بالكامل:</label>
-                      <input
-                        type="text" required value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder="أدخل اسمك الكريم"
-                        className="form-input"
-                      />
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                    <label className="form-label">البريد الإلكتروني:</label>
-                    <input
-                      type="email" required value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="example@egsaiedu.com"
-                      className="form-input"
-                      style={{ textAlign: 'left', direction: 'ltr' }}
-                    />
-                  </div>
-
-                  {authTab === 'register' && (
+                  {authTab === 'register' ? (
                     <>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        <label className="form-label">السنة الدراسية (الصف):</label>
-                        <select
-                          value={gradeLevel} onChange={(e) => setGradeLevel(e.target.value)}
-                          className="form-input"
-                          style={{ cursor: 'pointer' }}
-                        >
-                          {Object.entries(GRADE_NAMES)
-                            .filter(([key]) => activeGradeLevels.length === 0 || activeGradeLevels.includes(key))
-                            .map(([key, name]) => (
-                              <option key={key} value={key} style={{ background: 'var(--card-bg)' }}>{name}</option>
-                            ))
-                          }
-                        </select>
+                      {/* OPTION 1: Google Quick Registration (تسجيل سريع) */}
+                      <div style={{
+                        background: 'rgba(0, 180, 216, 0.08)',
+                        border: '1px solid rgba(0, 180, 216, 0.25)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '14px 16px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '10px'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{
+                              width: '28px', height: '28px', borderRadius: '8px',
+                              background: 'var(--primary-color)', color: '#fff',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center'
+                            }}>
+                              <Zap size={16} />
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--text-main)' }}>
+                                تسجيل سريع
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                سجّل بحساب Google في ثواني بضغطة واحدة
+                              </div>
+                            </div>
+                          </div>
+                          <span style={{
+                            fontSize: '0.7rem', fontWeight: 700, padding: '2px 8px',
+                            borderRadius: '20px', background: 'rgba(255, 183, 3, 0.15)',
+                            color: '#FFB703', border: '1px solid rgba(255, 183, 3, 0.3)'
+                          }}>
+                            الأسرع
+                          </span>
+                        </div>
+
+                        <div id="google-signin-button" style={{ minHeight: '42px', width: '100%', display: 'flex', justifyContent: 'center' }}></div>
                       </div>
 
-                      {gradeLevel === '2_high' && (
-                        <>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                            <label className="form-label">المسار الدراسي (البكالوريا):</label>
-                            <select
-                              value={selectedTrack}
-                              onChange={(e) => {
-                                const newTrack = e.target.value;
-                                setSelectedTrack(newTrack);
-                                const electives = getElectiveSubjectsForTrack(newTrack);
-                                setSelectedElective(electives.length > 0 ? electives[0] : '');
-                              }}
-                              className="form-input"
-                              style={{ cursor: 'pointer' }}
-                            >
-                              {Object.values(BACCALAUREATE_TRACKS)
-                                .filter(t => activeTracks.length === 0 || activeTracks.includes(t.id))
-                                .map((track) => (
-                                  <option key={track.id} value={track.id} style={{ background: 'var(--card-bg)' }}>{track.name}</option>
-                                ))
-                              }
-                            </select>
-                          </div>
+                      {/* Divider */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '2px 0' }}>
+                        <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }}></div>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                          أو سجّل بإيميلك وكلمة السر بس
+                        </span>
+                        <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }}></div>
+                      </div>
 
-                          {(() => {
-                            const electives = getElectiveSubjectsForTrack(selectedTrack);
-                            if (electives.length === 0) return null;
-                            return (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                                <label className="form-label">المادة الاختيارية للمسار:</label>
-                                <select
-                                  value={selectedElective || electives[0]}
-                                  onChange={(e) => setSelectedElective(e.target.value)}
-                                  className="form-input"
-                                  style={{ cursor: 'pointer' }}
-                                >
-                                  {electives.map((subj) => (
-                                    <option key={subj} value={subj} style={{ background: 'var(--card-bg)' }}>{subj}</option>
-                                  ))}
-                                </select>
-                              </div>
-                            );
-                          })()}
-                        </>
-                      )}
+                      {/* OPTION 2: Email & Password ONLY */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <label className="form-label">البريد الإلكتروني:</label>
+                        <input
+                          type="email" required value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="اكتب إيميلك هنا (مثال: student@gmail.com)"
+                          className="form-input"
+                          style={{ textAlign: 'left', direction: 'ltr' }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <label className="form-label">كلمة السر:</label>
+                        <input
+                          type="password" required value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="اكتب كلمة سر متقلش عن 6 خانات"
+                          className="form-input"
+                        />
+                      </div>
+
+                      <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', cursor: 'pointer', lineHeight: '1.6' }}>
+                        <input
+                          type="checkbox"
+                          checked={termsAccepted}
+                          onChange={(e) => setTermsAccepted(e.target.checked)}
+                          style={{ marginTop: '3px', width: '15px', height: '15px', accentColor: 'var(--primary-color)', flexShrink: 0, cursor: 'pointer' }}
+                        />
+                        <span>
+                          أوافق على{' '}
+                          <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary-color)', fontWeight: 700 }}>سياسة الخصوصية</a>
+                          {' '}و{' '}
+                          <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary-color)', fontWeight: 700 }}>شروط الاستخدام</a>
+                        </span>
+                      </label>
+                    </>
+                  ) : (
+                    <>
+                      {/* Login Tab: Quick Google Login at Top */}
+                      <div style={{
+                        background: 'rgba(0, 180, 216, 0.08)',
+                        border: '1px solid rgba(0, 180, 216, 0.25)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '14px 16px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '10px'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{
+                            width: '28px', height: '28px', borderRadius: '8px',
+                            background: 'var(--primary-color)', color: '#fff',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                          }}>
+                            <Zap size={16} />
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--text-main)' }}>
+                              تسجيل سريع بحساب Google
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                              ادخل مباشرة بضغطة واحدة بحسابك
+                            </div>
+                          </div>
+                        </div>
+
+                        <div id="google-signin-button" style={{ minHeight: '42px', width: '100%', display: 'flex', justifyContent: 'center' }}></div>
+                      </div>
+
+                      {/* Divider */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '2px 0' }}>
+                        <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }}></div>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                          أو ادخل بإيميلك وكلمة السر
+                        </span>
+                        <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }}></div>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <label className="form-label">البريد الإلكتروني:</label>
+                        <input
+                          type="email" required value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="اكتب إيميلك المسجل"
+                          className="form-input"
+                          style={{ textAlign: 'left', direction: 'ltr' }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <label className="form-label">كلمة السر:</label>
+                        <input
+                          type="password" required value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="اكتب كلمة السر الخاصة بحسابك"
+                          className="form-input"
+                        />
+                      </div>
                     </>
                   )}
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                    <label className="form-label">كلمة المرور:</label>
-                    <input
-                      type="password" required value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="أدخل كلمة مرور قوية"
-                      className="form-input"
-                    />
-                  </div>
-
-                  {authTab === 'register' && (
-                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', cursor: 'pointer', lineHeight: '1.6' }}>
-                      <input
-                        type="checkbox"
-                        checked={termsAccepted}
-                        onChange={(e) => setTermsAccepted(e.target.checked)}
-                        style={{ marginTop: '3px', width: '15px', height: '15px', accentColor: 'var(--primary-color)', flexShrink: 0, cursor: 'pointer' }}
-                      />
-                      <span>
-                        أوافق على{' '}
-                        <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary-color)', fontWeight: 700 }}>سياسة الخصوصية</a>
-                        {' '}و{' '}
-                        <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary-color)', fontWeight: 700 }}>شروط الاستخدام</a>
-                      </span>
-                    </label>
-                  )}
-
-                  {/* Google OAuth Section */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '5px 0' }}>
-                      <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }}></div>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>أو بواسطة</span>
-                      <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }}></div>
-                    </div>
-                    
-                    <div id="google-signin-button" style={{ minHeight: '40px', width: '100%', display: 'flex', justifyContent: 'center' }}></div>
-                  </div>
                 </>
               ) : (
-                /* OTP Verification Step */
+                /* OTP Verification Step (Egyptian Arabic) */
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'center' }}>
                   <div style={{ background: 'rgba(0, 180, 216, 0.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '52px', height: '52px', borderRadius: '14px', margin: '0 auto', border: '1px solid #00B4D8' }}>
                     <Lock size={24} style={{ color: '#00B4D8' }} />
                   </div>
                   <div>
-                    <h4 style={{ fontWeight: 800, fontSize: '1.05rem' }}>أدخل رمز التحقق (OTP)</h4>
-                    <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                      تم إرسال رمز التحقق إلى البريد الإلكتروني {email}.
+                    <h4 style={{ fontWeight: 800, fontSize: '1.08rem' }}>وصلك كود على إيميلك!</h4>
+                    <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginTop: '6px', lineHeight: '1.5' }}>
+                      بعتنا كود تأكيد مكون من 6 أرقام على <strong style={{ color: 'var(--primary-color)' }}>{email}</strong>.. اكتبه هنا عشان نتأكد إن إيميلك شغال معاك:
                     </p>
                   </div>
                   <input
                     type="text" required maxLength={6} value={otpCode}
                     onChange={(e) => setOtpCode(e.target.value)}
-                    placeholder="أدخل الرمز"
+                    placeholder="أدخل الـ 6 أرقام"
                     className="form-input"
                     style={{ textAlign: 'center', fontSize: '1.6rem', fontWeight: 800, letterSpacing: '10px', direction: 'ltr' }}
                   />
@@ -13250,7 +13467,7 @@ export default function App() {
                   {authLoading ? (
                     <Loader2 size={16} className="animate-spin" />
                   ) : (
-                    <span>{otpStep ? 'تأكيد الرمز' : (authTab === 'login' ? 'دخول' : 'إنشاء حساب')}</span>
+                    <span>{otpStep ? 'تأكيد والدخول للمنصة' : (authTab === 'login' ? 'تسجيل الدخول' : 'إنشاء حساب ومتابعة')}</span>
                   )}
                 </button>
               </div>
@@ -13260,101 +13477,335 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 1B: Google Signup Grade Selection */}
-      {showGoogleGradeModal && googleTempUser && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto', padding: '20px 10px' }}>
-          <div className="glass-strong animate-scale-in" style={{ background: 'var(--card-bg)', width: '100%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', padding: '24px', margin: isMobile ? '20px auto' : '40px auto', flexShrink: 0 }}>
-            <div style={{ textAlign: 'center', marginBottom: '18px' }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '46px', height: '46px', borderRadius: '14px', background: 'rgba(0, 180, 216, 0.12)', border: '1px solid #00B4D8', marginBottom: '10px' }}>
-                <BookOpen size={24} style={{ color: '#00B4D8' }} />
-              </div>
-              <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-main)' }}>اختر سنتك الدراسية</h2>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>مرحباً بك {googleTempUser.name}! يرجى اختيار السنة الدراسية لإتمام إعداد حسابك.</p>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                <label className="form-label">السنة الدراسية (الصف):</label>
-                <select
-                  value={gradeLevel} onChange={(e) => setGradeLevel(e.target.value)}
-                  className="form-input"
-                  style={{ cursor: 'pointer', width: '100%' }}
-                >
-                  {Object.entries(GRADE_NAMES)
-                    .filter(([key]) => activeGradeLevels.length === 0 || activeGradeLevels.includes(key))
-                    .map(([key, name]) => (
-                      <option key={key} value={key} style={{ background: 'var(--card-bg)' }}>{name}</option>
-                    ))
-                  }
-                </select>
-              </div>
-
-              {gradeLevel === '2_high' && (
-                <>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                    <label className="form-label">المسار الدراسي (البكالوريا):</label>
-                    <select
-                      value={googleSelectedTrack}
-                      onChange={(e) => {
-                        const newTrack = e.target.value;
-                        setGoogleSelectedTrack(newTrack);
-                        const electives = getElectiveSubjectsForTrack(newTrack);
-                        setGoogleSelectedElective(electives.length > 0 ? electives[0] : '');
-                      }}
-                      className="form-input"
-                      style={{ cursor: 'pointer', width: '100%' }}
-                    >
-                      {Object.values(BACCALAUREATE_TRACKS)
-                        .filter(t => activeTracks.length === 0 || activeTracks.includes(t.id))
-                        .map((track) => (
-                          <option key={track.id} value={track.id} style={{ background: 'var(--card-bg)' }}>{track.name}</option>
-                        ))
-                      }
-                    </select>
+      {/* SEQUENTIAL ONBOARDING MODAL (Step 1: Stage, Step 2: Name) */}
+      {showOnboardingModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+          background: 'rgba(13, 27, 42, 0.85)', backdropFilter: 'blur(16px)',
+          zIndex: 100, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'flex-start', overflowY: 'auto',
+          padding: '24px 12px'
+        }}>
+          <div className="glass-strong animate-scale-in" style={{
+            background: 'var(--card-bg)', width: '100%', maxWidth: '520px',
+            borderRadius: 'var(--radius-lg)', overflow: 'hidden',
+            boxShadow: 'var(--shadow-xl)', border: '1px solid rgba(0, 180, 216, 0.3)',
+            margin: isMobile ? '16px auto' : '40px auto', flexShrink: 0
+          }}>
+            
+            {/* Progress Header */}
+            <div style={{
+              padding: '20px 24px 16px',
+              borderBottom: '1px solid var(--border-color)',
+              background: 'rgba(0, 180, 216, 0.04)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div className="brand-logo-frame" style={{ width: '32px', height: '32px', borderRadius: '10px' }}>
+                    <img src="/logo.png" alt="EGS AI Logo" style={{ width: '85%', height: '85%', objectFit: 'contain' }} />
                   </div>
+                  <span style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-main)' }}>إعداد حسابك في EGS AI</span>
+                </div>
+                <span style={{
+                  fontSize: '0.78rem', fontWeight: 700,
+                  padding: '3px 10px', borderRadius: '20px',
+                  background: onboardingStep === 'stage' ? 'rgba(0, 180, 216, 0.15)' : 'rgba(255, 183, 3, 0.15)',
+                  color: onboardingStep === 'stage' ? 'var(--primary-color)' : '#FFB703',
+                  border: `1px solid ${onboardingStep === 'stage' ? 'rgba(0, 180, 216, 0.3)' : 'rgba(255, 183, 3, 0.3)'}`
+                }}>
+                  {onboardingStep === 'stage' ? 'الخطوة 1 من 2' : 'الخطوة 2 من 2'}
+                </span>
+              </div>
 
-                  {(() => {
-                    const electives = getElectiveSubjectsForTrack(googleSelectedTrack);
-                    if (electives.length === 0) return null;
-                    return (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        <label className="form-label">المادة الاختيارية للمسار:</label>
-                        <select
-                          value={googleSelectedElective || electives[0]}
-                          onChange={(e) => setGoogleSelectedElective(e.target.value)}
-                          className="form-input"
-                          style={{ cursor: 'pointer', width: '100%' }}
-                        >
-                          {electives.map((subj) => (
-                            <option key={subj} value={subj} style={{ background: 'var(--card-bg)' }}>{subj}</option>
-                          ))}
-                        </select>
-                      </div>
-                    );
-                  })()}
-                </>
-              )}
-
-              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                <button
-                  type="button"
-                  onClick={() => { setShowGoogleGradeModal(false); setGoogleTempUser(null); }}
-                  className="btn-secondary"
-                  style={{ flex: 1, padding: '12px', fontFamily: 'var(--font-arabic)', borderRadius: 'var(--radius-sm)' }}
-                >
-                  إلغاء
-                </button>
-                <button
-                  type="button"
-                  disabled={authLoading}
-                  onClick={() => handleGoogleLogin(googleTempUser.credential, gradeLevel, googleSelectedTrack, googleSelectedElective)}
-                  className="btn-primary"
-                  style={{ flex: 2, padding: '12px', fontFamily: 'var(--font-arabic)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                >
-                  {authLoading ? <Loader2 size={16} className="animate-spin" /> : 'تأكيد ودخول'}
-                </button>
+              {/* Visual Progress Bar */}
+              <div style={{ width: '100%', height: '6px', background: 'var(--border-color)', borderRadius: '3px', overflow: 'hidden' }}>
+                <div style={{
+                  width: onboardingStep === 'stage' ? '50%' : '100%',
+                  height: '100%',
+                  background: 'linear-gradient(90deg, #00B4D8, #FFB703)',
+                  transition: 'width 0.35s ease',
+                  borderRadius: '3px'
+                }}></div>
               </div>
             </div>
+
+            {onboardingError && (
+              <div style={{ margin: '16px 24px 0' }} className="alert alert-danger">
+                <AlertCircle size={14} />
+                <span>{onboardingError}</span>
+              </div>
+            )}
+
+            {/* SCREEN 1: First - Stage (المرحلة الدراسية) */}
+            {onboardingStep === 'stage' && (
+              <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: '50px', height: '50px', borderRadius: '16px',
+                    background: 'rgba(0, 180, 216, 0.12)', border: '1px solid #00B4D8',
+                    marginBottom: '12px'
+                  }}>
+                    <GraduationCap size={26} style={{ color: '#00B4D8' }} />
+                  </div>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                    نوّرت EGS AI! أنت في سنة كام؟
+                  </h2>
+                  <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginTop: '6px', lineHeight: '1.5' }}>
+                    اختر مرحلتك الدراسية عشان نجهّزلك المناهج والذكاء الاصطناعي على مقاس دراستك بالظبط.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {Object.entries(GRADE_NAMES)
+                    .filter(([key]) => key !== 'unselected' && (activeGradeLevels.length === 0 || activeGradeLevels.includes(key)))
+                    .map(([key, label]) => {
+                      const isSelected = onboardingGrade === key;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => {
+                            setOnboardingGrade(key);
+                            setOnboardingError('');
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '14px 16px',
+                            borderRadius: 'var(--radius-md)',
+                            border: isSelected ? '2px solid var(--primary-color)' : '1px solid var(--border-color)',
+                            background: isSelected ? 'rgba(0, 180, 216, 0.1)' : 'var(--alpha-white-1)',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            textAlign: 'right',
+                            fontFamily: 'var(--font-arabic)'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{
+                              width: '32px', height: '32px', borderRadius: '10px',
+                              background: isSelected ? 'var(--primary-color)' : 'var(--alpha-white-2)',
+                              color: isSelected ? '#fff' : 'var(--text-muted)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center'
+                            }}>
+                              <BookOpen size={16} />
+                            </div>
+                            <span style={{ fontWeight: isSelected ? 800 : 600, fontSize: '0.92rem', color: isSelected ? 'var(--text-main)' : 'var(--text-secondary)' }}>
+                              {label}
+                            </span>
+                          </div>
+                          {isSelected && (
+                            <div style={{
+                              width: '22px', height: '22px', borderRadius: '50%',
+                              background: 'var(--primary-color)', color: '#fff',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center'
+                            }}>
+                              <Check size={14} />
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })
+                  }
+                </div>
+
+                {/* Baccalaureate Tracks & Electives if 2_high */}
+                {onboardingGrade === '2_high' && (
+                  <div style={{
+                    background: 'var(--alpha-white-1)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '16px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px'
+                  }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                      <label className="form-label" style={{ fontWeight: 700, fontSize: '0.85rem' }}>
+                        اختر شعبتك / مسارك الدراسي:
+                      </label>
+                      <select
+                        value={onboardingTrack}
+                        onChange={(e) => {
+                          const newTrack = e.target.value;
+                          setOnboardingTrack(newTrack);
+                          const electives = getElectiveSubjectsForTrack(newTrack);
+                          setOnboardingElective(electives.length > 0 ? electives[0] : '');
+                        }}
+                        className="form-input"
+                        style={{ cursor: 'pointer', width: '100%' }}
+                      >
+                        {Object.values(BACCALAUREATE_TRACKS)
+                          .filter(t => activeTracks.length === 0 || activeTracks.includes(t.id))
+                          .map((track) => (
+                            <option key={track.id} value={track.id} style={{ background: 'var(--card-bg)' }}>
+                              {track.name}
+                            </option>
+                          ))
+                        }
+                      </select>
+                    </div>
+
+                    {(() => {
+                      const electives = getElectiveSubjectsForTrack(onboardingTrack);
+                      if (electives.length === 0) return null;
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                          <label className="form-label" style={{ fontWeight: 700, fontSize: '0.85rem' }}>
+                            المادة الاختيارية للشعبة:
+                          </label>
+                          <select
+                            value={onboardingElective || electives[0]}
+                            onChange={(e) => setOnboardingElective(e.target.value)}
+                            className="form-input"
+                            style={{ cursor: 'pointer', width: '100%' }}
+                          >
+                            {electives.map((subj) => (
+                              <option key={subj} value={subj} style={{ background: 'var(--card-bg)' }}>
+                                {subj}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* Action Button: Next */}
+                <div style={{ display: 'flex', marginTop: '6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOnboardingError('');
+                      setOnboardingStep('name');
+                    }}
+                    className="btn-primary"
+                    style={{
+                      width: '100%',
+                      padding: '13px',
+                      fontFamily: 'var(--font-arabic)',
+                      borderRadius: 'var(--radius-sm)',
+                      fontWeight: 700,
+                      fontSize: '0.95rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    <span>تمام، كمّل للخطوة الجاية</span>
+                    <ArrowLeft size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* SCREEN 2: Second - Name (الاسم) */}
+            {onboardingStep === 'name' && (
+              <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: '50px', height: '50px', borderRadius: '16px',
+                    background: 'rgba(255, 183, 3, 0.12)', border: '1px solid #FFB703',
+                    marginBottom: '12px'
+                  }}>
+                    <User size={26} style={{ color: '#FFB703' }} />
+                  </div>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                    اسمك الكريم إيه؟
+                  </h2>
+                  <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginTop: '6px', lineHeight: '1.5' }}>
+                    عشان نعرف نناديك باسمك ونسجل درجاتك وإنجازاتك في لوحة الشرف باسمك الحلو.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label className="form-label" style={{ fontWeight: 700 }}>الاسم بالكامل:</label>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={onboardingName}
+                    onChange={(e) => {
+                      setOnboardingName(e.target.value);
+                      setOnboardingError('');
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleCompleteOnboarding();
+                      }
+                    }}
+                    placeholder="اكتب اسمك هنا (مثلاً: أحمد محمود)"
+                    className="form-input"
+                    style={{ padding: '13px 16px', fontSize: '1.02rem' }}
+                  />
+                  <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                    الاسم ده هو اللي هيظهر لك في لوحة الشرف وتقارير المذاكرة وتقدر تغيره في أي وقت من الإعدادات.
+                  </span>
+                </div>
+
+                {/* Action Buttons: Back & Complete */}
+                <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                  <button
+                    type="button"
+                    disabled={onboardingLoading}
+                    onClick={() => {
+                      setOnboardingError('');
+                      setOnboardingStep('stage');
+                    }}
+                    className="btn-secondary"
+                    style={{
+                      flex: 1,
+                      padding: '13px',
+                      fontFamily: 'var(--font-arabic)',
+                      borderRadius: 'var(--radius-sm)',
+                      fontWeight: 700,
+                      fontSize: '0.92rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <ArrowRight size={16} />
+                    <span>رجوع للمرحلة</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={onboardingLoading || !onboardingName.trim()}
+                    onClick={handleCompleteOnboarding}
+                    className="btn-primary"
+                    style={{
+                      flex: 2,
+                      padding: '13px',
+                      fontFamily: 'var(--font-arabic)',
+                      borderRadius: 'var(--radius-sm)',
+                      fontWeight: 800,
+                      fontSize: '0.95rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    {onboardingLoading ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <>
+                        <span>يلا بينا نبدأ المذاكرة!</span>
+                        <Sparkles size={16} />
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}
@@ -14303,6 +14754,35 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Platform App Tour Guide */}
+      <AppTour
+        screen={tourScreen}
+        isOpen={isTourOpen}
+        onClose={handleTourClose}
+        currentSubject={chatSubject}
+        onSelectSubjectPrompt={() => {
+          const targetGrade = user ? user.grade_level : chatGrade;
+          const activeSubjs = getActiveSubjectsForGrade(targetGrade);
+          if (!chatSubject && activeSubjs.length > 0) {
+            setChatSubject(activeSubjs[0].subject_name);
+          }
+        }}
+        onPrefillPrompt={(text) => {
+          setInputMessage(text);
+          if (textareaRef.current) {
+            textareaRef.current.focus();
+          }
+        }}
+        onSubmitTourMessage={() => {
+          const targetGrade = user ? user.grade_level : chatGrade;
+          const activeSubjs = getActiveSubjectsForGrade(targetGrade);
+          const subj = chatSubject || (activeSubjs[0]?.subject_name || 'الفيزياء');
+          const prompt = inputMessage.trim() || `اشرحلي بالتفصيل وبأمثلة واضحة أول درس في منهج ${subj}`;
+          handleSendMessage(undefined, prompt);
+        }}
+        isMobile={isMobile}
+      />
 
     </div>
   );

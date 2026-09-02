@@ -16,45 +16,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { email, name, grade_level, password, terms_accepted, track_id, elective_subject } = await req.json();
-
-    if (!email || !name || !grade_level || !password) {
-      return NextResponse.json(
-        { error: 'جميع الحقول مطلوبة (الاسم، البريد الإلكتروني، السنة الدراسية، كلمة المرور)' },
-        { status: 400 }
-      );
-    }
+    const { email, password, terms_accepted, name, grade_level, track_id, elective_subject } = await req.json();
 
     const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
-    const cleanName = typeof name === 'string' ? name.trim() : '';
 
-    if (!cleanEmail || !cleanName) {
+    if (!cleanEmail || !password) {
       return NextResponse.json(
-        { error: 'الاسم والبريد الإلكتروني لا يمكن أن يكونا فارغين' },
+        { error: 'اكتب إيميلك وكلمة السر عشان تقدر تعمل حسابك.' },
         { status: 400 }
       );
     }
 
     if (typeof password !== 'string' || password.length < 6) {
       return NextResponse.json(
-        { error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' },
-        { status: 400 }
-      );
-    }
-
-    if (grade_level === '2_high' && !track_id) {
-      return NextResponse.json(
-        { error: 'يرجى اختيار المسار الدراسي لطلاب البكالوريا' },
+        { error: 'كلمة السر لازم تكون 6 خانات على الأقل.' },
         { status: 400 }
       );
     }
 
     if (!terms_accepted) {
       return NextResponse.json(
-        { error: 'يجب الموافقة على سياسة الخصوصية وشروط الاستخدام لإتمام التسجيل.' },
+        { error: 'لازم توافق على سياسة الخصوصية وشروط الاستخدام عشان تكمل التسجيل.' },
         { status: 400 }
       );
     }
+
+    const cleanName = typeof name === 'string' && name.trim() ? name.trim() : (cleanEmail.split('@')[0] || 'طالب جديد');
+    const cleanGradeLevel = typeof grade_level === 'string' && grade_level.trim() ? grade_level.trim() : 'unselected';
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(cleanEmail)) {
@@ -87,7 +75,7 @@ export async function POST(req: NextRequest) {
     await db.createPendingRegistration(
       cleanEmail,
       cleanName,
-      grade_level,
+      cleanGradeLevel,
       passwordHash,
       otpCode,
       new Date().toISOString(),
@@ -99,7 +87,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: 'تم إرسال رمز التحقق (OTP) إلى بريدك الإلكتروني بنجاح.',
+      message: 'بعتنا رمز التحقق (OTP) لإيميلك بنجاح.',
       email: cleanEmail
     });
 

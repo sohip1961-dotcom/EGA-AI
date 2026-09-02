@@ -31,11 +31,14 @@ function normalize(str: string): string {
   if (!str) return '';
   return str
     .replace(/[\u064B-\u065F\u0670]/g, '') // strip tashkeel
-    .replace(/[أإآ]/g, 'ا')
+    .replace(/\u0640/g, '')                 // strip tatweel
+    .replace(/[أإآٱ]/g, 'ا')                // unify alef variants (preserve standalone hamza 'ء')
     .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
+    .replace(/[ىي]/g, 'ي')
+    .replace(/ؤ/g, 'و')
+    .replace(/ئ/g, 'ي')
     .replace(/[ـ\-_]/g, ' ')
-    .replace(/[^\w\u0621-\u064A\s]/g, ' ')
+    .replace(/[^\w\u0621-\u064A0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
@@ -177,10 +180,10 @@ export async function getCurriculumContextForLesson(
 
       if (parentSections.length > 0) {
         return parentSections
-          .slice(0, 5)
+          .slice(0, 6)
           .map((p, idx) => `--- القسم ${idx + 1}: [${p.heading}] ---\n${p.content}`)
           .join('\n\n')
-          .slice(0, 7000);
+          .slice(0, 8000);
       }
     }
 
