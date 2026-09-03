@@ -3,7 +3,15 @@ import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: 'شروط الاستخدام والاشتراكات | EGS AI',
-  description: 'شروط استخدام منصة EGS AI وسياسات الاشتراكات والدفع والاسترجاع.',
+  description: 'شروط استخدام منصة EGS AI وسياسات الاشتراكات والدفع والاسترجاع الرسمية.',
+  keywords: [
+    'شروط استخدام EGS AI',
+    'سياسة الاسترجاع EGS AI',
+    'اشتراكات EGS AI'
+  ],
+  alternates: {
+    canonical: '/terms',
+  },
 };
 
 export default function TermsOfUsePage() {

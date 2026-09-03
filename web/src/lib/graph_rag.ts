@@ -84,6 +84,10 @@ const RELATION_KEYWORDS: Record<RelationType, RegExp[]> = {
   ]
 };
 
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * Extracts entities and structural relationships from a curriculum markdown chunk.
  */
@@ -216,41 +220,57 @@ export function extractEntitiesAndRelationsFromChunk(
   // 5. Connect Inter-Entity Relationships based on linguistic markers
   const entityList = Array.from(entityNameMap.values());
   if (entityList.length >= 2) {
+    const normalizedContent = normalizeArabic(content);
     for (let i = 0; i < entityList.length; i++) {
       for (let j = i + 1; j < entityList.length; j++) {
         const entA = entityList[i];
         const entB = entityList[j];
 
+        if (!normalizedContent.includes(entA.normalized_name) || !normalizedContent.includes(entB.normalized_name)) {
+          continue;
+        }
+
+        const escA = escapeRegExp(entA.normalized_name);
+        const escB = escapeRegExp(entB.normalized_name);
+
         // Check if both entities appear in the same paragraph/sentence with a relation marker
         for (const [relType, regexList] of Object.entries(RELATION_KEYWORDS) as [RelationType, RegExp[]][]) {
+          let matched = false;
           for (const rx of regexList) {
-            const pattern = new RegExp(`${entA.normalized_name}[\\s\\S]{1,60}${rx.source}[\\s\\S]{1,60}${entB.normalized_name}`, 'u');
-            const reversePattern = new RegExp(`${entB.normalized_name}[\\s\\S]{1,60}${rx.source}[\\s\\S]{1,60}${entA.normalized_name}`, 'u');
+            try {
+              const pattern = new RegExp(`${escA}[\\s\\S]{1,60}${rx.source}[\\s\\S]{1,60}${escB}`, 'u');
+              const reversePattern = new RegExp(`${escB}[\\s\\S]{1,60}${rx.source}[\\s\\S]{1,60}${escA}`, 'u');
 
-            if (pattern.test(normalizeArabic(content))) {
-              relations.push({
-                id: crypto.randomUUID(),
-                curriculum_id: curriculumId,
-                source_entity_id: entA.id,
-                target_entity_id: entB.id,
-                relation_type: relType,
-                description: `علاقة [${relType}] بين ${entA.name} و ${entB.name}`,
-                weight: 0.75
-              });
-              break;
-            } else if (reversePattern.test(normalizeArabic(content))) {
-              relations.push({
-                id: crypto.randomUUID(),
-                curriculum_id: curriculumId,
-                source_entity_id: entB.id,
-                target_entity_id: entA.id,
-                relation_type: relType,
-                description: `علاقة [${relType}] بين ${entB.name} و ${entA.name}`,
-                weight: 0.75
-              });
-              break;
+              if (pattern.test(normalizedContent)) {
+                relations.push({
+                  id: crypto.randomUUID(),
+                  curriculum_id: curriculumId,
+                  source_entity_id: entA.id,
+                  target_entity_id: entB.id,
+                  relation_type: relType,
+                  description: `علاقة [${relType}] بين ${entA.name} و ${entB.name}`,
+                  weight: 0.75
+                });
+                matched = true;
+                break;
+              } else if (reversePattern.test(normalizedContent)) {
+                relations.push({
+                  id: crypto.randomUUID(),
+                  curriculum_id: curriculumId,
+                  source_entity_id: entB.id,
+                  target_entity_id: entA.id,
+                  relation_type: relType,
+                  description: `علاقة [${relType}] بين ${entB.name} و ${entA.name}`,
+                  weight: 0.75
+                });
+                matched = true;
+                break;
+              }
+            } catch (rxErr) {
+              // Ignore invalid regex combinations safely
             }
           }
+          if (matched) break;
         }
       }
     }

@@ -48,7 +48,14 @@ async function evaluateExamWithAI(systemPrompt: string, examId: string): Promise
   return { content, coinsCost: 0.25 };
 }
 
-function parseGradingResult(content: string): { score: number; evaluation: string } {
+interface GradingResult {
+  score: number;
+  evaluation: string;
+  mastered_concepts?: string[];
+  revision_concepts?: string[];
+}
+
+function parseGradingResult(content: string): GradingResult {
   let cleaned = content.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
 
   const firstBrace = cleaned.indexOf('{');
@@ -62,7 +69,9 @@ function parseGradingResult(content: string): { score: number; evaluation: strin
     const rawScore = Number(parsed.score);
     const score = isNaN(rawScore) ? 50 : Math.min(100, Math.max(0, Math.round(rawScore)));
     const evaluation = parsed.evaluation || 'تم تقييم إجاباتك بنجاح من المعلم الذكي.';
-    return { score, evaluation };
+    const mastered_concepts = Array.isArray(parsed.mastered_concepts) ? parsed.mastered_concepts : [];
+    const revision_concepts = Array.isArray(parsed.revision_concepts) ? parsed.revision_concepts : [];
+    return { score, evaluation, mastered_concepts, revision_concepts };
   } catch (err) {
     const scoreMatch = cleaned.match(/"score"\s*:\s*(\d+)/i);
     const score = scoreMatch ? parseInt(scoreMatch[1], 10) : 50;
@@ -75,7 +84,7 @@ function parseGradingResult(content: string): { score: number; evaluation: strin
       evaluation = cleaned;
     }
 
-    return { score, evaluation };
+    return { score, evaluation, mastered_concepts: [], revision_concepts: [] };
   }
 }
 
@@ -110,18 +119,59 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'لم يتم العثور على حساب المستخدم أو تم حذفه.', code: 'user_not_found' }, { status: 401 });
     }
 
-    const coins = profile.coins === undefined ? 0.0 : profile.coins;
-    const hasUnlimitedCredit = profile.role === 'admin' || !!profile.unlimited_credit;
-    if (!hasUnlimitedCredit && coins <= 0) {
-      return NextResponse.json({ error: 'لقد استنفدت رصيدك من النقاط. يرجى تجديد اشتراكك لمتابعة الاختبارات.' }, { status: 402 });
+    if (exam.user_id && exam.user_id !== userId) {
+      return NextResponse.json({ error: 'غير مصرح لك بتقديم هذا الاختبار', code: 'forbidden' }, { status: 403 });
     }
 
-    const systemPrompt = `You are the Official Academic Exam Grader for the Egyptian National Curriculum.
-Evaluate the student answers accurately against the answer key. Provide a total score out of 100 and encouraging, pedagogical Egyptian Arabic feedback.
+    const coins = profile.coins === undefined ? 0.0 : profile.coins;
+    const hasUnlimitedCredit = profile.role === 'admin' || !!profile.unlimited_credit;
+    const isOutOfCoins = !hasUnlimitedCredit && coins <= 0;
+
+    let gradingResult: GradingResult;
+    let coinsCost = 0.0;
+
+    const questions = exam.questions || [];
+    const masteredFallback: string[] = [];
+    const revisionFallback: string[] = [];
+
+    questions.forEach((q: any) => {
+      const studentAns = String(answers[q.id] || '').trim().toLowerCase();
+      const correctAns = String(q.correct_answer || '').trim().toLowerCase();
+      const conceptTitle = (q.question || '').length > 40 ? q.question.substring(0, 40) + '...' : q.question;
+      if (studentAns && correctAns && studentAns === correctAns) {
+        masteredFallback.push(conceptTitle);
+      } else {
+        revisionFallback.push(conceptTitle);
+      }
+    });
+
+    if (isOutOfCoins) {
+      // Deterministic grading fallback: preserves student effort without 402 rejection
+      const totalQuestions = questions.length || 1;
+      let correctCount = 0;
+      for (const q of questions) {
+        const studentAns = String(answers[q.id] || '').trim().toLowerCase();
+        const correctAns = String(q.correct_answer || '').trim().toLowerCase();
+        if (studentAns && correctAns && studentAns === correctAns) {
+          correctCount++;
+        }
+      }
+      const score = Math.round((correctCount / totalQuestions) * 100);
+      gradingResult = {
+        score,
+        evaluation: `أحسنت يا بطل! تم تصحيح إجاباتك بنجاح وحصلت على ${score}%. نقاطك التجريبية انتهت، لذا اشترك في إحدى باقات Pro أو أرسل لولي أمرك لتفعيل التقييم التفصيلي الذكي بالذكاء الاصطناعي لكل سؤال!`,
+        mastered_concepts: masteredFallback,
+        revision_concepts: revisionFallback
+      };
+    } else {
+      const systemPrompt = `You are the Official Academic Exam Grader for the Egyptian National Curriculum.
+Evaluate the student answers accurately against the answer key. Provide a total score out of 100, encouraging Egyptian Arabic feedback, and a precise diagnostic breakdown of concepts mastered vs concepts needing review.
 
 ================================================================================
 CRITICAL LANGUAGE & OUTPUT MANDATE:
 - The "evaluation" feedback MUST be written in friendly, polite Egyptian Arabic from "EGS AI" teacher persona.
+- Provide "mastered_concepts" (short Arabic strings of 1-4 concepts the student solved correctly).
+- Provide "revision_concepts" (short Arabic strings of concepts the student got wrong or struggled with).
 - Output strict JSON ONLY (no markdown fences, no conversational prose).
 ================================================================================
 
@@ -141,19 +191,29 @@ Grading Guidelines:
 2. Essay Questions: Fair partial credit based on core scientific keywords and conceptual understanding.
 3. Compute aggregate percentage score (0 to 100).
 4. Provide structured Arabic evaluation ("evaluation") celebrating correct answers and explaining misconceptions constructively.
+5. Populate "mastered_concepts" and "revision_concepts" accurately from the curriculum topics.
 
 JSON Output Schema:
 {
   "score": 85,
-  "evaluation": "تقييم تحفيزي شامل بالعربية يوضح نقاط القوة وكيفية معالجة الأخطاء..."
+  "evaluation": "تقييم تحفيزي شامل بالعربية يوضح نقاط القوة وكيفية معالجة الأخطاء...",
+  "mastered_concepts": ["قانون نيوتن الثاني", "السرعة المتجهة"],
+  "revision_concepts": ["معادلات الحركة بعجلة منتظمة"]
 }`;
 
-    const { content, coinsCost } = await evaluateExamWithAI(systemPrompt, exam_id);
-    const gradingResult = parseGradingResult(content);
+      const { content, coinsCost: evalCost } = await evaluateExamWithAI(systemPrompt, exam_id);
+      coinsCost = evalCost;
+      gradingResult = parseGradingResult(content);
+      if (!gradingResult.mastered_concepts || gradingResult.mastered_concepts.length === 0) {
+        gradingResult.mastered_concepts = masteredFallback;
+      }
+      if (!gradingResult.revision_concepts || gradingResult.revision_concepts.length === 0) {
+        gradingResult.revision_concepts = revisionFallback;
+      }
+      await db.deductCoins(userId, null, coinsCost);
+    }
+
     const deviceId = deviceIdHeader || null;
-
-    await db.deductCoins(userId, null, coinsCost);
-
     const alreadySubmitted = await db.hasSubmittedExam(exam_id, userId, deviceId || undefined);
     const isFirstAttempt = !alreadySubmitted;
     const finalScore = gradingResult.score;
@@ -202,7 +262,11 @@ JSON Output Schema:
       evaluation: gradingResult.evaluation,
       points_awarded: pointsAwarded,
       total_points: totalPoints,
-      questions_review: questionsReview
+      questions_review: questionsReview,
+      diagnostic: {
+        mastered_concepts: gradingResult.mastered_concepts || masteredFallback,
+        revision_concepts: gradingResult.revision_concepts || revisionFallback
+      }
     });
 
   } catch (error: any) {

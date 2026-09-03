@@ -279,6 +279,48 @@ export interface UserDevice {
   created_at: string;
 }
 
+export interface UserLessonProgress {
+  id?: string;
+  user_id: string;
+  grade_level: string;
+  subject_name: string;
+  unit_id: string;
+  lesson_id: string;
+  status: 'completed' | 'in_progress';
+  quiz_score?: number;
+  completed_at?: string;
+}
+
+export interface StudyNotebookItem {
+  id: string;
+  user_id: string;
+  subject_name: string;
+  grade_level: string;
+  title: string;
+  content: string;
+  note_type: 'formula' | 'definition' | 'solution' | 'law' | 'general';
+  created_at: string;
+}
+
+export interface DailyQuestItem {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  target: number;
+  current: number;
+  completed: boolean;
+  rewardPoints: number;
+  claimed: boolean;
+}
+
+export interface DailyQuestProgress {
+  date: string;
+  quests: DailyQuestItem[];
+  allCompleted: boolean;
+  streakDays: number;
+}
+
 // Initialize local DB file if missing
 function initLocalDB() {
   if (process.env.NEXT_RUNTIME === 'edge') return;
@@ -323,7 +365,10 @@ function initLocalDB() {
       free_trial_grants: [],
       user_devices: [],
       curriculum_entities: [],
-      curriculum_relations: []
+      curriculum_relations: [],
+      user_lesson_progress: [],
+      study_notebook: [],
+      claimed_daily_quests: []
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf8');
   }
@@ -390,7 +435,10 @@ function getMemoryDB(): any {
       user_devices: [],
       contact_messages: [],
       curriculum_entities: [],
-      curriculum_relations: []
+      curriculum_relations: [],
+      user_lesson_progress: [],
+      study_notebook: [],
+      claimed_daily_quests: []
     };
   }
   return globalThis.__egs_memory_db;
@@ -581,9 +629,9 @@ if (isSupabaseEnabled) {
 
 // Daily coin caps per plan. Replenishment tops the balance UP TO the cap on the
 // first request of a new day — it never reduces a balance already above the cap.
-// Note: free accounts receive a one-time grant of 15 trial points (non-renewable).
+// Note: free accounts receive a trial grant, plus a daily freemium lifeline of 5.0 coins.
 export const DAILY_COIN_CAPS: Record<string, number> = {
-  free: 0.0, // Non-renewable trial points
+  free: 5.0, // Sustainable daily freemium lifeline for fast queries
   pro: 80.0,
   pro_1m: 80.0,
   pro_2m: 90.0,
@@ -615,10 +663,10 @@ async function checkAndResetDailyCoins(profile: Profile): Promise<Profile> {
   // Daily coin replenishment and streak update on new day (aligned with Africa/Cairo calendar date)
   if (profile.last_active_date !== today) {
     const isFree = !profile.plan_type || profile.plan_type === 'free' || profile.subscription_status !== 'active';
-    const cap = DAILY_COIN_CAPS[profile.plan_type] ?? 0.0;
+    const cap = isFree ? (DAILY_COIN_CAPS.free ?? 5.0) : (DAILY_COIN_CAPS[profile.plan_type] ?? 80.0);
     const current = toPreciseCoins(profile.coins === undefined ? 0.0 : profile.coins);
-    // Free plan points are one-time non-renewable; packages replenish up to their daily cap
-    const newCoins = isFree ? current : toPreciseCoins(Math.max(current, cap));
+    // Packages replenish up to their daily cap; free accounts replenish up to the freemium lifeline cap (5.0)
+    const newCoins = toPreciseCoins(Math.max(current, cap));
 
     // Calculate new streak based on Cairo calendar days
     let newStreak = profile.study_streak || 1;
@@ -1450,24 +1498,28 @@ export const db = {
           const entityMap = new Map<string, CurriculumEntity>();
 
           for (const parent of parentChunks) {
-            const extracted = extractEntitiesAndRelationsFromChunk(
-              parent.content,
-              parent.heading,
-              parent.id,
-              curriculumId
-            );
-            for (const ent of extracted.entities) {
-              if (!entityMap.has(ent.normalized_name)) {
-                entityMap.set(ent.normalized_name, ent);
-                allEntities.push(ent);
-              } else {
-                const existing = entityMap.get(ent.normalized_name)!;
-                if (!existing.chunk_ids.includes(parent.id)) {
-                  existing.chunk_ids.push(parent.id);
+            try {
+              const extracted = extractEntitiesAndRelationsFromChunk(
+                parent.content,
+                parent.heading,
+                parent.id,
+                curriculumId
+              );
+              for (const ent of extracted.entities) {
+                if (!entityMap.has(ent.normalized_name)) {
+                  entityMap.set(ent.normalized_name, ent);
+                  allEntities.push(ent);
+                } else {
+                  const existing = entityMap.get(ent.normalized_name)!;
+                  if (!existing.chunk_ids.includes(parent.id)) {
+                    existing.chunk_ids.push(parent.id);
+                  }
                 }
               }
+              allRelations.push(...extracted.relations);
+            } catch (chunkErr) {
+              console.warn('Chunk graph extraction notice:', parent.id, chunkErr);
             }
-            allRelations.push(...extracted.relations);
           }
 
           if (allEntities.length > 0) {
@@ -1499,24 +1551,28 @@ export const db = {
           const entityMap = new Map<string, CurriculumEntity>();
 
           for (const parent of chunks) {
-            const extracted = extractEntitiesAndRelationsFromChunk(
-              parent.content,
-              parent.heading,
-              parent.id,
-              curr.id
-            );
-            for (const ent of extracted.entities) {
-              if (!entityMap.has(ent.normalized_name)) {
-                entityMap.set(ent.normalized_name, ent);
-                allEntities.push(ent);
-              } else {
-                const existing = entityMap.get(ent.normalized_name)!;
-                if (!existing.chunk_ids.includes(parent.id)) {
-                  existing.chunk_ids.push(parent.id);
+            try {
+              const extracted = extractEntitiesAndRelationsFromChunk(
+                parent.content,
+                parent.heading,
+                parent.id,
+                curr.id
+              );
+              for (const ent of extracted.entities) {
+                if (!entityMap.has(ent.normalized_name)) {
+                  entityMap.set(ent.normalized_name, ent);
+                  allEntities.push(ent);
+                } else {
+                  const existing = entityMap.get(ent.normalized_name)!;
+                  if (!existing.chunk_ids.includes(parent.id)) {
+                    existing.chunk_ids.push(parent.id);
+                  }
                 }
               }
+              allRelations.push(...extracted.relations);
+            } catch (chunkErr) {
+              console.warn('Local chunk graph extraction notice:', parent.id, chunkErr);
             }
-            allRelations.push(...extracted.relations);
           }
 
           if (allEntities.length > 0) {
@@ -2463,7 +2519,14 @@ export const db = {
       let query = supabase.from('exams').select('*');
       if (gradeLevel) query = query.eq('grade_level', gradeLevel);
       if (subjectName) query = query.eq('subject_name', subjectName);
-      const { data, error } = await query;
+      if (userId) {
+        query = query.eq('user_id', userId);
+      } else if (deviceId) {
+        query = query.eq('device_id', deviceId);
+      } else {
+        return [];
+      }
+      const { data, error } = await query.order('created_at', { ascending: false });
       if (error) return [];
       return data || [];
     } else {
@@ -2471,7 +2534,14 @@ export const db = {
       let list = data.exams || [];
       if (gradeLevel) list = list.filter((e: any) => e.grade_level === gradeLevel);
       if (subjectName) list = list.filter((e: any) => e.subject_name === subjectName);
-      return list;
+      if (userId) {
+        list = list.filter((e: any) => e.user_id === userId);
+      } else if (deviceId) {
+        list = list.filter((e: any) => e.device_id === deviceId);
+      } else {
+        return [];
+      }
+      return list.sort((a: any, b: any) => (b.created_at || '').localeCompare(a.created_at || ''));
     }
   },
 
@@ -2509,17 +2579,27 @@ export const db = {
   async getExamSubmissions(userId?: string, deviceId?: string): Promise<ExamSubmission[]> {
     if (supabase) {
       let query = supabase.from('exam_submissions').select('*');
-      if (userId) query = query.eq('user_id', userId);
-      else if (deviceId) query = query.eq('device_id', deviceId);
-      const { data, error } = await query;
+      if (userId) {
+        query = query.eq('user_id', userId);
+      } else if (deviceId) {
+        query = query.eq('device_id', deviceId);
+      } else {
+        return [];
+      }
+      const { data, error } = await query.order('submitted_at', { ascending: false });
       if (error) return [];
       return data || [];
     } else {
       const data = readLocalDB();
       let list = data.exam_submissions || [];
-      if (userId) list = list.filter((s: any) => s.user_id === userId);
-      else if (deviceId) list = list.filter((s: any) => s.device_id === deviceId);
-      return list;
+      if (userId) {
+        list = list.filter((s: any) => s.user_id === userId);
+      } else if (deviceId) {
+        list = list.filter((s: any) => s.device_id === deviceId);
+      } else {
+        return [];
+      }
+      return list.sort((a: any, b: any) => (b.submitted_at || '').localeCompare(a.submitted_at || ''));
     }
   },
 
@@ -4137,6 +4217,308 @@ export const db = {
       }
       return false;
     }
+  },
+
+  // ─── Curriculum Syllabus Progress & Mastery ─────────────────────────────────
+
+  async getUserLessonProgress(userId: string, subjectName?: string, gradeLevel?: string): Promise<UserLessonProgress[]> {
+    if (supabase) {
+      try {
+        let query = supabase.from('user_lesson_progress').select('*').eq('user_id', userId);
+        if (subjectName) query = query.eq('subject_name', subjectName);
+        if (gradeLevel) query = query.eq('grade_level', gradeLevel);
+        const { data, error } = await query;
+        if (!error && data) return data;
+      } catch (err) {
+        console.error('Error fetching user_lesson_progress from Supabase:', err);
+      }
+      return [];
+    } else {
+      const data = readLocalDB();
+      return (data.user_lesson_progress || []).filter((p: UserLessonProgress) => {
+        if (p.user_id !== userId) return false;
+        if (subjectName && p.subject_name !== subjectName) return false;
+        if (gradeLevel && p.grade_level !== gradeLevel) return false;
+        return true;
+      });
+    }
+  },
+
+  async toggleLessonCompletion(params: {
+    userId: string;
+    gradeLevel: string;
+    subjectName: string;
+    unitId: string;
+    lessonId: string;
+    completed: boolean;
+    quizScore?: number;
+  }): Promise<boolean> {
+    const { userId, gradeLevel, subjectName, unitId, lessonId, completed, quizScore } = params;
+    const nowIso = new Date().toISOString();
+
+    if (supabase) {
+      try {
+        if (completed) {
+          const { error } = await supabase.from('user_lesson_progress').upsert({
+            user_id: userId,
+            grade_level: gradeLevel,
+            subject_name: subjectName,
+            unit_id: unitId,
+            lesson_id: lessonId,
+            status: 'completed',
+            quiz_score: quizScore ?? null,
+            completed_at: nowIso
+          }, { onConflict: 'user_id,subject_name,lesson_id' });
+          return !error;
+        } else {
+          const { error } = await supabase.from('user_lesson_progress')
+            .delete()
+            .eq('user_id', userId)
+            .eq('subject_name', subjectName)
+            .eq('lesson_id', lessonId);
+          return !error;
+        }
+      } catch (err) {
+        console.error('Error updating user_lesson_progress in Supabase:', err);
+        return false;
+      }
+    } else {
+      const data = readLocalDB();
+      if (!data.user_lesson_progress) data.user_lesson_progress = [];
+      const idx = data.user_lesson_progress.findIndex(
+        (p: UserLessonProgress) => p.user_id === userId && p.subject_name === subjectName && p.lesson_id === lessonId
+      );
+
+      if (completed) {
+        const item: UserLessonProgress = {
+          user_id: userId,
+          grade_level: gradeLevel,
+          subject_name: subjectName,
+          unit_id: unitId,
+          lesson_id: lessonId,
+          status: 'completed',
+          quiz_score: quizScore,
+          completed_at: nowIso
+        };
+        if (idx >= 0) {
+          data.user_lesson_progress[idx] = item;
+        } else {
+          data.user_lesson_progress.push(item);
+        }
+      } else if (idx >= 0) {
+        data.user_lesson_progress.splice(idx, 1);
+      }
+      writeLocalDB(data);
+      return true;
+    }
+  },
+
+  // ─── Smart Study Notebook (Formula & Definition Vault) ──────────────────────
+
+  async getStudyNotebook(userId: string, subjectName?: string): Promise<StudyNotebookItem[]> {
+    if (supabase) {
+      try {
+        let query = supabase.from('study_notebook').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+        if (subjectName) query = query.eq('subject_name', subjectName);
+        const { data, error } = await query;
+        if (!error && data) return data;
+      } catch (err) {
+        console.error('Error fetching study_notebook from Supabase:', err);
+      }
+      return [];
+    } else {
+      const data = readLocalDB();
+      return (data.study_notebook || [])
+        .filter((n: StudyNotebookItem) => n.user_id === userId && (!subjectName || n.subject_name === subjectName))
+        .sort((a: StudyNotebookItem, b: StudyNotebookItem) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }
+  },
+
+  async createStudyNote(params: {
+    userId: string;
+    subjectName: string;
+    gradeLevel: string;
+    title: string;
+    content: string;
+    noteType?: 'formula' | 'definition' | 'solution' | 'law' | 'general';
+  }): Promise<StudyNotebookItem> {
+    const id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `note_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const nowIso = new Date().toISOString();
+    const item: StudyNotebookItem = {
+      id,
+      user_id: params.userId,
+      subject_name: params.subjectName,
+      grade_level: params.gradeLevel,
+      title: params.title.trim(),
+      content: params.content.trim(),
+      note_type: params.noteType || 'formula',
+      created_at: nowIso
+    };
+
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('study_notebook').insert(item).select().single();
+        if (!error && data) return data;
+      } catch (err) {
+        console.error('Error saving study_notebook item in Supabase:', err);
+      }
+    } else {
+      const data = readLocalDB();
+      if (!data.study_notebook) data.study_notebook = [];
+      data.study_notebook.unshift(item);
+      writeLocalDB(data);
+    }
+    return item;
+  },
+
+  async deleteStudyNote(noteId: string, userId: string): Promise<boolean> {
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('study_notebook').delete().eq('id', noteId).eq('user_id', userId);
+        return !error;
+      } catch (err) {
+        console.error('Error deleting study_notebook item from Supabase:', err);
+        return false;
+      }
+    } else {
+      const data = readLocalDB();
+      if (!data.study_notebook) return false;
+      const initialLen = data.study_notebook.length;
+      data.study_notebook = data.study_notebook.filter((n: StudyNotebookItem) => !(n.id === noteId && n.user_id === userId));
+      if (data.study_notebook.length !== initialLen) {
+        writeLocalDB(data);
+        return true;
+      }
+      return false;
+    }
+  },
+
+  // ─── Daily Quests & Habit Formation System ──────────────────────────────────
+
+  async getDailyQuests(userId: string): Promise<DailyQuestProgress> {
+    const todayCairo = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
+    const profile = await this.getProfile(userId);
+    const streakDays = profile?.study_streak || 1;
+
+    // Check today's user activity
+    let chatCountToday = 0;
+    let examsCountToday = 0;
+    let claimedQuestIds: string[] = [];
+
+    if (supabase) {
+      try {
+        const { count: msgCount } = await supabase.from('chat_history')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', userId)
+          .eq('sender', 'user')
+          .gte('created_at', `${todayCairo}T00:00:00+02:00`);
+        chatCountToday = msgCount || 0;
+
+        const { count: subCount } = await supabase.from('exam_submissions')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', userId)
+          .gte('submitted_at', `${todayCairo}T00:00:00+02:00`);
+        examsCountToday = subCount || 0;
+      } catch (err) {}
+    } else {
+      const data = readLocalDB();
+      chatCountToday = (data.chat_history || []).filter(
+        (m: any) => m.user_id === userId && m.sender === 'user' && (m.created_at || '').startsWith(todayCairo)
+      ).length;
+      examsCountToday = (data.exam_submissions || []).filter(
+        (s: any) => s.user_id === userId && (s.submitted_at || '').startsWith(todayCairo)
+      ).length;
+    }
+
+    // Check claimed quests from local or profile metadata
+    const data = readLocalDB();
+    const claimedList = (data.claimed_daily_quests || []).filter(
+      (c: any) => c.user_id === userId && c.date === todayCairo
+    );
+    claimedQuestIds = claimedList.map((c: any) => c.quest_id);
+
+    // Calculate quest targets and progress
+    const quest1Current = Math.min(1, chatCountToday >= 1 ? 1 : 0);
+    const quest2Current = Math.min(3, chatCountToday >= 2 ? 3 : chatCountToday);
+    const quest3Current = Math.min(1, examsCountToday >= 1 ? 1 : (chatCountToday >= 3 ? 1 : 0));
+
+    const quests: DailyQuestItem[] = [
+      {
+        id: 'quest_interactive_quiz',
+        title: 'حل سؤال تفاعلي أو مسألة في المنهج',
+        description: 'اطرح سؤالاً على المساعد الذكي أو أجب على سؤال تفاعلي سريع',
+        icon: 'Sparkles',
+        target: 1,
+        current: quest1Current,
+        completed: quest1Current >= 1,
+        rewardPoints: 2,
+        claimed: claimedQuestIds.includes('quest_interactive_quiz')
+      },
+      {
+        id: 'quest_concept_review',
+        title: 'مراجعة 3 مفاهيم أو كروت ذكية',
+        description: 'راجع المفاهيم في المدرب الذكي أو تصفح دروس المنهج',
+        icon: 'Brain',
+        target: 3,
+        current: quest2Current,
+        completed: quest2Current >= 3,
+        rewardPoints: 3,
+        claimed: claimedQuestIds.includes('quest_concept_review')
+      },
+      {
+        id: 'quest_exam_challenge',
+        title: 'خوض اختبار أو حل مسألة بوكليت',
+        description: 'قدم اختباراً تقييمياً ذكياً أو حل مسألة معقدة بالخطوات',
+        icon: 'FileText',
+        target: 1,
+        current: quest3Current,
+        completed: quest3Current >= 1,
+        rewardPoints: 5,
+        claimed: claimedQuestIds.includes('quest_exam_challenge')
+      }
+    ];
+
+    const allCompleted = quests.every(q => q.completed);
+
+    return {
+      date: todayCairo,
+      quests,
+      allCompleted,
+      streakDays
+    };
+  },
+
+  async claimDailyQuestReward(userId: string, questId: string): Promise<{ success: boolean; pointsAwarded: number; totalPoints: number }> {
+    const todayCairo = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
+    const progress = await this.getDailyQuests(userId);
+    const quest = progress.quests.find(q => q.id === questId);
+
+    if (!quest) {
+      throw new Error('المهمة المطلوبة غير صالحة');
+    }
+    if (!quest.completed) {
+      throw new Error('لم تكتمل شروط هذه المهمة بعد');
+    }
+    if (quest.claimed) {
+      throw new Error('تم استلام مكافأة هذه المهمة اليوم بالفعل');
+    }
+
+    // Award points
+    const pointsAwarded = quest.rewardPoints;
+    const totalPoints = await this.addPoints(userId, pointsAwarded);
+
+    // Record claim
+    const data = readLocalDB();
+    if (!data.claimed_daily_quests) data.claimed_daily_quests = [];
+    data.claimed_daily_quests.push({
+      user_id: userId,
+      date: todayCairo,
+      quest_id: questId,
+      claimed_at: new Date().toISOString()
+    });
+    writeLocalDB(data);
+
+    return { success: true, pointsAwarded, totalPoints };
   }
 };
 

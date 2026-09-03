@@ -203,15 +203,18 @@ export async function POST(req: NextRequest) {
     coins = profile.coins === undefined ? 0.0 : profile.coins;
     targetGrade = profile.grade_level?.trim();
 
+    const isSubscribed = plan && plan !== 'free' && profile.subscription_status === 'active';
     const hasUnlimitedCredit = profile.role === 'admin' || !!profile.unlimited_credit;
+    const activeModel = (isSubscribed || hasUnlimitedCredit) ? selectedModel : 'flash';
+    const activeThinking = (isSubscribed || hasUnlimitedCredit) ? isThinkingEnabled : false;
+
     if (!hasUnlimitedCredit && coins <= 0) {
-      const isSubscribed = plan && plan !== 'free' && profile.subscription_status === 'active';
       return NextResponse.json({
         error: 'limit_reached',
         plan: plan,
         message: isSubscribed
           ? 'لقد استنفدت رصيد النقاط المتاح لك لهذا اليوم. سيتجدد رصيدك تلقائياً غداً.'
-          : 'لقد استنفدت رصيدك التجريبي المجاني. اشترك الآن في إحدى باقات Pro لمتابعة المذاكرة والتفوق!'
+          : 'أنت بطل المذاكرة اليوم! لقد استنفدت رصيدك اليومي المجاني (5 عملات). سيتجدد رصيدك تلقائياً غداً، أو اشترك الآن في باقة Pro لمتابعة المذاكرة ونموذج التفكير المعمق!'
       }, { status: 429 });
     }
 
@@ -469,8 +472,8 @@ export async function POST(req: NextRequest) {
             finalPromptText,
             finalContext,
             recentHistory,
-            selectedModel === 'pro' ? 'deepseek-v4-pro' : 'deepseek-v4-flash',
-            isThinkingEnabled,
+            activeModel === 'pro' ? 'deepseek-v4-pro' : 'deepseek-v4-flash',
+            activeThinking,
             chatMode
           );
 
@@ -546,7 +549,7 @@ export async function POST(req: NextRequest) {
 
           // Compute usage & coins
           let egpCost = 0;
-          if (selectedModel === 'pro') {
+          if (activeModel === 'pro') {
             egpCost = (promptTokens / 1000000) * 150 + (completionTokens / 1000000) * 200;
           } else {
             egpCost = (promptTokens / 1000000) * 30 + (completionTokens / 1000000) * 50;

@@ -90,7 +90,15 @@ import {
   ExternalLink,
   HelpCircle,
   Network,
-  GitFork
+  GitFork,
+  Bookmark,
+  BookmarkCheck,
+  Sliders,
+  Timer,
+  CheckSquare,
+  Square,
+  BarChart3,
+  FileCheck
 } from 'lucide-react';
 import AppTour, { TourScreen } from '@/components/AppTour';
 
@@ -151,6 +159,69 @@ const GRADE_NAMES: Record<string, string> = {
   '2_high': 'السنة الثانية بكالوريا (الصف الثاني الثانوي)',
   'unselected': 'لم يتم تحديد المرحلة'
 };
+
+function normalizeArabicText(str: string): string {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/\u0640/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/[ىي]/g, 'ي')
+    .replace(/ؤ/g, 'و')
+    .replace(/ئ/g, 'ي')
+    .replace(/زكاء/g, 'ذكاء')
+    .replace(/اصتناع|استطناع|صطناع/g, 'اصطناع')
+    .replace(/ايجيس|ايجس|إيجيس/g, 'egs')
+    .replace(/egsai|egs-ai|egsa/g, 'egs')
+    .replace(/[^\w\u0621-\u064A0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isFuzzyWordMatch(wordA: string, wordB: string): boolean {
+  if (!wordA || !wordB) return false;
+  if (wordA === wordB) return true;
+  if (Math.abs(wordA.length - wordB.length) > 1) return false;
+  if (wordA.length < 3) return wordA === wordB;
+  let diffs = 0;
+  let i = 0;
+  let j = 0;
+  while (i < wordA.length && j < wordB.length) {
+    if (wordA[i] !== wordB[j]) {
+      diffs++;
+      if (diffs > 1) return false;
+      if (wordA.length > wordB.length) i++;
+      else if (wordB.length > wordA.length) j++;
+      else { i++; j++; }
+    } else {
+      i++; j++;
+    }
+  }
+  return true;
+}
+
+function calculateSearchRelevance(queryNorm: string, targetText: string): number {
+  if (!queryNorm || !targetText) return 0;
+  const targetNorm = normalizeArabicText(targetText);
+  if (targetNorm === queryNorm) return 100;
+  if (targetNorm.startsWith(queryNorm)) return 85;
+  if (targetNorm.includes(queryNorm)) return 70;
+
+  const qTokens = queryNorm.split(/\s+/).filter(t => t.length > 1);
+  if (qTokens.length === 0) return 0;
+  const tTokens = targetNorm.split(/\s+/).filter(t => t.length > 1);
+  let matchedTokens = 0;
+  for (const q of qTokens) {
+    if (tTokens.some(t => t.includes(q) || q.includes(t) || isFuzzyWordMatch(q, t))) {
+      matchedTokens++;
+    }
+  }
+  if (matchedTokens === qTokens.length) return 65;
+  if (matchedTokens > 0) return Math.round((matchedTokens / qTokens.length) * 45);
+  return 0;
+}
 
 export interface BaccalaureateTrack {
   id: string;
@@ -259,13 +330,13 @@ const ThoughtBlock = ({
         onClick={() => setExpanded(!expanded)}
         className="thought-toggle-btn"
       >
-        <Brain size={14} className={isThinking ? 'animate-spin' : ''} style={{ color: 'var(--primary-color)' }} />
+        <Brain size={16} className={isThinking ? 'animate-spin' : ''} style={{ color: 'var(--primary-color)' }} />
         <span>
           {isThinking 
             ? `جارٍ التفكير (${duration || 0} ثانية)...` 
             : `فكّر لمدة ${duration || 1} ثانية`}
         </span>
-        <ChevronRight size={13} style={{ 
+        <ChevronRight size={15} style={{ 
           transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
           transition: 'transform 0.22s ease',
         }} />
@@ -278,37 +349,79 @@ const ThoughtBlock = ({
   );
 };
 
+  // Clean and normalize LaTeX formulas
+  const cleanFormula = (raw: string): string => {
+    if (!raw) return '';
+    let f = raw.trim();
+    if ((f.startsWith('\\[') && f.endsWith('\\]')) || (f.startsWith('$$') && f.endsWith('$$'))) {
+      f = f.slice(2, -2).trim();
+    } else if (f.startsWith('\\(') && f.endsWith('\\)')) {
+      f = f.slice(2, -2).trim();
+    } else if (f.startsWith('$') && f.endsWith('$') && f.length > 2) {
+      f = f.slice(1, -1).trim();
+    }
+    f = f.replace(/\\\s*$/, '');
+    f = f.replace(/\\(approx|times|pm|div|le|ge|leq|geq|neq|sim|simeq|equiv|to|leftarrow|rightarrow|Rightarrow|Leftarrow)\\(frac|sqrt|text|mathbf|mathit|mathrm|sum|int|lim)/g, '\\$1 \\$2');
+    return f;
+  };
+
   // MathRenderer: Renders LaTeX equations inline or block using bundled KaTeX (synchronous, no CDN load-race)
   const MathRenderer = ({ formula, block = false }: { formula: string; block?: boolean }) => {
+    const cleaned = React.useMemo(() => cleanFormula(formula), [formula]);
+
     const html = React.useMemo(() => {
+      if (!cleaned) return '';
       try {
-        return katex.renderToString(formula, {
+        return katex.renderToString(cleaned, {
           displayMode: block,
           throwOnError: false,
           strict: false,
-          // trust: false (default) — the AI's LaTeX output is not fully trusted input;
-          // this blocks \includegraphics/\href/etc. that could otherwise be abused.
+          // trust: false (default) — security: AI LaTeX output blocks \includegraphics/\href/etc.
           macros: {
             '\\RR': '\\mathbb{R}',
+            '\\NN': '\\mathbb{N}',
+            '\\ZZ': '\\mathbb{Z}',
+            '\\QQ': '\\mathbb{Q}',
+            '\\CC': '\\mathbb{C}',
+            '\\degree': '^\\circ',
+            '\\degreeC': '^\\circ\\text{C}',
+            '\\celsius': '^\\circ\\text{C}',
+            '\\ohm': '\\Omega',
+            '\\micro': '\\mu',
           },
         });
       } catch (e) {
         console.error('KaTeX error:', e);
         return '';
       }
-    }, [formula, block]);
+    }, [cleaned, block]);
 
     if (html) {
-      return <span className={block ? "math-block animate-fade-in" : "math-inline"} dangerouslySetInnerHTML={{ __html: html }} />;
+      if (block) {
+        return (
+          <div
+            className="math-block animate-fade-in"
+            dir="ltr"
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        );
+      }
+      return (
+        <span
+          className="math-inline"
+          dir="ltr"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      );
     }
 
     return block ? (
-      <div className="math-block">
-        {formula}
+      <div className="math-block" dir="ltr">
+        {cleaned}
       </div>
     ) : (
-      <code className="math-inline">
-        {formula}
+      <code className="math-inline" dir="ltr">
+        {cleaned}
       </code>
     );
   };
@@ -361,55 +474,85 @@ const ThoughtBlock = ({
     );
   };
 
-  // parseInlineText: parses bold, code, and math delimiters inline
+  // parseInlineText: parses bold, italic, code, links, and math delimiters inline
   const parseInlineText = (text: string): React.ReactNode[] => {
-    const regex = /(\\\([\s\S]*?\\\))|(\\\[[\s\S]*?\\\])|(\$\$[\s\S]*?\$\$)|(\$[^\$\n]+\$)|(\*\*[^*]+\*\*)|(`[^`]+`)/g;
-    const parts = text.split(regex);
-    
-    return parts.map((part, index) => {
-      if (!part) return null;
-      
-      // Inline math \( ... \)
-      if (part.startsWith('\\(') && part.endsWith('\\)')) {
-        const formula = part.substring(2, part.length - 2);
-        return <MathRenderer key={index} formula={formula} block={false} />;
+    if (!text) return [];
+
+    const regex = /(\\\([\s\S]*?\\\))|(\\\[[\s\S]*?\\\])|(\$\$[\s\S]*?\$\$)|(\$(?!\s)(?:[^\$\n\\]|\\.)+?(?<!\s)\$)|(\*\*\*[^*]+?\*\*\*|___[^_]+?___)|(\*\*[^*]+?\*\*|__[^_]+?__)|(\*[^*\n]+?\*|_[^_\n]+?_)|(~~[^~\n]+?~~)|(`[^`\n]+?`)|(\[[^\]\n]+\]\(https?:\/\/[^\s\)]+\))/g;
+
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(text.substring(lastIndex, match.index));
       }
 
-      // Block math \[ ... \] (when embedded inline)
-      if (part.startsWith('\\[') && part.endsWith('\\]')) {
-        const formula = part.substring(2, part.length - 2);
-        return <MathRenderer key={index} formula={formula} block={true} />;
-      }
-      
-      // Block math $$ ... $$ (when embedded inline)
-      if (part.startsWith('$$') && part.endsWith('$$')) {
-        const formula = part.substring(2, part.length - 2);
-        return <MathRenderer key={index} formula={formula} block={true} />;
+      const matched = match[0];
+      const key = `${match.index}-${lastIndex}`;
+
+      if (match[1]) {
+        // Inline math \( ... \)
+        parts.push(<MathRenderer key={`mi-${key}`} formula={matched.slice(2, -2)} block={false} />);
+      } else if (match[2]) {
+        // Block math \[ ... \] (embedded inline)
+        parts.push(<MathRenderer key={`mb-${key}`} formula={matched.slice(2, -2)} block={true} />);
+      } else if (match[3]) {
+        // Block math $$ ... $$ (embedded inline)
+        parts.push(<MathRenderer key={`mb-${key}`} formula={matched.slice(2, -2)} block={true} />);
+      } else if (match[4]) {
+        // Inline math $ ... $
+        parts.push(<MathRenderer key={`mi-${key}`} formula={matched.slice(1, -1)} block={false} />);
+      } else if (match[5]) {
+        // Bold + Italic *** ... *** or ___ ... ___
+        const content = matched.startsWith('***') ? matched.slice(3, -3) : matched.slice(3, -3);
+        parts.push(<strong key={`bi-${key}`} style={{ fontWeight: 800 }}><em>{content}</em></strong>);
+      } else if (match[6]) {
+        // Bold ** ... ** or __ ... __
+        const content = matched.startsWith('**') ? matched.slice(2, -2) : matched.slice(2, -2);
+        parts.push(<strong key={`b-${key}`} style={{ fontWeight: 800 }}>{content}</strong>);
+      } else if (match[7]) {
+        // Italic * ... * or _ ... _
+        const content = matched.startsWith('*') ? matched.slice(1, -1) : matched.slice(1, -1);
+        parts.push(<em key={`i-${key}`}>{content}</em>);
+      } else if (match[8]) {
+        // Strikethrough ~~ ... ~~
+        parts.push(<del key={`del-${key}`}>{matched.slice(2, -2)}</del>);
+      } else if (match[9]) {
+        // Inline code ` ... `
+        parts.push(<code key={`c-${key}`}>{matched.slice(1, -1)}</code>);
+      } else if (match[10]) {
+        // Link [text](url)
+        const linkMatch = matched.match(/^\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)$/);
+        if (linkMatch) {
+          parts.push(
+            <a
+              key={`a-${key}`}
+              href={linkMatch[2]}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="markdown-link"
+            >
+              {linkMatch[1]}
+            </a>
+          );
+        } else {
+          parts.push(matched);
+        }
       }
 
-      // Inline math $ ... $
-      if (part.startsWith('$') && part.endsWith('$')) {
-        const formula = part.substring(1, part.length - 1);
-        return <MathRenderer key={index} formula={formula} block={false} />;
-      }
+      lastIndex = match.index + matched.length;
+    }
 
-      // Bold ** ... **
-      if (part.startsWith('**') && part.endsWith('**')) {
-        const boldText = part.substring(2, part.length - 2);
-        return <strong key={index} style={{ fontWeight: 800 }}>{boldText}</strong>;
-      }
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
 
-      // Inline code ` ... `
-      if (part.startsWith('`') && part.endsWith('`')) {
-        const codeText = part.substring(1, part.length - 1);
-        return <code key={index}>{codeText}</code>;
-      }
-
-      return <span key={index}>{part}</span>;
-    }).filter(el => el !== null) as React.ReactNode[];
+    return parts;
   };
 
-  // MarkdownMessage: Parses line by line into structured React elements (tables, code, lists, math, headers)
+  // MarkdownMessage: Universal markdown & math parser (headers, blockquotes, lists, tables, code, LaTeX blocks)
   const MarkdownMessage = ({ content }: { content: string }) => {
     const lines = content.split('\n');
     const blocks: React.ReactNode[] = [];
@@ -425,7 +568,7 @@ const ThoughtBlock = ({
         continue;
       }
 
-      // Code blocks
+      // 1. Fenced Code blocks
       if (trimmed.startsWith('```')) {
         const lang = trimmed.replace('```', '').trim() || 'code';
         let codeLines: string[] = [];
@@ -434,7 +577,7 @@ const ThoughtBlock = ({
           codeLines.push(lines[idx]);
           idx++;
         }
-        idx++;
+        if (idx < lines.length) idx++;
         if (lang.toLowerCase() === 'svg') {
           blocks.push(
             <SvgDiagram key={`svg-${idx}`} svgContent={codeLines.join('\n')} />
@@ -447,7 +590,22 @@ const ThoughtBlock = ({
         continue;
       }
 
-      // Block math
+      // 2. Blockquotes (supports single, multiline, nested, and math inside quotes)
+      if (trimmed.startsWith('>')) {
+        const quoteLines: string[] = [];
+        while (idx < lines.length && lines[idx].trim().startsWith('>')) {
+          quoteLines.push(lines[idx].trim().replace(/^>\s?/, ''));
+          idx++;
+        }
+        blocks.push(
+          <blockquote key={`quote-${idx}`} className="markdown-blockquote">
+            <MarkdownMessage content={quoteLines.join('\n')} />
+          </blockquote>
+        );
+        continue;
+      }
+
+      // 3. Block math $$ ... $$
       if (trimmed.startsWith('$$') && trimmed.endsWith('$$') && trimmed.length > 4) {
         const formula = trimmed.substring(2, trimmed.length - 2);
         blocks.push(<MathRenderer key={`mathblock-${idx}`} formula={formula} block={true} />);
@@ -456,21 +614,23 @@ const ThoughtBlock = ({
       }
       if (trimmed.startsWith('$$')) {
         let mathLines: string[] = [];
+        const firstLine = trimmed.substring(2).trim();
+        if (firstLine) mathLines.push(firstLine);
         idx++;
         while (idx < lines.length && !lines[idx].trim().endsWith('$$')) {
           mathLines.push(lines[idx]);
           idx++;
         }
         if (idx < lines.length) {
-          const endLine = lines[idx].trim();
-          if (endLine !== '$$') {
-            mathLines.push(endLine.replace('$$', ''));
-          }
+          const endLine = lines[idx].trim().replace(/\$\$$/, '').trim();
+          if (endLine) mathLines.push(endLine);
           idx++;
         }
         blocks.push(<MathRenderer key={`mathblock-${idx}`} formula={mathLines.join('\n')} block={true} />);
         continue;
       }
+
+      // 4. Block math \[ ... \]
       if (trimmed.startsWith('\\[') && trimmed.endsWith('\\]') && trimmed.length > 4) {
         const formula = trimmed.substring(2, trimmed.length - 2);
         blocks.push(<MathRenderer key={`mathblock-${idx}`} formula={formula} block={true} />);
@@ -479,23 +639,80 @@ const ThoughtBlock = ({
       }
       if (trimmed.startsWith('\\[')) {
         let mathLines: string[] = [];
+        const firstLine = trimmed.substring(2).trim();
+        if (firstLine) mathLines.push(firstLine);
         idx++;
         while (idx < lines.length && !lines[idx].trim().endsWith('\\]')) {
           mathLines.push(lines[idx]);
           idx++;
         }
         if (idx < lines.length) {
-          const endLine = lines[idx].trim();
-          if (endLine !== '\\]') {
-            mathLines.push(endLine.replace('\\]', ''));
-          }
+          const endLine = lines[idx].trim().replace(/\\\]$/, '').trim();
+          if (endLine) mathLines.push(endLine);
           idx++;
         }
         blocks.push(<MathRenderer key={`mathblock-${idx}`} formula={mathLines.join('\n')} block={true} />);
         continue;
       }
 
-      // Tables
+      // 5. LaTeX environments (\begin{equation}, \begin{aligned}, etc.)
+      const beginMatch = trimmed.match(/^\\begin\{(equation\*?|align\*?|aligned|gather\*?|matrix|pmatrix|bmatrix|cases)\}/);
+      if (beginMatch) {
+        const env = beginMatch[1];
+        const endPattern = `\\end{${env}}`;
+        const envLines: string[] = [line];
+        idx++;
+        while (idx < lines.length && !lines[idx].includes(endPattern)) {
+          envLines.push(lines[idx]);
+          idx++;
+        }
+        if (idx < lines.length) {
+          envLines.push(lines[idx]);
+          idx++;
+        }
+        blocks.push(<MathRenderer key={`mathblock-${idx}`} formula={envLines.join('\n')} block={true} />);
+        continue;
+      }
+
+      // 6. Standalone math formula line (e.g. \frac{...}{...} without text prose)
+      const isStandaloneFormula = /^\s*(?:\\[a-zA-Z]+|\d|[=\+\-\*\/\(\)\{\}\^\._\s]|\\approx|\\times|\\div|\\pm|\\sqrt|\\frac)+\s*$/.test(trimmed) &&
+        /\\(frac|sqrt|approx|times|pm|div|sum|int|cdot|alpha|beta|theta|pi)\b/.test(trimmed);
+      if (isStandaloneFormula) {
+        blocks.push(<MathRenderer key={`mathblock-${idx}`} formula={trimmed} block={true} />);
+        idx++;
+        continue;
+      }
+
+      // 7. Horizontal rule
+      if (/^(?:-{3,}|\*{3,}|_{3,})\s*$/.test(trimmed)) {
+        blocks.push(<hr key={`hr-${idx}`} className="markdown-hr" />);
+        idx++;
+        continue;
+      }
+
+      // 8. Headers (# to ######)
+      const headerMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+      if (headerMatch) {
+        const level = headerMatch[1].length;
+        const headingText = headerMatch[2];
+        if (level === 1) {
+          blocks.push(<h1 key={`h1-${idx}`} style={{ marginTop: '1.2rem', marginBottom: '0.6rem', color: 'var(--text-main)', fontWeight: 700, fontSize: '1.3rem' }}>{parseInlineText(headingText)}</h1>);
+        } else if (level === 2) {
+          blocks.push(<h2 key={`h2-${idx}`} style={{ marginTop: '1.2rem', marginBottom: '0.6rem', color: 'var(--text-main)', fontWeight: 700, fontSize: '1.15rem' }}>{parseInlineText(headingText)}</h2>);
+        } else if (level === 3) {
+          blocks.push(<h3 key={`h3-${idx}`} style={{ marginTop: '1.2rem', marginBottom: '0.6rem', color: 'var(--text-main)', fontWeight: 700, fontSize: '1.05rem' }}>{parseInlineText(headingText)}</h3>);
+        } else if (level === 4) {
+          blocks.push(<h4 key={`h4-${idx}`} className="markdown-h4">{parseInlineText(headingText)}</h4>);
+        } else if (level === 5) {
+          blocks.push(<h5 key={`h5-${idx}`} className="markdown-h5">{parseInlineText(headingText)}</h5>);
+        } else {
+          blocks.push(<h6 key={`h6-${idx}`} className="markdown-h6">{parseInlineText(headingText)}</h6>);
+        }
+        idx++;
+        continue;
+      }
+
+      // 9. Tables
       if (trimmed.startsWith('|') && idx + 1 < lines.length && lines[idx + 1].trim().startsWith('|')) {
         const nextLine = lines[idx + 1].trim();
         const isTable = nextLine.replace(/[\s\-\|:‌]/g, '') === '';
@@ -546,59 +763,75 @@ const ThoughtBlock = ({
         }
       }
 
-      // Headers
-      if (trimmed.startsWith('### ')) {
-        blocks.push(<h3 key={`h3-${idx}`} style={{ marginTop: '1.2rem', marginBottom: '0.6rem', color: 'var(--text-main)', fontWeight: 700, fontSize: '1.05rem' }}>{parseInlineText(trimmed.substring(4))}</h3>);
-        idx++;
-        continue;
-      }
-      if (trimmed.startsWith('## ')) {
-        blocks.push(<h2 key={`h2-${idx}`} style={{ marginTop: '1.2rem', marginBottom: '0.6rem', color: 'var(--text-main)', fontWeight: 700, fontSize: '1.15rem' }}>{parseInlineText(trimmed.substring(3))}</h2>);
-        idx++;
-        continue;
-      }
-      if (trimmed.startsWith('# ')) {
-        blocks.push(<h1 key={`h1-${idx}`} style={{ marginTop: '1.2rem', marginBottom: '0.6rem', color: 'var(--text-main)', fontWeight: 700, fontSize: '1.3rem' }}>{parseInlineText(trimmed.substring(2))}</h1>);
-        idx++;
+      // 10. Lists & Task Lists
+      const isUl = trimmed.startsWith('- ') || trimmed.startsWith('* ') || trimmed.startsWith('+ ');
+      const isOl = /^\d+\.\s/.test(trimmed);
+
+      if (isUl || isOl) {
+        const isCurrentListType = (l: string) => isUl
+          ? (l.trim().startsWith('- ') || l.trim().startsWith('* ') || l.trim().startsWith('+ '))
+          : /^\d+\.\s/.test(l.trim());
+
+        const listItems: { text: string; isTask: boolean; isChecked: boolean }[] = [];
+
+        while (idx < lines.length && isCurrentListType(lines[idx])) {
+          let itemText = lines[idx].trim();
+          if (isUl) {
+            itemText = itemText.substring(2);
+          } else {
+            itemText = itemText.replace(/^\d+\.\s/, '');
+          }
+
+          let isTask = false;
+          let isChecked = false;
+          if (/^\[\s\]\s+/.test(itemText)) {
+            isTask = true;
+            isChecked = false;
+            itemText = itemText.replace(/^\[\s\]\s+/, '');
+          } else if (/^\[[xX]\]\s+/.test(itemText)) {
+            isTask = true;
+            isChecked = true;
+            itemText = itemText.replace(/^\[[xX]\]\s+/, '');
+          }
+
+          listItems.push({ text: itemText, isTask, isChecked });
+          idx++;
+        }
+
+        if (isUl) {
+          const hasTasks = listItems.some(i => i.isTask);
+          blocks.push(
+            <ul key={`ul-${idx}`} style={{ marginRight: hasTasks ? '0.5rem' : '1.5rem', marginBottom: '0.8rem', listStyleType: hasTasks ? 'none' : 'disc', paddingRight: hasTasks ? 0 : undefined }}>
+              {listItems.map((item, lIdx) => (
+                <li key={lIdx} className={item.isTask ? "markdown-task-item" : ""} style={{ marginBottom: '0.4rem', display: item.isTask ? 'flex' : 'list-item', alignItems: 'center', gap: '8px' }}>
+                  {item.isTask && (
+                    <input
+                      type="checkbox"
+                      checked={item.isChecked}
+                      readOnly
+                      className="markdown-task-checkbox"
+                    />
+                  )}
+                  <span>{parseInlineText(item.text)}</span>
+                </li>
+              ))}
+            </ul>
+          );
+        } else {
+          blocks.push(
+            <ol key={`ol-${idx}`} style={{ marginRight: '1.5rem', marginBottom: '0.8rem', listStyleType: 'decimal' }}>
+              {listItems.map((item, lIdx) => (
+                <li key={lIdx} style={{ marginBottom: '0.4rem' }}>{parseInlineText(item.text)}</li>
+              ))}
+            </ol>
+          );
+        }
         continue;
       }
 
-      // Lists
-      if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-        let listItems: string[] = [];
-        while (idx < lines.length && (lines[idx].trim().startsWith('- ') || lines[idx].trim().startsWith('* '))) {
-          listItems.push(lines[idx].trim().substring(2));
-          idx++;
-        }
-        blocks.push(
-          <ul key={`ul-${idx}`} style={{ marginRight: '1.5rem', marginBottom: '0.8rem', listStyleType: 'disc' }}>
-            {listItems.map((item, lIdx) => (
-              <li key={lIdx} style={{ marginBottom: '0.3rem' }}>{parseInlineText(item)}</li>
-            ))}
-          </ul>
-        );
-        continue;
-      }
-      if (/^\d+\.\s/.test(trimmed)) {
-        let listItems: string[] = [];
-        while (idx < lines.length && /^\d+\.\s/.test(lines[idx].trim())) {
-          const itemText = lines[idx].trim().replace(/^\d+\.\s/, '');
-          listItems.push(itemText);
-          idx++;
-        }
-        blocks.push(
-          <ol key={`ol-${idx}`} style={{ marginRight: '1.5rem', marginBottom: '0.8rem', listStyleType: 'decimal' }}>
-            {listItems.map((item, lIdx) => (
-              <li key={lIdx} style={{ marginBottom: '0.3rem' }}>{parseInlineText(item)}</li>
-            ))}
-          </ol>
-        );
-        continue;
-      }
-
-      // Paragraph
+      // 11. Paragraph
       blocks.push(
-        <p key={`p-${idx}`} style={{ marginBottom: '0.8rem', lineHeight: '1.6' }}>
+        <p key={`p-${idx}`} style={{ marginBottom: '0.8rem', lineHeight: '1.7' }}>
           {parseInlineText(line)}
         </p>
       );
@@ -906,7 +1139,7 @@ const ThoughtBlock = ({
             borderRadius: '10px',
             fontSize: '0.88rem',
             fontWeight: 700,
-            boxShadow: '0 4px 12px rgba(193,39,45,0.25)'
+            boxShadow: 'var(--shadow-glow)'
           }}
         >
           بدء الامتحان الآن
@@ -917,6 +1150,22 @@ const ThoughtBlock = ({
 
   // Motivational Paywall Card for zero coins / depleted funds
   const MotivationalPaywallCard = ({ onGoToSubscriptions }: { onGoToSubscriptions?: () => void }) => {
+    const [storedUser, setStoredUser] = useState<any>(null);
+    const [copiedSponsor, setCopiedSponsor] = useState(false);
+
+    useEffect(() => {
+      try {
+        const item = localStorage.getItem('egs_user');
+        if (item) setStoredUser(JSON.parse(item));
+      } catch (_) {}
+    }, []);
+
+    const studentSponsorUrl = typeof window !== 'undefined' && storedUser?.id
+      ? `${window.location.origin}/sponsor?student_id=${storedUser.id}&plan=pro_1m`
+      : 'https://egsaiedu.com/sponsor';
+
+    const parentWhatsAppText = `السلام عليكم يا بابا/ماما، أنا بستخدم منصة EGS AI لمذاكرة المنهج والامتحانات التفاعلية، ورصيدي اليومي المجاني انتهى. باقة الشهر بـ 60 جنيه فقط (أقل من 2 جنيه في اليوم) بتفتح كل المواد وشرح المسائل بالخطوات وتوليد الامتحانات. ممكن تشترك لي من الرابط ده: ${studentSponsorUrl}`;
+
     return (
       <div className="motivational-paywall-card animate-scale-in">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
@@ -935,18 +1184,18 @@ const ThoughtBlock = ({
         </h3>
         
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.86rem', lineHeight: '1.65', margin: '0 0 16px' }}>
-          لقد استنفدت رصيدك التجريبي المجاني. تفوقك يستحق الاستمرار! اشترك الآن في باقة <strong style={{ color: 'var(--primary-color)' }}>Pro</strong> لتفعيل رصيد يومي متجدد (80-120 نقطة يومياً) ونموذج التفكير العميق لتحليل أصعب المسائل والامتحانات الشاملة.
+          استنفدت رصيدك اليومي المجاني. سيتجدد رصيدك تلقائياً غداً، أو اطلب من ولي أمرك تفعيل باقة <strong style={{ color: 'var(--primary-color)' }}>Pro</strong> فوراً لمذاكرة بلا حدود (80-120 عملة يومياً) ونموذج التفكير المعمق لحل أصعب المسائل بـ 60 ج.م فقط شهرياً (أقل من 2 جنيه في اليوم)!
         </p>
 
         {/* Feature perks */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', marginBottom: '14px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', marginBottom: '16px' }}>
           <div style={{ background: 'var(--alpha-white-3)', padding: '8px 12px', borderRadius: '10px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem' }}>
             <Zap size={15} color="var(--primary-color)" />
-            <span style={{ fontWeight: 700 }}>80-120 نقطة متجددة يومياً</span>
+            <span style={{ fontWeight: 700 }}>80-120 عملة ذكاء اصطناعي يومياً</span>
           </div>
           <div style={{ background: 'var(--alpha-white-3)', padding: '8px 12px', borderRadius: '10px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem' }}>
             <Brain size={15} color="var(--primary-color)" />
-            <span style={{ fontWeight: 700 }}>نموذج التفكير العميق للمسائل</span>
+            <span style={{ fontWeight: 700 }}>نموذج التفكير المعمق للمسائل</span>
           </div>
           <div style={{ background: 'var(--alpha-white-3)', padding: '8px 12px', borderRadius: '10px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem' }}>
             <FileText size={15} color="var(--primary-color)" />
@@ -954,53 +1203,109 @@ const ThoughtBlock = ({
           </div>
         </div>
 
+        {/* Action Buttons: WhatsApp to Parent + Self Checkout */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+          {storedUser && (
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent(parentWhatsAppText)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                width: '100%',
+                padding: '13px 18px',
+                fontSize: '0.94rem',
+                fontWeight: 900,
+                borderRadius: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                background: '#25D366',
+                color: '#ffffff',
+                textDecoration: 'none',
+                boxShadow: '0 4px 14px rgba(37, 211, 102, 0.35)',
+                boxSizing: 'border-box'
+              }}
+            >
+              <MessageCircle size={18} />
+              <span>أرسل لولي أمرك للاشتراك عبر واتساب (60 ج.م)</span>
+            </a>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: storedUser ? '1fr 1fr' : '1fr', gap: '8px' }}>
+            {storedUser && (
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(studentSponsorUrl);
+                  setCopiedSponsor(true);
+                  setTimeout(() => setCopiedSponsor(false), 3000);
+                }}
+                style={{
+                  padding: '10px 14px',
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                  borderRadius: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  background: 'var(--alpha-white-3)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-main)',
+                  cursor: 'pointer'
+                }}
+              >
+                <Share size={14} />
+                <span>{copiedSponsor ? 'تم نسخ الرابط' : 'نسخ رابط الكفالة'}</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                if (onGoToSubscriptions) onGoToSubscriptions();
+              }}
+              className="btn-primary"
+              style={{
+                padding: '10px 14px',
+                fontSize: '0.84rem',
+                fontWeight: 800,
+                borderRadius: '10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                border: 'none',
+                cursor: 'pointer',
+                boxShadow: 'var(--shadow-glow)'
+              }}
+            >
+              <CreditCard size={15} />
+              <span>ادفع الآن بنفسك (60 ج.م)</span>
+            </button>
+          </div>
+        </div>
+
         {/* Supported Payment Methods */}
         <div style={{ marginBottom: '14px' }}>
           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700, marginBottom: '6px' }}>
-            طرق دفع فورية وآمنة عبر كاشير (Kashier):
+            طرق دفع فورية وآمنة عبر كاشير (Kashier) وانستاباي:
           </div>
           <div className="payment-badges-row">
             <span className="payment-badge-chip"><Phone size={12} /> فودافون كاش</span>
             <span className="payment-badge-chip"><Zap size={12} /> انستاباي InstaPay</span>
             <span className="payment-badge-chip"><CreditCard size={12} /> كروت ميزة الوطنية</span>
-            <span className="payment-badge-chip"><Phone size={12} /> أورنج كاش</span>
-            <span className="payment-badge-chip"><Phone size={12} /> اتصالات كاش</span>
-            <span className="payment-badge-chip"><Phone size={12} /> وي باي WE Pay</span>
+            <span className="payment-badge-chip"><Phone size={12} /> أورنج / اتصالات / وي كاش</span>
             <span className="payment-badge-chip"><CreditCard size={12} /> فيزا وماستركارد</span>
           </div>
         </div>
 
         {/* Guarantee Note */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '16px', background: 'rgba(16, 185, 129, 0.08)', padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: 'var(--text-muted)', background: 'rgba(16, 185, 129, 0.08)', padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
           <CheckCircle size={14} color="var(--success-color)" />
           <span>ضمان استرجاع كامل المبلغ خلال 3 أيام (72 ساعة) لتجربة آمنة 100%.</span>
         </div>
-
-        {/* Primary Action Button */}
-        <button
-          type="button"
-          onClick={() => {
-            if (onGoToSubscriptions) onGoToSubscriptions();
-          }}
-          className="btn-primary"
-          style={{
-            width: '100%',
-            padding: '12px 18px',
-            fontSize: '0.92rem',
-            fontWeight: 800,
-            borderRadius: '12px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            border: 'none',
-            cursor: 'pointer',
-            boxShadow: 'var(--shadow-glow-strong)'
-          }}
-        >
-          <CreditCard size={16} />
-          <span>ترقية الحساب والاستمرار في التفوق (ابتداءً من 60 ج.م فقط)</span>
-        </button>
       </div>
     );
   };
@@ -1111,17 +1416,17 @@ const ThoughtBlock = ({
     const [collapsed, setCollapsed] = React.useState(false);
 
     const renderSearchStepIcon = (icon: string) => {
-      if (!icon) return <Search size={14} style={{ color: 'var(--primary-color)' }} />;
-      if (icon.includes('🔍') || icon.includes('search')) return <Search size={14} style={{ color: 'var(--primary-color)' }} />;
-      if (icon.includes('🧠') || icon.includes('brain')) return <Brain size={14} style={{ color: 'var(--primary-color)' }} />;
-      if (icon.includes('🕸️') || icon.includes('graph') || icon.includes('network')) return <Network size={14} style={{ color: 'var(--accent-cyan, #00B4D8)' }} />;
-      if (icon.includes('⚡') || icon.includes('fusion')) return <Layers size={14} style={{ color: 'var(--accent-amber, #FFB703)' }} />;
-      if (icon.includes('🖼️') || icon.includes('image') || icon.includes('scan')) return <ImageIcon size={14} style={{ color: 'var(--primary-color)' }} />;
-      if (icon.includes('📖') || icon.includes('📚')) return <BookOpen size={14} style={{ color: 'var(--primary-color)' }} />;
-      if (icon.includes('✅') || icon.includes('✔️')) return <Check size={14} style={{ color: 'var(--success-color)' }} />;
-      if (icon.includes('❌')) return <X size={14} style={{ color: 'var(--danger-color)' }} />;
-      if (icon.includes('⏳') || icon.includes('⌛')) return <Loader2 size={14} className="animate-spin" style={{ color: 'var(--primary-color)' }} />;
-      return <Sparkles size={14} style={{ color: 'var(--primary-color)' }} />;
+      if (!icon) return <Search size={16} style={{ color: 'var(--primary-color)' }} />;
+      if (icon.includes('🔍') || icon.includes('search')) return <Search size={16} style={{ color: 'var(--primary-color)' }} />;
+      if (icon.includes('🧠') || icon.includes('brain')) return <Brain size={16} style={{ color: 'var(--primary-color)' }} />;
+      if (icon.includes('🕸️') || icon.includes('graph') || icon.includes('network')) return <Network size={16} style={{ color: 'var(--accent-cyan, #00B4D8)' }} />;
+      if (icon.includes('⚡') || icon.includes('fusion')) return <Layers size={16} style={{ color: 'var(--accent-amber, #FFB703)' }} />;
+      if (icon.includes('🖼️') || icon.includes('image') || icon.includes('scan')) return <ImageIcon size={16} style={{ color: 'var(--primary-color)' }} />;
+      if (icon.includes('📖') || icon.includes('📚')) return <BookOpen size={16} style={{ color: 'var(--primary-color)' }} />;
+      if (icon.includes('✅') || icon.includes('✔️')) return <Check size={16} style={{ color: 'var(--success-color)' }} />;
+      if (icon.includes('❌')) return <X size={16} style={{ color: 'var(--danger-color)' }} />;
+      if (icon.includes('⏳') || icon.includes('⌛')) return <Loader2 size={16} className="animate-spin" style={{ color: 'var(--primary-color)' }} />;
+      return <Sparkles size={16} style={{ color: 'var(--primary-color)' }} />;
     };
 
     const allSteps = steps || [];
@@ -1156,7 +1461,7 @@ const ThoughtBlock = ({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--primary-color)' }}>
-              {isSearching && allSteps.length === 0 ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+              {isSearching && allSteps.length === 0 ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
             </span>
             <span style={{ fontWeight: 700, color: 'var(--primary-color)', fontSize: '0.8rem' }}>
               {isSearching && allSteps.length === 0 ? 'جاري البحث في المنهج...' : 'خطوات البحث الذكي'}
@@ -1165,7 +1470,7 @@ const ThoughtBlock = ({
           {allSteps.length > 0 && (
             <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: 'var(--text-muted)', userSelect: 'none' }}>
               <span>{collapsed ? 'عرض' : 'إخفاء'}</span>
-              <ChevronRight size={13} style={{ transform: collapsed ? 'rotate(0deg)' : 'rotate(90deg)', transition: 'transform 0.2s ease' }} />
+              <ChevronRight size={15} style={{ transform: collapsed ? 'rotate(0deg)' : 'rotate(90deg)', transition: 'transform 0.2s ease' }} />
             </span>
           )}
         </div>
@@ -1365,16 +1670,17 @@ const ImageEditorModal = ({
   const toolButtonStyle = (active: boolean): React.CSSProperties => ({
     display: 'flex',
     alignItems: 'center',
-    gap: '5px',
-    padding: '6px 12px',
+    gap: '6px',
+    padding: '8px 14px',
     borderRadius: '10px',
     border: '1px solid var(--border-color)',
     background: active ? 'var(--primary-color)' : 'var(--alpha-white-4)',
     color: active ? 'var(--text-on-primary)' : 'var(--text-main)',
-    fontSize: '0.78rem',
+    fontSize: '0.82rem',
     fontWeight: 700,
     cursor: 'pointer',
     fontFamily: 'var(--font-arabic)',
+    minHeight: '38px'
   });
 
   return (
@@ -1389,15 +1695,15 @@ const ImageEditorModal = ({
 
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', padding: '10px 18px' }}>
           <button type="button" onClick={() => setTool('brush')} style={toolButtonStyle(tool === 'brush')}>
-            <Brush size={13} />
+            <Brush size={16} />
             <span>رسم</span>
           </button>
           <button type="button" onClick={() => setTool('crop')} style={toolButtonStyle(tool === 'crop')}>
-            <Crop size={13} />
+            <Crop size={16} />
             <span>قص</span>
           </button>
           <button type="button" onClick={handleUndo} style={toolButtonStyle(false)}>
-            <Undo2 size={13} />
+            <Undo2 size={16} />
             <span>تراجع</span>
           </button>
           {tool === 'brush' && (
@@ -1520,20 +1826,44 @@ const CurriculumLessonPicker: React.FC<CurriculumLessonPickerProps> = ({
   const totalLessonsCount = structure?.totalLessons || units.reduce((acc: number, u: any) => acc + (u.lessons?.length || 0), 0);
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
-  const filteredUnits = units.map((u: any) => {
-    const unitTitleMatches = (u.title || '').toLowerCase().includes(normalizedQuery);
-    const matchingLessons = (u.lessons || []).filter((l: any) =>
-      !normalizedQuery ||
-      unitTitleMatches ||
-      (l.title || '').toLowerCase().includes(normalizedQuery) ||
-      (l.subtopics || []).some((s: string) => s.toLowerCase().includes(normalizedQuery))
-    );
-    return {
-      ...u,
-      lessons: matchingLessons,
-      isMatch: !normalizedQuery || unitTitleMatches || matchingLessons.length > 0
-    };
-  }).filter((u: any) => u.isMatch);
+  const normalizedNorm = normalizeArabicText(searchQuery);
+
+  const filteredUnits = units
+    .map((u: any) => {
+      const unitRelevance = normalizedNorm ? calculateSearchRelevance(normalizedNorm, u.title || '') : 0;
+      const unitTitleMatches = unitRelevance > 40;
+
+      const matchingLessons = (u.lessons || [])
+        .map((l: any) => {
+          if (!normalizedNorm) return { ...l, matchScore: 0 };
+          const lessonRelevance = calculateSearchRelevance(normalizedNorm, l.title || '');
+          let subtopicRelevance = 0;
+          for (const s of (l.subtopics || [])) {
+            const sr = calculateSearchRelevance(normalizedNorm, s);
+            if (sr > subtopicRelevance) subtopicRelevance = sr;
+          }
+          const matchScore = Math.max(
+            lessonRelevance,
+            subtopicRelevance > 0 ? Math.round(subtopicRelevance * 0.7) : 0,
+            unitTitleMatches ? 25 : 0
+          );
+          return { ...l, matchScore };
+        })
+        .filter((l: any) => !normalizedNorm || l.matchScore > 0)
+        .sort((a: any, b: any) => (b.matchScore || 0) - (a.matchScore || 0));
+
+      const isMatch = !normalizedNorm || unitTitleMatches || matchingLessons.length > 0;
+      const unitScore = Math.max(unitRelevance, matchingLessons[0]?.matchScore || 0);
+
+      return {
+        ...u,
+        lessons: matchingLessons,
+        isMatch,
+        unitScore,
+      };
+    })
+    .filter((u: any) => u.isMatch)
+    .sort((a: any, b: any) => (b.unitScore || 0) - (a.unitScore || 0));
 
   const currentVisibleLessonsCount = filteredUnits.reduce((acc: number, u: any) => acc + (u.lessons?.length || 0), 0);
 
@@ -1974,7 +2304,8 @@ export default function App() {
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
 
   // Navigation & Views
-  const [activeTab, setActiveTab] = useState<'chat' | 'admin' | 'beta' | 'subscriptions' | 'profile' | 'exams' | 'flashcards' | 'leaderboard'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'tasks' | 'admin' | 'beta' | 'subscriptions' | 'profile' | 'exams' | 'flashcards' | 'leaderboard'>('chat');
+  const [tasksSubject, setTasksSubject] = useState<string>('');
 
   // Points / Coins & Model States
   const [coins, setCoins] = useState<number>(15.0);
@@ -1990,7 +2321,7 @@ export default function App() {
 
   const [selectedModel, setSelectedModel] = useState<'flash' | 'pro'>('flash');
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(false);
-  const [chatMode, setChatMode] = useState<'socratic' | 'detailed' | 'summary'>('detailed');
+  const [chatMode, setChatMode] = useState<'socratic' | 'detailed' | 'summary' | 'step_by_step'>('detailed');
 
   // Theme State
   const [theme, setTheme] = useState<'system' | 'light' | 'dark'>('system');
@@ -2890,6 +3221,28 @@ export default function App() {
   // Placeholder Curriculum Notice Modal State
   const [placeholderModalCurriculum, setPlaceholderModalCurriculum] = useState<Curriculum | null>(null);
 
+  // Curriculum Progress & Syllabus Roadmap State
+  const [curriculumProgress, setCurriculumProgress] = useState<any[]>([]);
+  const [activeSubjectUnits, setActiveSubjectUnits] = useState<CurriculumUnit[]>([]);
+  const [loadingSubjectUnits, setLoadingSubjectUnits] = useState(false);
+  const [showRoadmapModal, setShowRoadmapModal] = useState(false);
+  const [expandedRoadmapUnits, setExpandedRoadmapUnits] = useState<Record<string, boolean>>({});
+
+  // Daily Quests State
+  const [dailyQuestsData, setDailyQuestsData] = useState<any | null>(null);
+  const [loadingDailyQuests, setLoadingDailyQuests] = useState(false);
+  const [claimingQuestId, setClaimingQuestId] = useState<string | null>(null);
+
+  // Smart Study Notebook State
+  const [showNotebookModal, setShowNotebookModal] = useState(false);
+  const [notebookItems, setNotebookItems] = useState<any[]>([]);
+  const [loadingNotebook, setLoadingNotebook] = useState(false);
+  const [notebookFilterSubject, setNotebookFilterSubject] = useState<string>('all');
+  const [bookmarkedMsgIndexes, setBookmarkedMsgIndexes] = useState<Record<number, boolean>>({});
+
+  // Ministry Exam Booklet Simulator Mode
+  const [isBookletMode, setIsBookletMode] = useState(false);
+
   // Sessions State
   const [sessions, setSessions] = useState<any[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -3037,7 +3390,7 @@ export default function App() {
       if (deviceId) headers['x-device-id'] = deviceId;
 
       const currentGrade = user ? user.grade_level : chatGrade;
-      const examsRes = await fetch(`/api/exams?grade_level=${currentGrade}&subject_name=${chatSubject}`, { headers });
+      const examsRes = await fetch(`/api/exams?grade_level=${currentGrade}`, { headers });
       const examsData = await examsRes.json();
       if (!examsRes.ok) {
         checkAuthError(examsRes.status, examsData);
@@ -3070,9 +3423,9 @@ export default function App() {
     if (coins <= 0) {
       const isSubscribed = user && user.plan_type && user.plan_type !== 'free' && user.subscription_status === 'active';
       if (isSubscribed) {
-        alert('ليس لديك رصيد كافٍ من النقاط لإنشاء الامتحان. سيتجدد رصيدك تلقائياً غداً.');
+        setPaymentErrorToast('ليس لديك رصيد كافٍ من العملات لإنشاء الامتحان. سيتجدد رصيدك تلقائياً غداً.');
+        setTimeout(() => setPaymentErrorToast(null), 5000);
       } else {
-        alert('لقد استنفدت رصيدك التجريبي المجاني. يرجى الاشتراك في باقة Pro لإنشاء الامتحانات التفاعلية.');
         setShowUpgradeSheet(true);
       }
       return;
@@ -3123,7 +3476,7 @@ export default function App() {
           .then(d => {
             if (d.user) {
               setUser(d.user);
-              setCoins(d.user.coins ?? 50.0);
+              setCoins(d.user.coins ?? 5.0);
               setPoints(d.user.points ?? 0);
               localStorage.setItem('egs_user', JSON.stringify(d.user));
             }
@@ -3131,7 +3484,8 @@ export default function App() {
           .catch(() => {});
       }
     } catch (e: any) {
-      alert(e.message || 'فشل توليد الامتحان بالذكاء الاصطناعي');
+      setPaymentErrorToast(e.message || 'فشل توليد الامتحان بالذكاء الاصطناعي');
+      setTimeout(() => setPaymentErrorToast(null), 5000);
     } finally {
       setGeneratingExam(false);
     }
@@ -3139,16 +3493,6 @@ export default function App() {
 
   const handleSubmitExam = async () => {
     if (!selectedExam) return;
-    if (coins <= 0) {
-      const isSubscribed = user && user.plan_type && user.plan_type !== 'free' && user.subscription_status === 'active';
-      if (isSubscribed) {
-        alert('ليس لديك رصيد كافٍ من النقاط لتصحيح الامتحان. سيتجدد رصيدك تلقائياً غداً.');
-      } else {
-        alert('لقد استنفدت رصيدك التجريبي المجاني. يرجى الاشتراك في باقة Pro لتصحيح ومتابعة الامتحانات.');
-        setShowUpgradeSheet(true);
-      }
-      return;
-    }
     setGradingLoading(true);
     try {
       const storedToken = localStorage.getItem('egs_token') || token;
@@ -3334,6 +3678,12 @@ export default function App() {
       setTimeout(() => setPaymentErrorToast(null), 6000);
       window.history.replaceState({}, '', window.location.pathname);
     }
+
+    // Google Sitelinks SearchBox & External Search query handling (?q= or ?search=)
+    const incomingSearch = urlParams.get('q') || urlParams.get('search');
+    if (incomingSearch && incomingSearch.trim()) {
+      setInputMessage(incomingSearch.trim());
+    }
   }, []);
   
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -3385,7 +3735,7 @@ export default function App() {
   };
 
   const getSubjectIcon = (name: string, customSize?: number) => {
-    const iconSize = customSize || (isMobile ? 14 : 18);
+    const iconSize = customSize || (isMobile ? 16 : 18);
     if (!name) return <BookOpen size={iconSize} />;
     const n = name.toLowerCase();
     if (n.includes('فيزياء') || n.includes('physics')) return <Zap size={iconSize} />;
@@ -3486,187 +3836,1198 @@ export default function App() {
     );
   };
 
-  // Helper to render student study hub (Subject Grid + Study Modes)
-  const renderSuggestionChips = () => {
-    const targetGrade = user ? user.grade_level : chatGrade;
-    const activeSubjects = getActiveSubjectsForGrade(targetGrade);
+  // Load curriculum progress for current subject
+  const loadCurriculumProgress = async (subject: string, grade: string) => {
+    if (!subject || !grade) return;
+    try {
+      const struct = await fetchCurriculumStructure(grade, subject);
+      if (struct && struct.units) {
+        setActiveSubjectUnits(struct.units);
+      }
+      const storedToken = localStorage.getItem('egs_token') || token;
+      if (storedToken) {
+        const res = await fetch(`/api/user/curriculum-progress?subject_name=${encodeURIComponent(subject)}&grade_level=${encodeURIComponent(grade)}`, {
+          headers: { 'Authorization': `Bearer ${storedToken}` }
+        });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.progress)) {
+          setCurriculumProgress(data.progress);
+          try {
+            localStorage.setItem(`egs_progress_${grade}_${subject}`, JSON.stringify(data.progress));
+          } catch (_) {}
+          return;
+        }
+      }
+      const saved = localStorage.getItem(`egs_progress_${grade}_${subject}`);
+      if (saved) {
+        setCurriculumProgress(JSON.parse(saved));
+      } else {
+        setCurriculumProgress([]);
+      }
+    } catch (e) {
+      console.error('Error loading curriculum progress:', e);
+    }
+  };
+
+  const handleToggleLessonCompletion = async (unitId: string, lessonId: string, currentCompleted: boolean) => {
+    const currentGrade = user ? user.grade_level : chatGrade;
+    const newStatus = !currentCompleted;
+
+    setCurriculumProgress(prev => {
+      let updated;
+      if (newStatus) {
+        const exists = prev.some(p => p.lesson_id === lessonId);
+        if (exists) {
+          updated = prev.map(p => p.lesson_id === lessonId ? { ...p, status: 'completed' } : p);
+        } else {
+          updated = [...prev, { unit_id: unitId, lesson_id: lessonId, status: 'completed', subject_name: chatSubject, grade_level: currentGrade }];
+        }
+      } else {
+        updated = prev.filter(p => p.lesson_id !== lessonId);
+      }
+      try {
+        localStorage.setItem(`egs_progress_${currentGrade}_${chatSubject}`, JSON.stringify(updated));
+      } catch (_) {}
+      return updated;
+    });
+
+    const storedToken = localStorage.getItem('egs_token') || token;
+    if (storedToken) {
+      try {
+        await fetch('/api/user/curriculum-progress', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${storedToken}`
+          },
+          body: JSON.stringify({
+            grade_level: currentGrade,
+            subject_name: chatSubject,
+            unit_id: unitId,
+            lesson_id: lessonId,
+            completed: newStatus
+          })
+        });
+      } catch (e) {
+        console.error('Failed to sync lesson progress:', e);
+      }
+    }
+  };
+
+  const loadDailyQuests = async () => {
+    const storedToken = localStorage.getItem('egs_token') || token;
+    if (!storedToken) return;
+    setLoadingDailyQuests(true);
+    try {
+      const res = await fetch('/api/user/daily-quests', {
+        headers: { 'Authorization': `Bearer ${storedToken}` }
+      });
+      const data = await res.json();
+      if (data.success && data.quests) {
+        setDailyQuestsData(data);
+      }
+    } catch (e) {
+      console.error('Failed to load daily quests:', e);
+    } finally {
+      setLoadingDailyQuests(false);
+    }
+  };
+
+  const handleClaimQuest = async (questId: string) => {
+    const storedToken = localStorage.getItem('egs_token') || token;
+    if (!storedToken || claimingQuestId) return;
+    setClaimingQuestId(questId);
+    try {
+      const res = await fetch('/api/user/daily-quests', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${storedToken}`
+        },
+        body: JSON.stringify({ quest_id: questId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (data.pointsAwarded) {
+          triggerPointsAnim(data.pointsAwarded);
+          setPoints(data.totalPoints ?? (points + data.pointsAwarded));
+        }
+        await loadDailyQuests();
+      }
+    } catch (e) {
+      console.error('Failed to claim quest:', e);
+    } finally {
+      setClaimingQuestId(null);
+    }
+  };
+
+  const loadStudyNotebook = async (subject?: string) => {
+    const storedToken = localStorage.getItem('egs_token') || token;
+    if (!storedToken) return;
+    setLoadingNotebook(true);
+    try {
+      const url = subject && subject !== 'all'
+        ? `/api/user/study-notebook?subject_name=${encodeURIComponent(subject)}`
+        : '/api/user/study-notebook';
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${storedToken}` }
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.notes)) {
+        setNotebookItems(data.notes);
+      }
+    } catch (e) {
+      console.error('Failed to load notebook:', e);
+    } finally {
+      setLoadingNotebook(false);
+    }
+  };
+
+  const handleBookmarkMessage = async (msg: ChatMessage, index: number) => {
+    const storedToken = localStorage.getItem('egs_token') || token;
+    if (!storedToken) {
+      setAuthTab('login');
+      setShowAuthModal(true);
+      return;
+    }
+    const cleanTitle = (msg.message || '').replace(/\[[\s\S]*?\]/g, '').trim().substring(0, 45) || 'ملاحظة تعليمية';
+    const currentGrade = user ? user.grade_level : chatGrade;
+
+    setBookmarkedMsgIndexes(prev => ({ ...prev, [index]: true }));
+
+    try {
+      const res = await fetch('/api/user/study-notebook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${storedToken}`
+        },
+        body: JSON.stringify({
+          subject_name: chatSubject || 'ملاحظات عامة',
+          grade_level: currentGrade,
+          title: cleanTitle,
+          content: msg.message,
+          note_type: 'formula'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        await loadStudyNotebook(notebookFilterSubject);
+      }
+    } catch (e) {
+      console.error('Failed to bookmark message:', e);
+    }
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    const storedToken = localStorage.getItem('egs_token') || token;
+    if (!storedToken) return;
+    setNotebookItems(prev => prev.filter(n => n.id !== noteId));
+    try {
+      await fetch(`/api/user/study-notebook?id=${encodeURIComponent(noteId)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${storedToken}` }
+      });
+    } catch (e) {
+      console.error('Failed to delete note:', e);
+    }
+  };
+
+  const renderCurriculumProgressBanner = () => {
+    if (!chatSubject || activeSubjectUnits.length === 0) return null;
+    const allLessons = activeSubjectUnits.flatMap(u => u.lessons || []);
+    const totalLessonCount = allLessons.length;
+    if (totalLessonCount === 0) return null;
+    const completedLessonCount = allLessons.filter(l => curriculumProgress.some(p => p.lesson_id === l.id && p.status === 'completed')).length;
+    const percent = Math.round((completedLessonCount / totalLessonCount) * 100);
 
     return (
-      <div className="study-hub-container animate-fade-in">
-        {/* Active Subjects Quick Selector */}
-        {activeSubjects.length > 0 && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
-                المواد الدراسية المقررة
+      <div className="curriculum-progress-banner animate-fade-in" style={{ marginTop: '12px' }}>
+        <div className="curriculum-progress-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--primary-light)', color: 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <BarChart3 size={16} />
+            </div>
+            <div>
+              <span style={{ fontSize: '0.84rem', fontWeight: 800, color: 'var(--text-main)', display: 'block', lineHeight: 1.3 }}>
+                مستوى إنجازك في {chatSubject}
               </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {user?.grade_level === '2_high' && user?.track_id && BACCALAUREATE_TRACKS[user.track_id] && (
-                  <span style={{ fontSize: '0.72rem', color: 'var(--primary-color)', background: 'var(--primary-light)', padding: '2px 8px', borderRadius: '6px', fontWeight: 700 }}>
-                    {BACCALAUREATE_TRACKS[user.track_id].name}
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                أنجزت {completedLessonCount} من {totalLessonCount} درساً مقرراً
+              </span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '0.82rem', fontWeight: 900, color: 'var(--primary-color)', background: 'var(--primary-light)', padding: '3px 10px', borderRadius: 'var(--radius-full)', border: '1px solid var(--border-primary)' }}>
+              {percent}% مكتمل
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowRoadmapModal(true)}
+              style={{
+                background: 'var(--alpha-white-3)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '8px',
+                padding: '5px 12px',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: 'var(--text-main)',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'var(--transition-fast)'
+              }}
+            >
+              <BookOpen size={13} color="var(--primary-color)" />
+              <span>خريطة المنهج</span>
+            </button>
+          </div>
+        </div>
+        <div className="curriculum-progress-track">
+          <div className="curriculum-progress-fill" style={{ width: `${percent}%` }} />
+        </div>
+      </div>
+    );
+  };
+
+  const renderDailyQuestsWidget = () => {
+    if (!user || !dailyQuestsData || !dailyQuestsData.quests || dailyQuestsData.quests.length === 0) return null;
+
+    return (
+      <div className="daily-quests-container animate-fade-in" style={{ marginTop: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Target size={16} color="var(--primary-color)" />
+            <span style={{ fontSize: '0.84rem', fontWeight: 800, color: 'var(--text-main)' }}>مهام المذاكرة اليومية</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+            <Clock size={12} />
+            <span>تتجدد منتصف ليل القاهرة</span>
+          </div>
+        </div>
+
+        <div className="daily-quests-grid">
+          {dailyQuestsData.quests.map((quest: any) => {
+            const isDone = quest.completed;
+            const isClaimed = quest.claimed;
+            return (
+              <div key={quest.id} className={`daily-quest-item ${isDone ? 'completed' : ''} ${isClaimed ? 'claimed' : ''}`}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: isDone ? 'rgba(34, 197, 94, 0.15)' : 'var(--alpha-white-4)', color: isDone ? '#22c55e' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {quest.icon === 'Brain' ? <Brain size={15} /> : quest.icon === 'FileText' ? <FileText size={15} /> : <Sparkles size={15} />}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-main)', lineHeight: 1.3 }}>
+                        {quest.title}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {quest.current} / {quest.target} مكتمل
+                      </div>
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#FFB703', background: 'rgba(255, 183, 3, 0.1)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(255, 183, 3, 0.25)', whiteSpace: 'nowrap' }}>
+                    +{quest.rewardPoints} نقاط
                   </span>
+                </div>
+
+                <div style={{ width: '100%', height: '4px', background: 'var(--alpha-white-3)', borderRadius: '4px', overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.min(100, Math.round((quest.current / quest.target) * 100))}%`, height: '100%', background: isDone ? '#22c55e' : 'var(--primary-color)', borderRadius: '4px', transition: 'width 0.3s ease' }} />
+                </div>
+
+                {isDone && !isClaimed && (
+                  <button
+                    type="button"
+                    onClick={() => handleClaimQuest(quest.id)}
+                    disabled={claimingQuestId === quest.id}
+                    className="quest-claim-btn"
+                  >
+                    {claimingQuestId === quest.id ? <Loader2 size={12} className="animate-spin" /> : <Award size={12} />}
+                    <span>استلام +{quest.rewardPoints} نقاط</span>
+                  </button>
                 )}
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                  {user ? GRADE_NAMES[user.grade_level] : GRADE_NAMES[chatGrade]}
+                {isClaimed && (
+                  <div style={{ fontSize: '0.7rem', color: '#22c55e', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Check size={12} />
+                    <span>تم استلام المكافأة</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderRoadmapModal = () => {
+    if (!showRoadmapModal) return null;
+    const allLessons = activeSubjectUnits.flatMap(u => u.lessons || []);
+    const totalLessonCount = allLessons.length;
+    const completedLessonCount = allLessons.filter(l => curriculumProgress.some(p => p.lesson_id === l.id && p.status === 'completed')).length;
+    const percent = totalLessonCount > 0 ? Math.round((completedLessonCount / totalLessonCount) * 100) : 0;
+
+    return (
+      <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '12px' : '20px', direction: 'rtl' }}>
+        <div className="glass-strong animate-scale-in curriculum-roadmap-modal" style={{ background: 'var(--card-bg)', borderRadius: '24px', padding: isMobile ? '20px 16px' : '28px 24px', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontFamily: 'var(--font-arabic)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '14px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <BookOpen size={22} color="var(--primary-color)" />
+              <div>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-main)', margin: 0 }}>
+                  خريطة منهج {chatSubject}
+                </h3>
+                <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                  {user ? GRADE_NAMES[user.grade_level] : GRADE_NAMES[chatGrade]} • إجمالي {totalLessonCount} درساً
                 </span>
               </div>
             </div>
-            <div 
-              id="tour-subject-selector"
-              className="subject-cards-grid"
-              style={isMobile ? {
-                display: 'flex',
-                flexDirection: 'row',
-                flexWrap: 'nowrap',
-                overflowX: 'auto',
-                gap: '8px',
-                padding: '2px 2px 6px',
-                width: '100%'
-              } : {}}
+            <button
+              type="button"
+              onClick={() => setShowRoadmapModal(false)}
+              style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '6px', borderRadius: '8px' }}
             >
-              {activeSubjects.map((s) => {
-                const isSelected = chatSubject === s.subject_name;
-                const isPlaceholder = !!s.is_placeholder;
+              <X size={18} />
+            </button>
+          </div>
+
+          <div style={{ background: 'var(--alpha-white-2)', borderRadius: '12px', padding: '12px 14px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
+              <span style={{ fontWeight: 800 }}>مستوى إتقان المنهج</span>
+              <span style={{ fontWeight: 900, color: 'var(--primary-color)' }}>{completedLessonCount} من {totalLessonCount} درساً ({percent}%)</span>
+            </div>
+            <div className="curriculum-progress-track">
+              <div className="curriculum-progress-fill" style={{ width: `${percent}%` }} />
+            </div>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px' }} className="custom-scrollbar">
+            {activeSubjectUnits.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
+                لا توجد وحدات مفهرسة لهذا المنهج حالياً.
+              </div>
+            ) : (
+              activeSubjectUnits.map((unit, uIdx) => {
+                const isExpanded = expandedRoadmapUnits[unit.id] !== false;
+                const unitLessons = unit.lessons || [];
+                const unitCompleted = unitLessons.filter(l => curriculumProgress.some(p => p.lesson_id === l.id && p.status === 'completed')).length;
+
                 return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => {
-                      if (isPlaceholder) {
-                        setPlaceholderModalCurriculum(s);
-                      } else {
-                        setChatSubject(s.subject_name);
-                        if (textareaRef.current) textareaRef.current.focus();
-                      }
-                    }}
-                    className={`subject-card-item ${isSelected ? 'active' : ''}`}
-                    style={isMobile ? {
-                      position: 'relative',
-                      flex: '0 0 auto',
-                      display: 'inline-flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '6px 12px',
-                      borderRadius: '10px'
-                    } : { position: 'relative' }}
-                  >
-                    {isPlaceholder && (
-                      <span style={{
-                        position: 'absolute',
-                        top: '5px',
-                        left: '5px',
-                        fontSize: '0.62rem',
-                        fontWeight: 700,
-                        background: 'var(--primary-light)',
-                        color: 'var(--primary-color)',
-                        border: '1px solid var(--border-primary)',
-                        borderRadius: '4px',
-                        padding: '1px 5px',
-                        lineHeight: '1.2'
-                      }}>
-                        قريباً
-                      </span>
-                    )}
-                    <div className="subject-card-icon">
-                      {getSubjectIcon(s.subject_name)}
+                  <div key={unit.id || uIdx} className="roadmap-unit-card">
+                    <div
+                      className="roadmap-unit-header"
+                      onClick={() => setExpandedRoadmapUnits(prev => ({ ...prev, [unit.id]: !isExpanded }))}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--primary-color)', background: 'var(--primary-light)', padding: '2px 8px', borderRadius: '6px' }}>
+                          الوحدة {unit.unitNumber || uIdx + 1}
+                        </span>
+                        <span style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                          {unit.title}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                          {unitCompleted} / {unitLessons.length} مكتمل
+                        </span>
+                        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </div>
                     </div>
-                    <span className="subject-card-name">{s.subject_name}</span>
-                  </button>
+
+                    {isExpanded && (
+                      <div>
+                        {unitLessons.map((lesson) => {
+                          const isDone = curriculumProgress.some(p => p.lesson_id === lesson.id && p.status === 'completed');
+                          return (
+                            <div key={lesson.id} className="roadmap-lesson-row">
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleLessonCompletion(unit.id, lesson.id, isDone)}
+                                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: isDone ? '#22c55e' : 'var(--text-muted)' }}
+                                  title={isDone ? 'إلغاء وضع علامة مكتمل' : 'تحديد الدرس كمكتمل'}
+                                >
+                                  {isDone ? <CheckSquare size={18} /> : <Square size={18} />}
+                                </button>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <span style={{ fontWeight: isDone ? 700 : 600, color: isDone ? 'var(--text-secondary)' : 'var(--text-main)', textDecoration: isDone ? 'line-through' : 'none', display: 'block', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                    {lesson.title}
+                                  </span>
+                                  {lesson.subtopics && lesson.subtopics.length > 0 && (
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginTop: '2px' }}>
+                                      {lesson.subtopics.slice(0, 3).join(' • ')}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowRoadmapModal(false);
+                                    setChatMode('step_by_step');
+                                    setInputMessage(`اشرح لي بالتفصيل وبأمثلة واضحة ومسائل درس "${lesson.title}" في منهج ${chatSubject}.`);
+                                    if (textareaRef.current) textareaRef.current.focus();
+                                  }}
+                                  style={{
+                                    background: 'var(--primary-light)',
+                                    color: 'var(--primary-color)',
+                                    border: '1px solid var(--border-primary)',
+                                    borderRadius: '6px',
+                                    padding: '3px 8px',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  شرح الدرس
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowRoadmapModal(false);
+                                    setExamSubject(chatSubject);
+                                    setExamTopic(lesson.title);
+                                    setSelectedExamLesson(lesson);
+                                    setShowExamCreateModal(true);
+                                  }}
+                                  style={{
+                                    background: 'var(--alpha-white-4)',
+                                    color: 'var(--text-main)',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: '6px',
+                                    padding: '3px 8px',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  اختبار
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 );
-              })}
-            </div>
+              })
+            )}
           </div>
-        )}
+        </div>
+      </div>
+    );
+  };
 
-        {/* Feature Cards: "Quizs" and "Cards" as wide cards with outward-pointing arrow */}
-        <div>
-          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '10px', letterSpacing: '0.02em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Sparkles size={14} color="var(--primary-color)" />
-            <span>ماذا تريد أن تفعل الآن؟</span>
-          </div>
-          <div className="study-feature-cards-grid">
-            {/* Quiz Feature Card */}
-            <div
-              onClick={() => {
-                if (!user) {
-                  setAuthTab('register');
-                  setShowAuthModal(true);
-                  return;
-                }
-                const targetGrade = user ? user.grade_level : chatGrade;
-                const activeSubjs = getActiveSubjectsForGrade(targetGrade);
-                const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
-                if (currentSubj?.is_placeholder) {
-                  setPlaceholderModalCurriculum(currentSubj);
-                  return;
-                }
-                const subj = chatSubject || (activeSubjs[0]?.subject_name || '');
-                setExamSubject(subj);
-                setExamTopic('');
-                setSelectedExamLesson(null);
-                setLessonSearchQuery('');
-                setExamLessonTab('curriculum');
-                setShowExamCreateModal(true);
-                if (subj) fetchCurriculumStructure(targetGrade, subj);
-              }}
-              className="study-feature-card study-feature-card-quiz"
-              role="button"
-              tabIndex={0}
-            >
-              <div className="study-feature-card-body">
-                <div className="study-feature-card-icon quiz">
-                  <FileText size={isMobile ? 18 : 22} />
-                </div>
-                <div className="study-feature-card-content">
-                  <div className="study-feature-card-title">امتحان تقييمي ذكي</div>
-                  <div className="study-feature-card-desc">توليد اختبار منهجي مخصص بالذكاء الاصطناعي مع التصحيح والتقييم الفوري</div>
-                </div>
-              </div>
-              <div className="study-feature-card-cta">
-                <span>ابدأ الاختبار الآن</span>
-                <ArrowLeft size={15} className="feature-card-arrow" />
+  const renderNotebookModal = () => {
+    if (!showNotebookModal) return null;
+    const targetGrade = user ? user.grade_level : chatGrade;
+    const activeSubjs = getActiveSubjectsForGrade(targetGrade);
+    const filteredNotes = notebookFilterSubject === 'all'
+      ? notebookItems
+      : notebookItems.filter(n => n.subject_name === notebookFilterSubject);
+
+    return (
+      <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '12px' : '20px', direction: 'rtl' }}>
+        <div className="glass-strong animate-scale-in study-notebook-modal" style={{ background: 'var(--card-bg)', borderRadius: '24px', padding: isMobile ? '20px 16px' : '28px 24px', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontFamily: 'var(--font-arabic)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '14px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Bookmark size={22} color="#FFB703" />
+              <div>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-main)', margin: 0 }}>
+                  دفتري الذكي — بنك القوانين والملاحظات
+                </h3>
+                <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                  ملاحظاتك وقوانينك المحفوظة للمراجعة السريعة قبل الامتحانات ({filteredNotes.length} ملاحظة)
+                </span>
               </div>
             </div>
-
-            {/* Smart Coach Flashcards Feature Card */}
-            <div
-              onClick={() => {
-                if (!user) {
-                  setAuthTab('register');
-                  setShowAuthModal(true);
-                  return;
-                }
-                const targetGrade = user ? user.grade_level : chatGrade;
-                const activeSubjs = getActiveSubjectsForGrade(targetGrade);
-                const currentSubj = activeSubjs.find(s => s.subject_name === chatSubject);
-                if (currentSubj?.is_placeholder) {
-                  setPlaceholderModalCurriculum(currentSubj);
-                  return;
-                }
-                setActiveTab('flashcards');
-                if (chatSubject) fetchSubjectCards(chatSubject);
-              }}
-              className="study-feature-card study-feature-card-cards"
-              role="button"
-              tabIndex={0}
+            <button
+              type="button"
+              onClick={() => setShowNotebookModal(false)}
+              style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '6px', borderRadius: '8px' }}
             >
-              <div className="study-feature-card-body">
-                <div className="study-feature-card-icon cards">
-                  <Brain size={isMobile ? 18 : 22} />
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Subject Filter Pills */}
+          <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '10px', marginBottom: '12px' }} className="custom-scrollbar">
+            <button
+              type="button"
+              onClick={() => setNotebookFilterSubject('all')}
+              style={{
+                background: notebookFilterSubject === 'all' ? 'var(--primary-color)' : 'var(--alpha-white-3)',
+                color: notebookFilterSubject === 'all' ? 'var(--text-on-primary)' : 'var(--text-main)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '8px',
+                padding: '5px 12px',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              الكل ({notebookItems.length})
+            </button>
+            {activeSubjs.map(s => {
+              const count = notebookItems.filter(n => n.subject_name === s.subject_name).length;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setNotebookFilterSubject(s.subject_name)}
+                  style={{
+                    background: notebookFilterSubject === s.subject_name ? 'var(--primary-color)' : 'var(--alpha-white-3)',
+                    color: notebookFilterSubject === s.subject_name ? 'var(--text-on-primary)' : 'var(--text-main)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    padding: '5px 12px',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {s.subject_name} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px' }} className="custom-scrollbar">
+            {loadingNotebook ? (
+              <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                <Loader2 size={28} className="animate-spin" color="var(--primary-color)" />
+              </div>
+            ) : filteredNotes.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-muted)' }}>
+                <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(255, 183, 3, 0.12)', color: '#FFB703', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+                  <Bookmark size={24} />
                 </div>
-                <div className="study-feature-card-content">
-                  <div className="study-feature-card-title">المدرب الذكي والكروت</div>
-                  <div className="study-feature-card-desc">مراجعة وتثبيت المفاهيم والقوانين بنظام التكرار المتباعد الذكي</div>
+                <h4 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-main)', margin: '0 0 6px' }}>لا توجد ملاحظات محفوظة بعد</h4>
+                <p style={{ fontSize: '0.82rem', maxWidth: '380px', margin: '0 auto', lineHeight: '1.5' }}>
+                  اضغط على أيقونة الحفظ (Bookmark) أسفل أي شرح أو قانون يقدمه المعلم الذكي في الدردشة ليُحفظ هنا مباشرة.
+                </p>
+              </div>
+            ) : (
+              <div className="notebook-notes-grid">
+                {filteredNotes.map((note) => (
+                  <div key={note.id} className="notebook-item-card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--primary-color)', background: 'var(--primary-light)', padding: '2px 8px', borderRadius: '4px' }}>
+                        {note.subject_name}
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <button
+                          type="button"
+                          onClick={() => navigator.clipboard.writeText(note.content)}
+                          style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '3px' }}
+                          title="نسخ النص"
+                        >
+                          <Copy size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteNote(note.id)}
+                          style={{ background: 'transparent', border: 'none', color: 'var(--danger-color)', cursor: 'pointer', padding: '3px' }}
+                          title="حذف من الدفتر"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <h4 style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-main)', margin: '4px 0 0' }}>
+                      {note.title}
+                    </h4>
+
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', maxHeight: '180px', overflowY: 'auto', lineHeight: '1.5' }} className="custom-scrollbar">
+                      <MarkdownMessage content={note.content} />
+                    </div>
+
+                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 'auto', paddingTop: '6px' }}>
+                      {new Date(note.created_at).toLocaleDateString('ar-EG')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Helper to render subject selector pills bar
+  const renderSubjectSelectorBar = () => {
+    const targetGrade = user ? user.grade_level : chatGrade;
+    const activeSubjects = getActiveSubjectsForGrade(targetGrade);
+    if (activeSubjects.length === 0) return null;
+
+    return (
+      <div style={{ width: '100%', maxWidth: '820px' }}>
+        <div id="tour-subject-selector" className="subject-pills-bar custom-scrollbar" style={{ justifyContent: isMobile ? 'flex-start' : 'center' }}>
+          {activeSubjects.map((s) => {
+            const isSelected = chatSubject === s.subject_name;
+            const isPlaceholder = !!s.is_placeholder;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => {
+                  if (isPlaceholder) {
+                    setPlaceholderModalCurriculum(s);
+                  } else {
+                    setChatSubject(s.subject_name);
+                    if (textareaRef.current) textareaRef.current.focus();
+                  }
+                }}
+                className={`subject-pill-btn ${isSelected ? 'active' : ''}`}
+              >
+                {getSubjectIcon(s.subject_name)}
+                <span>{s.subject_name}</span>
+                {isPlaceholder && (
+                  <span style={{ fontSize: '0.62rem', fontWeight: 800, background: 'var(--primary-light)', color: 'var(--primary-color)', padding: '1px 5px', borderRadius: '4px' }}>
+                    قريباً
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  // Helper to render the dedicated Tasks and Study Progress Page
+  const renderTasksPage = () => {
+    const targetGrade = user ? user.grade_level : chatGrade;
+    const activeSubjs = getActiveSubjectsForGrade(targetGrade);
+    const effectiveSubj = tasksSubject || chatSubject || (activeSubjs[0]?.subject_name || '');
+    const currentSubjObj = activeSubjs.find(s => s.subject_name === effectiveSubj);
+
+    // Curriculum lessons count & progress for effectiveSubj
+    const subjUnits = curriculums.filter(c => c.grade_level === targetGrade && c.subject_name === effectiveSubj);
+    const currentSubjUnits = effectiveSubj === chatSubject && activeSubjectUnits.length > 0 
+      ? activeSubjectUnits 
+      : (subjUnits.flatMap(u => (u as any).units || []));
+    const allLessons = currentSubjUnits.flatMap((u: any) => u.lessons || []);
+    const totalLessonCount = allLessons.length;
+    const completedLessonCount = allLessons.filter((l: any) => curriculumProgress.some(p => p.lesson_id === l.id && p.status === 'completed')).length;
+    const percent = totalLessonCount > 0 ? Math.round((completedLessonCount / totalLessonCount) * 100) : 0;
+
+    // Daily Quests Stats
+    const quests = dailyQuestsData?.quests || [];
+    const completedQuestsCount = quests.filter((q: any) => q.completed).length;
+    const totalQuestsCount = quests.length;
+    const totalRewardPoints = quests.reduce((acc: number, q: any) => acc + (q.rewardPoints || 0), 0);
+    const earnedRewardPoints = quests.filter((q: any) => q.claimed).reduce((acc: number, q: any) => acc + (q.rewardPoints || 0), 0);
+
+    return (
+      <div className="mobile-main-with-nav" style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '16px 12px 90px' : '32px 24px', background: 'var(--bg-color)' }}>
+        <div className="tasks-page-container animate-fade-in">
+          
+          {/* Top Bar: Back to Chat & Midnight Reset Pill */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+            <button 
+              type="button"
+              onClick={() => setActiveTab('chat')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                background: 'var(--card-bg)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-main)',
+                padding: '8px 16px',
+                borderRadius: 'var(--radius-md)',
+                cursor: 'pointer',
+                fontWeight: 700,
+                fontSize: '0.86rem',
+                fontFamily: 'var(--font-arabic)',
+                boxShadow: 'var(--shadow-xs)',
+                transition: 'var(--transition)'
+              }}
+            >
+              <ArrowRight size={16} />
+              <span>العودة للدردشة</span>
+            </button>
+            <div className="tasks-reset-badge">
+              <Clock size={13} color="var(--primary-color)" />
+              <span>تتجدد المهام منتصف ليل القاهرة</span>
+            </div>
+          </div>
+
+          {/* Hero & Quick Summary Card */}
+          <div className="tasks-hero-card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '10px' : '16px' }}>
+              <div style={{
+                width: isMobile ? '44px' : '52px',
+                height: isMobile ? '44px' : '52px',
+                borderRadius: '16px',
+                background: 'var(--primary-light)',
+                color: 'var(--primary-color)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: 'var(--shadow-glow)',
+                border: '1px solid var(--border-primary)',
+                flexShrink: 0
+              }}>
+                <CheckCircle2 size={isMobile ? 22 : 26} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: isMobile ? '1.25rem' : '1.6rem', fontWeight: 900, color: 'var(--text-main)', margin: 0, lineHeight: 1.3 }}>
+                  مهام المذاكرة والمتابعة الأكاديمية
+                </h2>
+                <p style={{ fontSize: isMobile ? '0.78rem' : '0.88rem', color: 'var(--text-muted)', margin: '4px 0 0', lineHeight: 1.5 }}>
+                  {user ? `أهلاً يا ${user.name} — أنجز مهامك اليومية واكسب نقاط التميز وتتبع إتقانك للمنهج` : 'سجل حسابك مجاناً لمتابعة مهامك اليومية وحصد نقاط الترتيب'}
+                </p>
+              </div>
+            </div>
+
+            {/* Quick 3-Card Metric Summary */}
+            <div className="tasks-stats-grid">
+              <div className="tasks-stat-card">
+                <div className="tasks-stat-icon quests">
+                  <Target size={20} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>إنجاز مهام اليوم</div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 900, color: 'var(--text-main)', marginTop: '2px' }}>
+                    {totalQuestsCount > 0 ? `${completedQuestsCount} من ${totalQuestsCount}` : '—'}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--primary-color)', marginTop: '2px', fontWeight: 700 }}>
+                    {totalQuestsCount > 0 && completedQuestsCount === totalQuestsCount ? 'مكتملة بالكامل' : 'قيد الإنجاز'}
+                  </div>
                 </div>
               </div>
-              <div className="study-feature-card-cta">
-                <span>ابدأ المراجعة الآن</span>
-                <ArrowLeft size={15} className="feature-card-arrow" />
+
+              <div className="tasks-stat-card">
+                <div className="tasks-stat-icon points">
+                  <Trophy size={20} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>نقاط المهام اليومية</div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 900, color: '#FFB703', marginTop: '2px' }}>
+                    +{earnedRewardPoints} / {totalRewardPoints}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    تضاف فوراً لرصيدك
+                  </div>
+                </div>
+              </div>
+
+              <div className="tasks-stat-card">
+                <div className="tasks-stat-icon mastery">
+                  <BarChart3 size={20} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>إتقان منهج {effectiveSubj || 'المقرر'}</div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 900, color: '#9D4EDD', marginTop: '2px' }}>
+                    {totalLessonCount > 0 ? `${percent}%` : '—'}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    {totalLessonCount > 0 ? `${completedLessonCount} من ${totalLessonCount} درساً` : 'اختر مادة للمتابعة'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 1: Daily Quests Card */}
+          <div className="study-dashboard-card">
+            <div className="study-card-title-row">
+              <div className="study-card-title-group">
+                <div style={{ width: '34px', height: '34px', borderRadius: '10px', background: 'rgba(0, 180, 216, 0.15)', color: '#00B4D8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Target size={18} />
+                </div>
+                <div>
+                  <div className="study-card-title-text">مهام المذاكرة اليومية</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>أكمل المهام لكسب نقاط إضافية في لوحة المتصدرين</div>
+                </div>
+              </div>
+            </div>
+
+            {user ? (
+              loadingDailyQuests ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '30px' }}>
+                  <Loader2 size={24} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
+                </div>
+              ) : quests.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '0.86rem' }}>
+                  لا توجد مهام مسجلة لهذا اليوم.
+                </div>
+              ) : (
+                <div className="daily-quests-grid">
+                  {quests.map((quest: any) => {
+                    const isDone = quest.completed;
+                    const isClaimed = quest.claimed;
+                    return (
+                      <div key={quest.id} className={`daily-quest-item ${isDone ? 'completed' : ''} ${isClaimed ? 'claimed' : ''}`}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: isDone ? 'rgba(34, 197, 94, 0.15)' : 'var(--alpha-white-4)', color: isDone ? '#22c55e' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {quest.icon === 'Brain' ? <Brain size={16} /> : quest.icon === 'FileText' ? <FileText size={16} /> : <Sparkles size={16} />}
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '0.84rem', fontWeight: 800, color: 'var(--text-main)', lineHeight: 1.3 }}>
+                                {quest.title}
+                              </div>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                {quest.current} / {quest.target} مكتمل
+                              </div>
+                            </div>
+                          </div>
+                          <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#FFB703', background: 'rgba(255, 183, 3, 0.1)', padding: '3px 8px', borderRadius: '6px', border: '1px solid rgba(255, 183, 3, 0.25)', whiteSpace: 'nowrap' }}>
+                            +{quest.rewardPoints} نقاط
+                          </span>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div style={{ width: '100%', height: '5px', background: 'var(--alpha-white-3)', borderRadius: '4px', overflow: 'hidden', margin: '4px 0' }}>
+                          <div style={{ width: `${Math.min(100, Math.round((quest.current / quest.target) * 100))}%`, height: '100%', background: isDone ? '#22c55e' : 'var(--primary-color)', borderRadius: '4px', transition: 'width 0.3s ease' }} />
+                        </div>
+
+                        {/* Actions */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
+                          {isDone && !isClaimed && (
+                            <button
+                              type="button"
+                              onClick={() => handleClaimQuest(quest.id)}
+                              disabled={claimingQuestId === quest.id}
+                              className="quest-claim-btn"
+                              style={{ width: '100%' }}
+                            >
+                              {claimingQuestId === quest.id ? <Loader2 size={13} className="animate-spin" /> : <Award size={14} />}
+                              <span>استلام +{quest.rewardPoints} نقاط</span>
+                            </button>
+                          )}
+                          {isClaimed && (
+                            <div className="quest-claimed-pill" style={{ width: '100%', justifyContent: 'center' }}>
+                              <Check size={13} />
+                              <span>تم استلام المكافأة بنجاح</span>
+                            </div>
+                          )}
+                          {!isDone && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (quest.id?.includes('chat') || quest.title?.includes('سؤال')) {
+                                  setActiveTab('chat');
+                                } else if (quest.id?.includes('exam') || quest.title?.includes('امتحان')) {
+                                  setActiveTab('exams');
+                                } else if (quest.id?.includes('flashcard') || quest.title?.includes('كروت')) {
+                                  setActiveTab('flashcards');
+                                  if (effectiveSubj) fetchSubjectCards(effectiveSubj);
+                                } else {
+                                  setActiveTab('chat');
+                                }
+                              }}
+                              className="quest-action-btn"
+                              style={{ width: '100%' }}
+                            >
+                              <ArrowLeft size={13} />
+                              <span>ابدأ هذه المهمة الآن</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            ) : (
+              <div style={{ padding: '24px 16px', background: 'var(--alpha-white-2)', borderRadius: '14px', border: '1px dashed var(--border-color)', textAlign: 'center' }}>
+                <Sparkles size={24} color="var(--primary-color)" style={{ margin: '0 auto 8px' }} />
+                <div style={{ fontSize: '0.94rem', fontWeight: 800, color: 'var(--text-main)' }}>سجل حسابك لتفعيل مهام المذاكرة اليومية</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px', maxWidth: '440px', margin: '4px auto 14px' }}>
+                  اكسب نقاط ترتيب إضافية يومياً وتنافس مع زملائك على لوحة الشرف في المناهج المصرية.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthTab('register');
+                    setShowAuthModal(true);
+                  }}
+                  className="btn-primary"
+                  style={{ padding: '8px 20px', borderRadius: '10px', fontSize: '0.84rem', fontWeight: 800, margin: '0 auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Sparkles size={14} />
+                  <span>إنشاء حساب مجاني</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Section 2: Curriculum Syllabus Mastery & Roadmap */}
+          <div className="study-dashboard-card">
+            <div className="study-card-title-row">
+              <div className="study-card-title-group">
+                <div style={{ width: '34px', height: '34px', borderRadius: '10px', background: 'rgba(114, 9, 183, 0.15)', color: '#9D4EDD', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <BookOpen size={18} />
+                </div>
+                <div>
+                  <div className="study-card-title-text">مستوى إتقان المنهج والدروس</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>تتبع الدروس المنجزة في كل مادة دراسية</div>
+                </div>
+              </div>
+              {effectiveSubj && totalLessonCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (effectiveSubj !== chatSubject) {
+                      setChatSubject(effectiveSubj);
+                      fetchCurriculumStructure(targetGrade, effectiveSubj);
+                    }
+                    setShowRoadmapModal(true);
+                  }}
+                  style={{
+                    background: 'var(--primary-light)',
+                    border: '1px solid var(--border-primary)',
+                    borderRadius: '8px',
+                    padding: '6px 12px',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    color: 'var(--primary-color)',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'var(--transition-fast)'
+                  }}
+                >
+                  <BookOpen size={13} />
+                  <span>خريطة منهج {effectiveSubj}</span>
+                </button>
+              )}
+            </div>
+
+            {/* Subject Picker Pills inside Tasks */}
+            {activeSubjs.length > 0 && (
+              <div style={{ marginTop: '4px' }}>
+                <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  اختر المادة لعرض التقدم:
+                </div>
+                <div className="subject-pills-bar custom-scrollbar" style={{ paddingBottom: '4px' }}>
+                  {activeSubjs.map((s) => {
+                    const isSelected = effectiveSubj === s.subject_name;
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => {
+                          setTasksSubject(s.subject_name);
+                          loadCurriculumProgress(s.subject_name, targetGrade);
+                          if (chatSubject !== s.subject_name) {
+                            fetchCurriculumStructure(targetGrade, s.subject_name);
+                          }
+                        }}
+                        className={`subject-pill-btn ${isSelected ? 'active' : ''}`}
+                      >
+                        {getSubjectIcon(s.subject_name)}
+                        <span>{s.subject_name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Progress Track Card for Active Subject */}
+            <div style={{ background: 'var(--alpha-white-2)', borderRadius: '14px', border: '1px solid var(--border-color)', padding: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <BarChart3 size={18} color="var(--primary-color)" />
+                  <span style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                    إنجاز مقرر {effectiveSubj}
+                  </span>
+                </div>
+                <span style={{ fontSize: '0.82rem', fontWeight: 900, color: 'var(--primary-color)', background: 'var(--primary-light)', padding: '3px 10px', borderRadius: 'var(--radius-full)', border: '1px solid var(--border-primary)' }}>
+                  {percent}% مكتمل ({completedLessonCount} من {totalLessonCount} درساً)
+                </span>
+              </div>
+              <div className="curriculum-progress-track" style={{ height: '8px' }}>
+                <div className="curriculum-progress-fill" style={{ width: `${percent}%` }} />
+              </div>
+            </div>
+
+            {/* Upcoming / Next Lessons in Syllabus */}
+            {allLessons.length > 0 && (
+              <div style={{ marginTop: '6px' }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '8px' }}>
+                  الدروس المقررة في المنهج ({allLessons.length} درساً):
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '240px', overflowY: 'auto', paddingRight: '4px' }} className="custom-scrollbar">
+                  {allLessons.slice(0, 8).map((lesson: any, lIdx: number) => {
+                    const isLessonDone = curriculumProgress.some(p => p.lesson_id === lesson.id && p.status === 'completed');
+                    return (
+                      <div 
+                        key={lesson.id || lIdx}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '8px 12px',
+                          borderRadius: '10px',
+                          background: isLessonDone ? 'rgba(34, 197, 94, 0.08)' : 'var(--alpha-white-3)',
+                          border: isLessonDone ? '1px solid rgba(34, 197, 94, 0.25)' : '1px solid var(--border-color)',
+                          gap: '10px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+                          <div style={{ color: isLessonDone ? '#22c55e' : 'var(--text-muted)', flexShrink: 0 }}>
+                            {isLessonDone ? <CheckCircle2 size={16} /> : <div style={{ width: '14px', height: '14px', borderRadius: '50%', border: '1.5px solid var(--text-muted)' }} />}
+                          </div>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {lesson.title || `الدرس ${lIdx + 1}`}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChatSubject(effectiveSubj);
+                            setInputMessage(`اشرح لي بالتفصيل درس "${lesson.title}" مع أمثلة وتطبيقات من منهج ${effectiveSubj}.`);
+                            setActiveTab('chat');
+                          }}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--primary-color)',
+                            fontSize: '0.74rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            flexShrink: 0
+                          }}
+                        >
+                          <span>مذاكرة</span>
+                          <ArrowLeft size={12} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Section 3: Academic Accelerators */}
+          <div className="study-dashboard-card">
+            <div className="study-card-title-row">
+              <div className="study-card-title-group">
+                <div style={{ width: '34px', height: '34px', borderRadius: '10px', background: 'rgba(255, 183, 3, 0.15)', color: '#FFB703', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Sparkles size={18} />
+                </div>
+                <div>
+                  <div className="study-card-title-text">أدوات التفوق الأكاديمي السريعة</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>امتحانات وكروت ذكية للمساعدة في إنجاز المهام</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="tool-accelerator-list">
+              <div
+                onClick={() => {
+                  if (!user) {
+                    setAuthTab('register');
+                    setShowAuthModal(true);
+                    return;
+                  }
+                  if (currentSubjObj?.is_placeholder) {
+                    setPlaceholderModalCurriculum(currentSubjObj);
+                    return;
+                  }
+                  const subj = effectiveSubj || chatSubject || (activeSubjs[0]?.subject_name || '');
+                  setExamSubject(subj);
+                  setExamTopic('');
+                  setSelectedExamLesson(null);
+                  setLessonSearchQuery('');
+                  setExamLessonTab('curriculum');
+                  setShowExamCreateModal(true);
+                  if (subj) fetchCurriculumStructure(targetGrade, subj);
+                }}
+                className="tool-accelerator-item"
+                role="button"
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div className="tool-accelerator-icon-box exam">
+                    <FileText size={18} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.86rem', fontWeight: 800, color: 'var(--text-main)' }}>امتحان تقييمي ذكي</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>توليد اختبار منهجي مخصص مع التصحيح الفوري وإنجاز مهمة الامتحان</div>
+                  </div>
+                </div>
+                <ArrowLeft size={14} style={{ color: 'var(--text-muted)' }} />
+              </div>
+
+              <div
+                onClick={() => {
+                  if (!user) {
+                    setAuthTab('register');
+                    setShowAuthModal(true);
+                    return;
+                  }
+                  if (currentSubjObj?.is_placeholder) {
+                    setPlaceholderModalCurriculum(currentSubjObj);
+                    return;
+                  }
+                  setActiveTab('flashcards');
+                  if (effectiveSubj) fetchSubjectCards(effectiveSubj);
+                }}
+                className="tool-accelerator-item"
+                role="button"
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div className="tool-accelerator-icon-box coach">
+                    <Brain size={18} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.86rem', fontWeight: 800, color: 'var(--text-main)' }}>المدرب الذكي (الكروت)</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>مراجعة وتثبيت المفاهيم بالتكرار المتباعد وإنجاز مهمة الكروت</div>
+                  </div>
+                </div>
+                <ArrowLeft size={14} style={{ color: 'var(--text-muted)' }} />
+              </div>
+
+              <div
+                onClick={() => setShowNotebookModal(true)}
+                className="tool-accelerator-item"
+                role="button"
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div className="tool-accelerator-icon-box notebook">
+                    <Bookmark size={18} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.86rem', fontWeight: 800, color: 'var(--text-main)' }}>دفتري الذكي (القوانين)</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>استعراض كافة القوانين والملاحظات المحفوظة من الدروس</div>
+                  </div>
+                </div>
+                <ArrowLeft size={14} style={{ color: 'var(--text-muted)' }} />
               </div>
             </div>
           </div>
         </div>
+      </div>
+    );
+  };
+
+  // Helper for backward compatibility
+  const renderStudyDashboard = () => renderTasksPage();
+
+  // Helper for backward compatibility
+  const renderSuggestionChips = () => {
+    return (
+      <div className="study-hub-v2">
+        {renderSubjectSelectorBar()}
       </div>
     );
   };
@@ -3726,6 +5087,31 @@ export default function App() {
       setChatSubject('');
     }
   }, [user, chatGrade, curriculums, activeCurriculumIds, selectedTrack, selectedElective]);
+
+  useEffect(() => {
+    const targetGrade = user ? user.grade_level : chatGrade;
+    if (chatSubject && targetGrade) {
+      loadCurriculumProgress(chatSubject, targetGrade);
+    }
+  }, [chatSubject, user?.grade_level, chatGrade]);
+
+  useEffect(() => {
+    if (user) {
+      loadDailyQuests();
+      loadStudyNotebook();
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'tasks' && user) {
+      loadDailyQuests();
+      const targetGrade = user ? user.grade_level : chatGrade;
+      const subj = tasksSubject || chatSubject;
+      if (subj && targetGrade) {
+        loadCurriculumProgress(subj, targetGrade);
+      }
+    }
+  }, [activeTab, tasksSubject, user, chatSubject, chatGrade]);
 
   // Helper for dynamic subject-specific prompt sparks
   const getSubjectPromptSuggestions = (subject: string) => {
@@ -3840,14 +5226,15 @@ export default function App() {
       setShowModelSheet(false);
     };
 
-    const CHAT_MODES: { key: 'socratic' | 'detailed' | 'summary'; label: string; icon: React.ReactNode }[] = [
-      { key: 'socratic', label: 'سقراطي', icon: <MessageCircleQuestion size={13} /> },
-      { key: 'detailed', label: 'شرح مفصل', icon: <GraduationCap size={13} /> },
-      { key: 'summary', label: 'ملخص', icon: <ListChecks size={13} /> },
+    const CHAT_MODES: { key: 'socratic' | 'detailed' | 'summary' | 'step_by_step'; label: string; icon: React.ReactNode }[] = [
+      { key: 'detailed', label: 'شرح مفصل', icon: <GraduationCap size={15} /> },
+      { key: 'step_by_step', label: 'خطوة بخطوة', icon: <Sliders size={15} /> },
+      { key: 'socratic', label: 'سقراطي', icon: <MessageCircleQuestion size={15} /> },
+      { key: 'summary', label: 'ملخص', icon: <ListChecks size={15} /> },
     ];
-    const activeModeInfo = CHAT_MODES.find(m => m.key === chatMode) || CHAT_MODES[1];
+    const activeModeInfo = CHAT_MODES.find(m => m.key === chatMode) || CHAT_MODES[0];
 
-    const handleModeSelect = (mode: 'socratic' | 'detailed' | 'summary') => {
+    const handleModeSelect = (mode: 'socratic' | 'detailed' | 'summary' | 'step_by_step') => {
       setChatMode(mode);
       localStorage.setItem('egs_chat_mode', mode);
       setShowModeMenu(false);
@@ -3893,41 +5280,68 @@ export default function App() {
                 <div style={{ fontSize: isMobile ? '0.84rem' : '0.9rem', fontWeight: 800, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', lineHeight: '1.3' }}>
                   <span>أنت بطل المذاكرة اليوم!</span>
                   <span style={{ fontSize: '0.72rem', color: 'var(--primary-color)', fontWeight: 700, background: 'var(--primary-light)', padding: '1px 6px', borderRadius: '6px' }}>
-                    استنفدت رصيدك اليومي
+                    استنفدت رصيدك اليومي المجاني
                   </span>
                 </div>
                 <div style={{ fontSize: isMobile ? '0.74rem' : '0.78rem', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: '1.45' }}>
-                  اشترك الآن في باقة Pro لتفعيل رصيد يومي متجدد ومواصلة المذاكرة وحل الامتحانات.
+                  يتجدد رصيدك تلقائياً غداً (5 عملات)، أو اطلب من ولي أمرك تفعيل باقة Pro لمتابعة المذاكرة بلا حدود.
                 </div>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setShowUpgradeSheet(true);
-                setActiveTab('subscriptions');
-                if (isMobile) setSidebarOpen(false);
-              }}
-              className="btn-primary"
-              style={{
-                padding: isMobile ? '10px 14px' : '8px 16px',
-                borderRadius: '10px',
-                fontSize: isMobile ? '0.8rem' : '0.82rem',
-                fontWeight: 800,
-                width: isMobile ? '100%' : 'auto',
-                flexShrink: 0,
-                border: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                boxShadow: '0 2px 10px rgba(125, 161, 70, 0.3)'
-              }}
-            >
-              <CreditCard size={15} />
-              <span>اشتراك عبر كاشير (فودافون كاش / فيزا)</span>
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: isMobile ? 'wrap' : 'nowrap', width: isMobile ? '100%' : 'auto' }}>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(
+                  `السلام عليكم يا بابا/ماما، أنا بستخدم منصة EGS AI لمذاكرة المنهج والامتحانات، وباقة الشهر بـ 60 جنيه فقط بتفتح كل المواد وشرح المسائل بالخطوات. ممكن تشترك لي من الرابط ده: ${typeof window !== 'undefined' ? `${window.location.origin}/sponsor?student_id=${user?.id || ''}&plan=pro_1m` : ''}`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  padding: isMobile ? '9px 12px' : '8px 14px',
+                  borderRadius: '10px',
+                  fontSize: isMobile ? '0.78rem' : '0.82rem',
+                  fontWeight: 800,
+                  background: '#25D366',
+                  color: '#ffffff',
+                  textDecoration: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 10px rgba(37, 211, 102, 0.35)',
+                  flex: isMobile ? '1' : 'initial'
+                }}
+              >
+                <MessageCircle size={15} />
+                <span>أرسل لولي أمرك (واتساب)</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUpgradeSheet(true);
+                  setActiveTab('subscriptions');
+                  if (isMobile) setSidebarOpen(false);
+                }}
+                className="btn-primary"
+                style={{
+                  padding: isMobile ? '9px 12px' : '8px 14px',
+                  borderRadius: '10px',
+                  fontSize: isMobile ? '0.78rem' : '0.82rem',
+                  fontWeight: 800,
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  flex: isMobile ? '1' : 'initial',
+                  boxShadow: 'var(--shadow-glow)'
+                }}
+              >
+                <CreditCard size={15} />
+                <span>باقات الاشتراك</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -4007,9 +5421,9 @@ export default function App() {
                 className="composer-prompt-tag"
                 title={`إدراج "${sug.label}" في مربع الكتابة`}
               >
-                <Sparkles size={12} className="prompt-tag-prefix-icon" style={{ color: 'var(--primary-color)' }} />
+                <Sparkles size={13} className="prompt-tag-prefix-icon" style={{ color: 'var(--primary-color)' }} />
                 <span className="prompt-tag-text">{sug.label}</span>
-                <ArrowDown size={11} className="prompt-tag-arrow-icon" />
+                <ArrowDown size={12} className="prompt-tag-arrow-icon" />
               </button>
             ))}
           </div>
@@ -4032,8 +5446,8 @@ export default function App() {
                 imageInputRef.current?.click();
               }}
               style={{
-                width: '38px',
-                height: '38px',
+                width: isMobile ? '42px' : '38px',
+                height: isMobile ? '42px' : '38px',
                 borderRadius: '12px',
                 background: pendingImage ? 'var(--primary-light)' : 'var(--alpha-white-4)',
                 border: pendingImage ? '1.5px solid var(--primary-color)' : '1px solid var(--border-color)',
@@ -4048,7 +5462,7 @@ export default function App() {
               }}
               title="إرفاق صورة مسألة أو سؤال"
             >
-              <ImageIcon size={17} />
+              <ImageIcon size={isMobile ? 19 : 17} />
             </button>
             <input
               type="file"
@@ -4097,8 +5511,8 @@ export default function App() {
               disabled={isDisabled || (!hasMessage && !pendingImage)}
               className={`send-button ${(hasMessage || pendingImage) && !isDisabled ? 'active' : ''}`}
               style={{
-                width: '38px',
-                height: '38px',
+                width: isMobile ? '42px' : '38px',
+                height: isMobile ? '42px' : '38px',
                 borderRadius: '12px',
                 flexShrink: 0,
                 display: 'flex',
@@ -4107,7 +5521,7 @@ export default function App() {
               }}
               title="إرسال"
             >
-              <Send size={16} />
+              <Send size={isMobile ? 18 : 16} />
             </button>
           </div>
 
@@ -4145,9 +5559,9 @@ export default function App() {
               className={`composer-feature-pill ${thinkingEnabled ? 'active-glow' : ''}`}
               title="تفعيل ميزة التفكير العميق لتحليل أدق المسائل"
             >
-              <Brain size={13} />
+              <Brain size={15} />
               <span>{thinkingEnabled ? 'التفكير مفعل' : 'تفكير عميق'}</span>
-              {!user && !isTourOpen && <Lock size={10} style={{ opacity: 0.6 }} />}
+              {!user && !isTourOpen && <Lock size={12} style={{ opacity: 0.6 }} />}
             </button>
 
             {/* Feature 3: AI Model Selector */}
@@ -4158,7 +5572,7 @@ export default function App() {
               className={`composer-feature-pill ${selectedModel === 'pro' ? 'active-gold' : ''}`}
               title="تبديل نموذج الذكاء الاصطناعي"
             >
-              {selectedModel === 'pro' ? <Sparkles size={13} /> : <Zap size={13} />}
+              {selectedModel === 'pro' ? <Sparkles size={15} /> : <Zap size={15} />}
               <span>{selectedModel === 'pro' ? 'Pro فائق' : 'Fast سريع'}</span>
               <span style={{ fontSize: '0.62rem', opacity: 0.7 }}>▾</span>
             </button>
@@ -4171,13 +5585,13 @@ export default function App() {
                 className="composer-feature-pill"
                 title="تحديد المادة الدراسية"
               >
-                {getSubjectIcon(chatSubject)}
+                {getSubjectIcon(chatSubject, 15)}
                 <span>{chatSubject || 'المادة الدراسية'}</span>
                 <span style={{ fontSize: '0.62rem', opacity: 0.7 }}>▾</span>
               </button>
             ) : (
               <div className="composer-feature-pill" style={{ cursor: 'default', opacity: 0.9 }}>
-                {getSubjectIcon(chatSubject)}
+                {getSubjectIcon(chatSubject, 15)}
                 <span>{chatSubject}</span>
               </div>
             )}
@@ -4190,7 +5604,7 @@ export default function App() {
                 className="composer-feature-pill"
                 title="تحديد الصف الدراسي"
               >
-                <GraduationCap size={13} />
+                <GraduationCap size={15} />
                 <span>{GRADE_NAMES[chatGrade] || 'الصف'}</span>
                 <span style={{ fontSize: '0.62rem', opacity: 0.7 }}>▾</span>
               </button>
@@ -4228,6 +5642,13 @@ export default function App() {
                 desc: 'شرح أكاديمي منهجي متكامل مع تبسيط القوانين والأمثلة التوضيحية لضمان أعلى استيعاب وفهم.',
                 icon: <GraduationCap size={22} />,
                 badge: 'موصى به'
+              },
+              {
+                key: 'step_by_step',
+                label: 'حل المسائل خطوة بخطوة',
+                desc: 'تقسيم حل المسائل المعقدة إلى: معطيات ومطلوب، قوانين مستخدمة، تعويض حسابي، وناتج نهائي.',
+                icon: <Sliders size={22} />,
+                badge: 'مسائل وتمارين'
               },
               {
                 key: 'socratic',
@@ -4422,9 +5843,9 @@ export default function App() {
           {/* 3 Quick Plans */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
             {[
-              { id: 'pro_1m', title: 'باقة شهر (1 Month)', price: '60', period: 'شهرياً', points: '80 نقطة يومياً', featured: true },
-              { id: 'pro_2m', title: 'باقة شهرين (2 Months)', price: '100', period: 'شهرين', points: '90 نقطة يومياً', featured: false },
-              { id: 'pro_3m', title: 'باقة 3 أشهر (3 Months)', price: '140', period: '3 أشهر', points: '120 نقطة يومياً', featured: false },
+              { id: 'pro_1m', title: 'باقة شهر (1 Month)', price: '60', period: 'شهرياً', points: '80 نقطة يومياً', micro: 'أقل من 2 ج.م / اليوم', featured: true },
+              { id: 'pro_2m', title: 'باقة شهرين (2 Months)', price: '100', period: 'شهرين', points: '90 نقطة يومياً', micro: '1.6 ج.م / اليوم (وفر 20 ج.م)', featured: false },
+              { id: 'pro_3m', title: 'باقة 3 أشهر (3 Months)', price: '140', period: '3 أشهر', points: '120 نقطة يومياً', micro: '1.5 ج.م / اليوم (أعلى توفير)', featured: false },
             ].map((p) => (
               <div
                 key={p.id}
@@ -4448,9 +5869,14 @@ export default function App() {
                       </span>
                     )}
                   </div>
-                  <span style={{ fontSize: '0.76rem', color: 'var(--primary-color)', fontWeight: 700 }}>
-                    {p.points}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--primary-color)', fontWeight: 700 }}>
+                      {p.points}
+                    </span>
+                    <span style={{ fontSize: '0.68rem', color: '#FFB703', background: 'rgba(255, 183, 3, 0.12)', padding: '1px 5px', borderRadius: '4px', fontWeight: 800 }}>
+                      {p.micro}
+                    </span>
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -4474,6 +5900,44 @@ export default function App() {
               </div>
             ))}
           </div>
+
+          <div className="payment-methods-strip" style={{ justifyContent: 'center', marginBottom: '14px' }}>
+            <span className="payment-brand-pill featured">InstaPay</span>
+            <span className="payment-brand-pill featured">فودافون كاش</span>
+            <span className="payment-brand-pill">ميزة Meeza</span>
+            <span className="payment-brand-pill">فيزا / ماستركارد</span>
+          </div>
+
+          {/* Ask Parent on WhatsApp */}
+          {user && (
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent(
+                `السلام عليكم يا بابا/ماما، أنا بستخدم منصة EGS AI لمذاكرة المنهج والامتحانات، وباقة الشهر بـ 60 جنيه فقط بتفتح كل المواد وشرح المسائل بالخطوات. ممكن تشترك لي من الرابط ده: ${typeof window !== 'undefined' ? `${window.location.origin}/sponsor?student_id=${user?.id || ''}&plan=pro_1m` : ''}`
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                width: '100%',
+                padding: '11px 16px',
+                borderRadius: '12px',
+                fontSize: '0.88rem',
+                fontWeight: 800,
+                background: '#25D366',
+                color: '#ffffff',
+                textDecoration: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                marginBottom: '14px',
+                boxShadow: '0 3px 12px rgba(37, 211, 102, 0.3)',
+                boxSizing: 'border-box'
+              }}
+            >
+              <MessageCircle size={17} />
+              <span>أرسل لولي أمرك للاشتراك عبر واتساب (60 ج.م)</span>
+            </a>
+          )}
 
           {/* Payment Badges */}
           <div style={{ marginBottom: '14px' }}>
@@ -4679,7 +6143,7 @@ export default function App() {
     applyTheme(savedTheme);
 
     const savedChatMode = localStorage.getItem('egs_chat_mode');
-    if (savedChatMode === 'socratic' || savedChatMode === 'detailed' || savedChatMode === 'summary') {
+    if (savedChatMode === 'socratic' || savedChatMode === 'detailed' || savedChatMode === 'summary' || savedChatMode === 'step_by_step') {
       setChatMode(savedChatMode);
     }
 
@@ -5396,7 +6860,7 @@ export default function App() {
     setActiveSessionId(null);
     setSessions([]);
     setUserDevices([]);
-    setCoins(50.0);
+    setCoins(0.0);
     setActiveTab('chat');
     loadSystemConfig(deviceId, null);
     loadNotifications(null);
@@ -7136,53 +8600,106 @@ export default function App() {
             </button>
           )}
 
-          {/* Logo */}
+          {/* Brand Header */}
           <div style={{ textAlign: 'center', paddingTop: isMobile ? '8px' : '4px', marginBottom: '4px' }}>
-            <div className="brand-logo-frame" style={{ width: '56px', height: '56px', borderRadius: '16px', marginBottom: '10px' }}>
-              <img src="/logo.png" alt="EGS AI Logo" style={{ width: '90%', height: '90%', objectFit: 'contain' }} />
+            <div className="brand-logo-frame" style={{ width: '52px', height: '52px', borderRadius: '16px', marginBottom: '8px' }}>
+              <img src="/logo.png" alt="EGS AI Logo" style={{ width: '88%', height: '88%', objectFit: 'contain' }} />
             </div>
-            <h1 style={{ fontSize: '1.6rem', fontWeight: 900, letterSpacing: '-0.5px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+            <h1 style={{ fontSize: '1.45rem', fontWeight: 900, letterSpacing: '-0.5px', margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
               <span className="text-gradient">EGS AI</span>
             </h1>
-            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: '3px' }}>
-              مساعدك الذكي في المنهج الدراسي
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginTop: '2px' }}>
+              {user ? GRADE_NAMES[user.grade_level] : 'منصة المنهج المصري الذكية'}
             </p>
           </div>
 
-          <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '0 -4px' }} />
+          {/* Primary CTA: New Chat */}
+          <button
+            onClick={() => {
+              setActiveSessionId(null);
+              setMessages([]);
+              setActiveTab('chat');
+              if (isMobile) setSidebarOpen(false);
+            }}
+            className="btn-primary"
+            style={{
+              width: '100%',
+              padding: '10px 14px',
+              borderRadius: '12px',
+              fontSize: '0.86rem',
+              fontWeight: 800,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              border: 'none',
+              cursor: 'pointer',
+              boxShadow: 'var(--shadow-glow)'
+            }}
+          >
+            <Plus size={16} />
+            <span>محادثة دراسية جديدة</span>
+          </button>
 
-          {/* Navigation Group 1: Study & Chat */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            <div className="sidebar-section-title">المذاكرة والدردشة</div>
+          {/* Navigation Category 1: Study & AI Tools */}
+          <div className="sidebar-section-container">
+            <div className="sidebar-category-header">
+              <BookOpen size={12} color="var(--primary-color)" />
+              <span>المذاكرة والذكاء الاصطناعي</span>
+            </div>
             {[
-              { icon: <Plus size={16} />, label: 'دردشة جديدة', action: () => { setActiveSessionId(null); setMessages([]); setActiveTab('chat'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'chat' && !activeSessionId },
-              { icon: <Search size={16} />, label: 'البحث في الدردشات', action: () => { setActiveTab('chat'); setShowSearch(prev => !prev); if (isMobile) setSidebarOpen(false); }, isActive: showSearch },
-            ].map((item, idx) => (
-              <button
-                key={idx}
-                onClick={item.action}
-                className={`sidebar-nav-item ${item.isActive ? 'active' : ''}`}
-              >
-                {item.icon}
-                <span>{item.label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Navigation Group 2: Study Tools */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '4px' }}>
-            <div className="sidebar-section-title">الأدوات الدراسية والتقييم</div>
-            {[
-              { icon: <FileText size={16} />, label: 'الامتحانات والاختبارات', action: () => { setActiveTab('exams'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'exams' },
+              { icon: <MessageSquare size={16} />, label: 'الدردشة والمساعد الذكي', action: () => { setActiveTab('chat'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'chat' },
+              { 
+                icon: <CheckCircle2 size={16} />, 
+                label: 'المهام والإنجاز اليومي', 
+                action: () => { setActiveTab('tasks'); if (isMobile) setSidebarOpen(false); }, 
+                isActive: activeTab === 'tasks',
+                badge: dailyQuestsData?.quests?.some((q: any) => q.completed && !q.claimed) 
+                  ? 'مكافأة!' 
+                  : (dailyQuestsData?.quests?.filter((q: any) => !q.completed).length 
+                      ? `${dailyQuestsData.quests.filter((q: any) => !q.completed).length} متبقية` 
+                      : null)
+              },
+              { icon: <FileText size={16} />, label: 'بنك الامتحانات التقييمية', action: () => { setActiveTab('exams'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'exams' },
               ...(user ? [
                 { icon: <Brain size={16} />, label: 'المدرب الذكي (الكروت)', action: () => { setActiveTab('flashcards'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'flashcards' },
+              ] : []),
+              { icon: <Bookmark size={16} />, label: 'دفتري الذكي (القوانين)', action: () => { setShowNotebookModal(true); if (isMobile) setSidebarOpen(false); }, isActive: showNotebookModal },
+            ].map((item: any, idx) => (
+              <button
+                key={idx}
+                onClick={item.action}
+                className={`sidebar-nav-btn ${item.isActive ? 'active' : ''}`}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+                  {item.icon}
+                  <span>{item.label}</span>
+                </div>
+                {item.badge && (
+                  <span className={`sidebar-badge ${item.badge === 'مكافأة!' ? 'gold' : ''}`}>
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Navigation Category 2: Academic Progress & Competitions */}
+          <div className="sidebar-section-container">
+            <div className="sidebar-category-header">
+              <Trophy size={12} color="#FFB703" />
+              <span>المسار والتفوق الأكاديمي</span>
+            </div>
+            {[
+              ...(user ? [
                 { icon: <Trophy size={16} />, label: 'المسابقة ولوحة المتصدرين', action: () => { setActiveTab('leaderboard'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'leaderboard' },
               ] : []),
+              { icon: <BookOpen size={16} />, label: 'خريطة المنهج والدروس', action: () => { setShowRoadmapModal(true); if (isMobile) setSidebarOpen(false); }, isActive: showRoadmapModal },
             ].map((item, idx) => (
               <button
                 key={idx}
                 onClick={item.action}
-                className={`sidebar-nav-item ${item.isActive ? 'active' : ''}`}
+                className={`sidebar-nav-btn ${item.isActive ? 'active' : ''}`}
               >
                 {item.icon}
                 <span>{item.label}</span>
@@ -7190,9 +8707,12 @@ export default function App() {
             ))}
           </div>
 
-          {/* Navigation Group 3: Account & Services */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '4px' }}>
-            <div className="sidebar-section-title">الحساب والخدمات</div>
+          {/* Navigation Category 3: Account & Platform Services */}
+          <div className="sidebar-section-container">
+            <div className="sidebar-category-header">
+              <ShieldCheck size={12} color="var(--tech-cyan)" />
+              <span>الحساب والخدمات</span>
+            </div>
             {[
               ...(isUserSubscribed ? [
                 { icon: <ShieldCheck size={16} />, label: 'اشتراكي الحالي', action: () => { setActiveTab('subscriptions'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'subscriptions' || activeTab === 'beta' }
@@ -7202,7 +8722,7 @@ export default function App() {
               ...(user ? [
                 { icon: <User size={16} />, label: 'الملف الشخصي', action: () => { setActiveTab('profile'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'profile' }
               ] : []),
-              ...(user?.role === 'admin' ? [{ icon: <Settings size={16} />, label: 'لوحة التحكم', action: () => { setActiveTab('admin'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'admin' }] : []),
+              ...(user?.role === 'admin' ? [{ icon: <Settings size={16} />, label: 'لوحة التحكم الإدارية', action: () => { setActiveTab('admin'); if (isMobile) setSidebarOpen(false); }, isActive: activeTab === 'admin' }] : []),
               { icon: <Phone size={16} />, label: 'تواصل معنا', action: () => { window.location.href = '/contact'; }, isActive: false },
               { icon: <Download size={16} />, label: 'تحميل وتثبيت التطبيق', action: () => { window.location.href = '/download'; }, isActive: false },
               {
@@ -7218,7 +8738,7 @@ export default function App() {
               <button
                 key={idx}
                 onClick={item.action}
-                className={`sidebar-nav-item ${item.isActive ? 'active' : ''}`}
+                className={`sidebar-nav-btn ${item.isActive ? 'active' : ''}`}
               >
                 {item.icon}
                 <span>{item.label}</span>
@@ -7325,21 +8845,21 @@ export default function App() {
                   fontWeight: 800,
                   fontSize: '1rem',
                   flexShrink: 0,
-                  boxShadow: '0 4px 10px rgba(193,39,45,0.3)'
+                  boxShadow: '0 2px 10px var(--primary-glow)'
                 }}>
                   {user.name ? user.name[0].toUpperCase() : <User size={16} />}
                 </div>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
-                  <h4 style={{ fontSize: '0.88rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-main)' }}>{user.name}</h4>
-                  <div style={{ marginTop: '2px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <h4 style={{ fontSize: '0.88rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-main)', margin: 0 }}>{user.name}</h4>
+                  <div style={{ marginTop: '3px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                     <span className={`plan-badge plan-badge-${user.plan_type?.startsWith('pro') ? 'pro' : user.plan_type === 'max' ? 'max' : 'free'}`}>
                       {user.plan_type === 'pro_3m' || user.plan_type === 'max' ? 'باقة 3 أشهر' :
                        user.plan_type === 'pro_2m' ? 'باقة شهرين' :
                        user.plan_type === 'pro_1m' || user.plan_type === 'pro' ? 'باقة شهر' :
-                       'مجاني (15 نقطة)'}
+                       'باقة مجانية (5 عملات يومياً)'}
                     </span>
                     <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                      الرصيد: {coins.toFixed(2)} نقطة
+                      الرصيد: {coins.toFixed(2)} عملة ذكاء
                     </span>
                   </div>
                 </div>
@@ -7357,12 +8877,12 @@ export default function App() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '2px' }}>
-                رصيدك التجريبي: {coins.toFixed(2)} نقطة
+                رصيدك اليومي المجاني: {coins.toFixed(2)} عملة ذكاء
               </div>
               <button
                 onClick={() => { setAuthTab('login'); setShowAuthModal(true); }}
                 className="btn-primary"
-                style={{ width: '100%', padding: '11px 14px', fontSize: '0.88rem', borderRadius: 'var(--radius-sm)' }}
+                style={{ width: '100%', padding: '11px 14px', fontSize: '0.88rem', borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer' }}
               >
                 تسجيل الدخول / إنشاء حساب
               </button>
@@ -7407,131 +8927,155 @@ export default function App() {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-color)' }}>
             
             {/* Header */}
-            <header style={{
-              padding: isMobile ? '0 12px' : '16px 24px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              background: 'var(--header-bg, var(--card-bg))',
-              borderBottom: '1px solid var(--border-color)',
-              height: '64px',
-              zIndex: 5,
-              color: 'var(--text-main)',
-              direction: 'rtl'
-            }}>
-              {/* Brand Logo & Menu Toggle (RTL: right side on mobile, left on desktop) */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px', order: isMobile ? 1 : 2 }}>
+            <header 
+              className="header-responsive"
+              style={{
+                padding: isMobile ? '0 10px' : '12px 24px',
+                paddingTop: isMobile ? 'calc(env(safe-area-inset-top, 0px) + 2px)' : '0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: 'var(--header-bg, var(--card-bg))',
+                borderBottom: '1px solid var(--border-color)',
+                height: isMobile ? 'calc(58px + env(safe-area-inset-top, 0px))' : '64px',
+                zIndex: 5,
+                color: 'var(--text-main)',
+                direction: 'rtl'
+              }}
+            >
+              {/* Brand Context (RTL Right): Sidebar Toggle & Subject Capsule */}
+              <div className="header-brand-context" style={{ order: isMobile ? 1 : 2 }}>
                 <button
                   type="button"
                   onClick={() => { if (!isTourOpen) setSidebarOpen(!sidebarOpen); }}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '8px',
-                    borderRadius: 'var(--radius-sm)',
-                    transition: 'var(--transition)'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--alpha-white-5)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  className="header-icon-btn"
+                  style={{ borderRadius: 'var(--radius-sm)', width: isMobile ? '38px' : '34px', height: isMobile ? '38px' : '34px' }}
                   title={sidebarOpen ? "إغلاق القائمة الجانبية" : "فتح القائمة الجانبية"}
                 >
-                  {sidebarOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
+                  {sidebarOpen ? <PanelLeftClose size={isMobile ? 20 : 18} /> : <PanelLeftOpen size={isMobile ? 20 : 18} />}
                 </button>
 
-                {!isMobile && chatSubject && (
-                  <div className="header-subject-chip">
-                    {getSubjectIcon(chatSubject)}
-                    <span>{chatSubject}</span>
+                {chatSubject && (
+                  <div 
+                    onClick={() => { if (!isTourOpen) setShowSubjectSheet(true); }}
+                    className="header-subject-capsule"
+                    title="المادة المقررة الحالية — اضغط لتغيير المادة"
+                  >
+                    <span className="subject-tag">
+                      {getSubjectIcon(chatSubject, isMobile ? 16 : 18)}
+                      <span>{chatSubject}</span>
+                    </span>
+                    {!isMobile && (
+                      <>
+                        <span className="grade-divider" />
+                        <span className="grade-tag">{user ? GRADE_NAMES[user.grade_level] : GRADE_NAMES[chatGrade]}</span>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
 
-              {/* User actions (RTL: left side on mobile, right on desktop) */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px', order: isMobile ? 2 : 1 }}>
+              {/* Student Stats & Utilities (RTL Left) */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '10px', order: isMobile ? 2 : 1 }}>
                 {user && (
-                  <div 
-                    onClick={() => {
-                      setActiveTab('leaderboard');
-                      if (isMobile) setSidebarOpen(false);
-                    }}
-                    style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '4px', 
-                      background: 'var(--primary-light)', 
-                      padding: isMobile ? '4px 8px' : '4px 12px', 
-                      borderRadius: 'var(--radius-full)', 
-                      fontSize: isMobile ? '0.72rem' : '0.8rem', 
-                      fontWeight: 800, 
-                      color: 'var(--primary-color)', 
-                      border: '1px solid var(--border-primary)', 
-                      position: 'relative',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease'
-                    }}
-                    title="عرض ترتيبك في المسابقة ولوحة المتصدرين"
-                  >
-                    <Trophy size={13} />
-                    <span>{points} {isMobile ? 'نقاط' : 'نقاط الترتيب'}</span>
-                    {pointsBonusAnim && (
-                      <span className="points-plus-badge">+{pointsBonusAnim}</span>
+                  <div className="header-student-stats">
+                    {/* Tasks Pill (Desktop only — on mobile Tasks is permanently docked in bottom nav) */}
+                    {!isMobile && (
+                      <>
+                        <div 
+                          onClick={() => {
+                            setActiveTab('tasks');
+                            if (isMobile) setSidebarOpen(false);
+                          }}
+                          className="header-stat-pill tasks"
+                          title="مهام المذاكرة اليومية والمنهج — اضغط للانتقال"
+                        >
+                          <CheckCircle2 size={14} />
+                          <span>{dailyQuestsData?.quests ? `${dailyQuestsData.quests.filter((q: any) => q.completed).length}/${dailyQuestsData.quests.length}` : 'المهام'}</span>
+                          {dailyQuestsData?.quests?.some((q: any) => q.completed && !q.claimed) && (
+                            <span className="tasks-dot-glow" />
+                          )}
+                        </div>
+                        <span className="header-stat-divider" />
+                      </>
                     )}
-                  </div>
-                )}
-                {user && (
-                  <div 
-                    onClick={() => {
-                      if (isUserSubscribed) {
-                        setActiveTab('profile');
-                        if (isMobile) setSidebarOpen(false);
-                      } else {
-                        if (isMobile) {
-                          setShowUpgradeSheet(true);
+
+                    {/* Coins Pill */}
+                    <div 
+                      onClick={() => {
+                        if (isUserSubscribed) {
+                          setActiveTab('profile');
+                          if (isMobile) setSidebarOpen(false);
                         } else {
-                          setActiveTab('subscriptions');
+                          if (isMobile) {
+                            setShowUpgradeSheet(true);
+                          } else {
+                            setActiveTab('subscriptions');
+                          }
                         }
-                      }
-                    }}
-                    className={`header-coins-chip ${coins <= 5 && !isUserSubscribed ? 'low-coins' : ''}`}
-                    title={isUserSubscribed ? "رصيد النقاط اليومية المتاح — يتجدد تلقائياً كل 24 ساعة" : "رصيد العملات المتاح — اضغط للترقية وشحن الرصيد"}
-                  >
-                    <Coins size={13} />
-                    <span>{coins.toFixed(isMobile ? 1 : 2)} {isMobile ? 'عملة' : 'عملة'}</span>
-                    {coins <= 5 && !isUserSubscribed && <Plus size={11} />}
+                      }}
+                      className={`header-stat-pill coins ${coins <= 5 && !isUserSubscribed ? 'low' : ''}`}
+                      title={isUserSubscribed ? "رصيد عملات الذكاء الاصطناعي اليومية (تتجدد تلقائياً)" : "رصيد عملات الذكاء الاصطناعي — اضغط للترقية"}
+                    >
+                      <Coins size={14} />
+                      <span>{coins.toFixed(isMobile ? 1 : 2)}</span>
+                      {coins <= 5 && !isUserSubscribed && <Plus size={11} />}
+                    </div>
+
+                    <span className="header-stat-divider" />
+
+                    {/* Points Pill */}
+                    <div 
+                      onClick={() => {
+                        setActiveTab('leaderboard');
+                        if (isMobile) setSidebarOpen(false);
+                      }}
+                      className="header-stat-pill points"
+                      title="نقاط الترتيب والمسابقة — اضغط لعرض لوحة المتصدرين"
+                    >
+                      <Trophy size={14} />
+                      <span>{points}</span>
+                      {pointsBonusAnim && (
+                        <span className="points-plus-badge">+{pointsBonusAnim}</span>
+                      )}
+                    </div>
                   </div>
                 )}
+
+                {/* Notebook button */}
+                <button
+                  type="button"
+                  onClick={() => setShowNotebookModal(true)}
+                  className="header-icon-btn active-gold"
+                  style={{ width: isMobile ? '38px' : '34px', height: isMobile ? '38px' : '34px' }}
+                  title="دفتري الذكي (القوانين والملاحظات المحفوظة)"
+                >
+                  <Bookmark size={17} />
+                  {notebookItems.length > 0 && (
+                    <span style={{ position: 'absolute', top: '-3px', right: '-3px', background: '#FFB703', color: '#0D1B2A', fontSize: '0.6rem', fontWeight: 900, padding: '1px 4px', borderRadius: '10px' }}>
+                      {notebookItems.length}
+                    </span>
+                  )}
+                </button>
+
+                {/* Notifications */}
                 <div style={{ position: 'relative' }}>
                   <button
                     onClick={() => { if (!isTourOpen) setShowNotifCenter(prev => !prev); }}
-                    style={{
-                      background: 'var(--alpha-white-4)',
-                      color: 'var(--text-secondary)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '50%',
-                      width: isMobile ? '32px' : '34px',
-                      height: isMobile ? '32px' : '34px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                      position: 'relative'
-                    }}
+                    className="header-icon-btn"
+                    style={{ width: isMobile ? '38px' : '34px', height: isMobile ? '38px' : '34px' }}
+                    title="مركز الإشعارات والتنبيهات"
                   >
-                    <Bell size={15} />
+                    <Bell size={17} />
                     {activeNotifications.filter(n => !dismissedNotifIds.includes(n.id)).length > 0 && (
-                      <span style={{ position: 'absolute', top: '2px', left: '2px', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--danger-color)' }} />
+                      <span style={{ position: 'absolute', top: '3px', left: '3px', width: '7px', height: '7px', borderRadius: '50%', background: 'var(--danger-color)' }} />
                     )}
                   </button>
                   {showNotifCenter && !isTourOpen && (
                     <div 
                       style={isMobile ? {
                         position: 'fixed',
-                        top: '64px',
+                        top: 'calc(60px + env(safe-area-inset-top, 0px))',
                         left: '12px',
                         right: '12px',
                         maxHeight: '70vh',
@@ -7558,7 +9102,7 @@ export default function App() {
                       }} 
                       className="custom-scrollbar"
                     >
-                      <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-main)', padding: '6px 8px 10px', borderBottom: '1px solid var(--border-color)', marginBottom: '6px', textAlign: 'right' }}>الإشعارات</div>
+                      <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-main)', padding: '6px 8px 10px', borderBottom: '1px solid var(--border-color)', marginBottom: '6px', textAlign: 'right' }}>الإشعارات والتنبيهات</div>
                       {activeNotifications.filter(n => !dismissedNotifIds.includes(n.id)).length === 0 ? (
                         <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', padding: '20px 0' }}>لا توجد إشعارات جديدة</p>
                       ) : (
@@ -7567,7 +9111,7 @@ export default function App() {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
                               <span style={{ fontWeight: 700, fontSize: '0.82rem', color: 'var(--text-main)' }}>{n.title}</span>
                               <button onClick={() => handleDismissNotification(n.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', flexShrink: 0 }}>
-                                <X size={13} />
+                                <X size={15} />
                               </button>
                             </div>
                             <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'normal', wordBreak: 'break-word' }}>{n.body}</p>
@@ -7577,90 +9121,91 @@ export default function App() {
                     </div>
                   )}
                 </div>
-                {/* App Tour Quick Guide Button */}
-                <button
-                  onClick={() => startTour(getTourScreenForTab(activeTab))}
-                  style={{
-                    background: 'var(--alpha-white-4)',
-                    color: 'var(--primary-color)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '50%',
-                    width: isMobile ? '32px' : '34px',
-                    height: isMobile ? '32px' : '34px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    transition: 'var(--transition-fast)'
-                  }}
-                  title="جولة تعريفية في المنصة"
-                  aria-label="جولة سريعة في المنصة"
-                >
-                  <HelpCircle size={15} />
-                </button>
-                {/* Theme Switcher Button on Main Interface */}
+
+                {/* App Tour (Desktop only — on mobile available via sidebar) */}
+                {!isMobile && (
+                  <button
+                    onClick={() => startTour(getTourScreenForTab(activeTab))}
+                    className="header-icon-btn"
+                    title="جولة تعريفية في المنصة"
+                    aria-label="جولة سريعة في المنصة"
+                  >
+                    <HelpCircle size={16} />
+                  </button>
+                )}
+
+                {/* Theme Switcher */}
                 <button
                   onClick={toggleTheme}
-                  style={{
-                    background: 'var(--alpha-white-4)',
-                    color: 'var(--text-secondary)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '50%',
-                    width: isMobile ? '32px' : '34px',
-                    height: isMobile ? '32px' : '34px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    transition: 'var(--transition-fast)'
-                  }}
+                  className="header-icon-btn"
+                  style={{ width: isMobile ? '38px' : '34px', height: isMobile ? '38px' : '34px' }}
                   title={resolvedTheme === 'light' ? "تفعيل الوضع المظلم" : "تفعيل الوضع المضيء"}
                   aria-label="تبديل مظهر المنصة"
                 >
-                  {resolvedTheme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
+                  {resolvedTheme === 'light' ? <Moon size={17} /> : <Sun size={17} />}
                 </button>
+
+                {/* Subscriptions CTA for Desktop Unsubscribed */}
                 {!isMobile && !isUserSubscribed && (
                   <button
                     onClick={() => setActiveTab('subscriptions')}
                     className="header-sub-btn"
+                    style={{ padding: '5px 12px', fontSize: '0.8rem' }}
                   >
-                    <CreditCard size={13} />
+                    <CreditCard size={14} />
                     <span>الاشتراكات</span>
                   </button>
                 )}
-                {user ? (
-                  <div
-                    onClick={() => setActiveTab('profile')}
-                    style={{
-                      width: isMobile ? '30px' : '32px',
-                      height: isMobile ? '30px' : '32px',
-                      borderRadius: '50%',
-                      background: 'var(--primary-color)',
-                      color: 'var(--text-on-primary)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: 700,
-                      fontSize: isMobile ? '0.85rem' : '0.95rem',
-                      cursor: 'pointer',
-                      border: '1px solid var(--border-color)'
-                    }}
-                    title={user.name}
-                  >
-                    {user.name ? user.name[0].toUpperCase() : <User size={14} />}
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => {
-                      if (isTourOpen) return;
-                      setAuthTab('login');
-                      setShowAuthModal(true);
-                    }}
-                    className="header-login-btn"
-                  >
-                    <LogIn size={14} />
-                    <span>تسجيل الدخول</span>
-                  </button>
+
+                {/* Profile Avatar or Login CTA (Desktop only — on mobile Profile is tab #5 in bottom nav) */}
+                {!isMobile && (
+                  user ? (
+                    <div
+                      onClick={() => setActiveTab('profile')}
+                      style={{
+                        width: '34px',
+                        height: '34px',
+                        borderRadius: '50%',
+                        background: 'var(--primary-color)',
+                        color: 'var(--text-on-primary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 800,
+                        fontSize: '0.85rem',
+                        cursor: 'pointer',
+                        border: '1.5px solid var(--border-primary)',
+                        boxShadow: '0 2px 8px var(--primary-glow)',
+                        flexShrink: 0
+                      }}
+                      title={`الملف الشخصي (${user.name})`}
+                    >
+                      {user.name ? user.name[0].toUpperCase() : <User size={15} />}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (isTourOpen) return;
+                        setAuthTab('login');
+                        setShowAuthModal(true);
+                      }}
+                      className="btn-primary"
+                      style={{
+                        padding: '7px 16px',
+                        borderRadius: 'var(--radius-full)',
+                        fontSize: '0.84rem',
+                        fontWeight: 800,
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <LogIn size={15} />
+                      <span>دخول</span>
+                    </button>
+                  )
                 )}
               </div>
             </header>
@@ -7681,7 +9226,7 @@ export default function App() {
               className="custom-scrollbar"
             >
               {messages.length === 0 ? (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', width: '100%', padding: isMobile ? '12px 4px' : '24px 12px' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', width: '100%', padding: isMobile ? '12px 4px' : '20px 12px' }}>
                   <div id="tour-chat-hero" className="animate-scale-in" style={{
                     width: '100%',
                     maxWidth: '820px',
@@ -7689,27 +9234,27 @@ export default function App() {
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    gap: isMobile ? '8px' : '24px'
+                    gap: isMobile ? '10px' : '18px'
                   }}>
                     <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: isMobile ? '3px' : '6px' }}>
                       {/* Brand Icon */}
-                      <div style={{ position: 'relative', display: 'inline-block', marginBottom: isMobile ? '4px' : '8px' }}>
+                      <div style={{ position: 'relative', display: 'inline-block', marginBottom: '2px' }}>
                         <div 
                           className="brand-logo-frame"
                           style={{
-                            width: isMobile ? '54px' : '82px',
-                            height: isMobile ? '54px' : '82px',
-                            borderRadius: isMobile ? '16px' : '24px'
+                            width: isMobile ? '46px' : '58px',
+                            height: isMobile ? '46px' : '58px',
+                            borderRadius: isMobile ? '14px' : '18px'
                           }}
                         >
-                          <img src="/logo.png" alt="EGS AI Logo" style={{ width: '88%', height: '88%', objectFit: 'contain' }} />
+                          <img src="/logo.png" alt="EGS AI Logo" style={{ width: '86%', height: '86%', objectFit: 'contain' }} />
                         </div>
                       </div>
                       
-                      <h2 style={{ fontSize: isMobile ? '1.12rem' : '1.9rem', fontWeight: 900, color: 'var(--text-main)', letterSpacing: '-0.5px', lineHeight: 1.25, margin: 0 }}>
+                      <h2 style={{ fontSize: isMobile ? '1.15rem' : '1.75rem', fontWeight: 900, color: 'var(--text-main)', letterSpacing: '-0.5px', lineHeight: 1.25, margin: 0 }}>
                         {user ? `مرحباً بك يا ${user.name} في EGS AI` : 'مرحباً بك في EGS AI'}
                       </h2>
-                      <p style={{ color: 'var(--text-muted)', fontSize: isMobile ? '0.75rem' : '0.94rem', lineHeight: isMobile ? '1.3' : '1.5', maxWidth: '560px', margin: '0 auto' }}>
+                      <p style={{ color: 'var(--text-muted)', fontSize: isMobile ? '0.78rem' : '0.9rem', lineHeight: isMobile ? '1.35' : '1.5', maxWidth: '520px', margin: '0 auto' }}>
                         {user 
                           ? <>مساعدك الذكي المعتمد لمنهج <strong style={{ color: 'var(--primary-color)' }}>{chatSubject || 'المرحلة الدراسية'}</strong> — {GRADE_NAMES[user.grade_level]}.</>
                           : <>منصتك التعليمية الذكية لمدارس ومناهج جمهورية مصر العربية.</>
@@ -7727,7 +9272,7 @@ export default function App() {
                           fontSize: isMobile ? '0.7rem' : '0.76rem',
                           color: 'var(--primary-color)',
                           fontWeight: 700,
-                          marginTop: '4px'
+                          marginTop: '2px'
                         }}>
                           <Sparkles size={12} />
                           <span>رصيدك اليومي المجاني متاح للمذاكرة — اطرح أي سؤال أو حل مسألة</span>
@@ -7836,15 +9381,39 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Student Study Hub: Subjects Grid & Study Modes */}
-                    {renderSuggestionChips()}
+                    {/* Student Study Hub: Subjects Quick Selector Bar */}
+                    {renderSubjectSelectorBar()}
 
-                    {/* Centered Floating AI Composer */}
+                    {/* Centered Floating AI Composer (Direct Primary Action) */}
                     <div style={{ width: '100%' }}>
                       {renderInputForm(true)}
                     </div>
+
+                    {/* Quick Link to Dedicated Tasks Page */}
+                    {user && dailyQuestsData?.quests && (
+                      <div 
+                        onClick={() => setActiveTab('tasks')}
+                        className="chat-tasks-quick-pill animate-fade-in"
+                        role="button"
+                        title="انقر لفتح صفحة المهام والإنجاز اليومي"
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <CheckCircle2 size={16} color="var(--primary-color)" />
+                          <span style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                            مهام المذاكرة اليومية:
+                          </span>
+                          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                            {dailyQuestsData.quests.filter((q: any) => q.completed).length} من {dailyQuestsData.quests.length} مكتملة
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--primary-color)' }}>
+                          <span>عرض المهام</span>
+                          <ArrowLeft size={13} />
+                        </div>
+                      </div>
+                    )}
                     
-                    <p style={{ textAlign: 'center', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px', lineHeight: '1.5', opacity: 0.85 }}>
+                    <p style={{ textAlign: 'center', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.5', opacity: 0.85 }}>
                       EGS AI نظام ذكاء اصطناعي للمساعدة في المذاكرة — تحقق دائماً من الكتب المدرسية والمقررات الرسمية.
                     </p>
                   </div>
@@ -8042,8 +9611,33 @@ export default function App() {
                               onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
                               onMouseLeave={(e) => e.currentTarget.style.opacity = '0.85'}
                             >
-                              <Copy size={isMobile ? 15 : 10} />
+                              <Copy size={isMobile ? 16 : 13} />
                               <span>نسخ الإجابة</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleBookmarkMessage(msg, index)}
+                              style={{
+                                background: isMobile ? 'var(--alpha-white-4)' : 'transparent',
+                                border: isMobile ? '1px solid var(--border-color)' : 'none',
+                                borderRadius: isMobile ? 'var(--radius-full)' : '0',
+                                color: bookmarkedMsgIndexes[index] ? '#FFB703' : 'var(--text-muted)',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                fontSize: isMobile ? '0.78rem' : '0.7rem',
+                                padding: isMobile ? '7px 12px' : '0',
+                                minHeight: isMobile ? '36px' : 'auto',
+                                opacity: bookmarkedMsgIndexes[index] ? 1 : 0.85,
+                                transition: 'var(--transition)'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+                              onMouseLeave={(e) => e.currentTarget.style.opacity = bookmarkedMsgIndexes[index] ? '1' : '0.85'}
+                              title="حفظ في دفتري الذكي وبنك القوانين"
+                            >
+                              {bookmarkedMsgIndexes[index] ? <BookmarkCheck size={isMobile ? 16 : 14} color="#FFB703" /> : <Bookmark size={isMobile ? 16 : 14} />}
+                              <span>{bookmarkedMsgIndexes[index] ? 'محفوظ في دفتري' : 'حفظ في دفتري'}</span>
                             </button>
                             <button
                               type="button"
@@ -8069,7 +9663,7 @@ export default function App() {
                               onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--danger-color)'; }}
                               onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.85'; e.currentTarget.style.color = 'var(--text-muted)'; }}
                             >
-                              <AlertCircle size={isMobile ? 15 : 10} />
+                              <AlertCircle size={isMobile ? 16 : 13} />
                               <span>الإبلاغ عن الرد</span>
                             </button>
                             {!isMobile && (
@@ -8103,17 +9697,33 @@ export default function App() {
               )}
             </div>
 
+            {/* Floating Scroll to Bottom Button */}
+            {showScrollBottom && messages.length > 0 && (
+              <button
+                type="button"
+                onClick={scrollToBottom}
+                className={`scroll-bottom-fab ${chatLoading ? 'pulse-glow' : ''}`}
+                title="الانتقال إلى أحدث رسالة"
+                aria-label="الانتقال لأسفل المحادثة"
+              >
+                <ChevronDown size={20} />
+              </button>
+            )}
+
             {/* Input Bar */}
             {messages.length > 0 && (
               <div style={{ padding: isMobile ? '10px 14px calc(10px + 64px + env(safe-area-inset-bottom, 0px))' : '20px 24px', borderTop: '1px solid var(--border-color)', background: 'var(--sidebar-bg)' }}>
                 {renderInputForm(false)}
-                <p style={{ textAlign: 'center', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '8px', lineHeight: '1.6' }}>
-                  EGS AI ذكاء اصطناعي وقد يرتكب أخطاءً — تحقق دائماً من المناهج والكتب المدرسية الرسمية. الإجابات مُولَّدة تلقائياً ولسنا مسؤولين عنها بشكل كامل.
+                <p style={{ textAlign: 'center', fontSize: isMobile ? '0.68rem' : '0.72rem', color: 'var(--text-muted)', marginTop: isMobile ? '4px' : '8px', lineHeight: '1.5' }}>
+                  {isMobile ? 'EGS AI قد يخطئ — تحقق دائماً من المناهج والكتب المدرسية الرسمية' : 'EGS AI ذكاء اصطناعي وقد يرتكب أخطاءً — تحقق دائماً من المناهج والكتب المدرسية الرسمية. الإجابات مُولَّدة تلقائياً ولسنا مسؤولين عنها بشكل كامل.'}
                 </p>
               </div>
             )}
           </div>
         )}
+
+        {/* VIEW: Dedicated Tasks and Study Progress Page */}
+        {activeTab === 'tasks' && renderTasksPage()}
 
         {/* VIEW 2: Subscriptions Page */}
         {(activeTab === 'subscriptions' || activeTab === 'beta') && (
@@ -8416,9 +10026,13 @@ export default function App() {
                         الباقة الأكثر طلباً
                       </div>
                       <h3 style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--primary-color)', marginBottom: '6px' }}>باقة شهر (1 Month)</h3>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', margin: '12px 0 16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', margin: '12px 0 8px' }}>
                         <span style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--text-main)' }}>60</span>
                         <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-muted)' }}>ج.م / شهرياً</span>
+                      </div>
+                      <div className="pricing-micro-badge" style={{ marginBottom: '12px', width: 'fit-content' }}>
+                        <Zap size={12} />
+                        <span>أقل من 2 جنيه / اليوم (أوفر من حصة درس واحدة)</span>
                       </div>
                       <div style={{ background: 'var(--primary-light)', color: 'var(--primary-color)', padding: '6px 12px', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem', fontWeight: 800, marginBottom: '14px', textAlign: 'center' }}>
                         80 نقطة يومياً تتجدد كل 24 ساعة
@@ -8464,6 +10078,12 @@ export default function App() {
                           </>
                         )}
                       </button>
+                      <div className="payment-methods-strip">
+                        <span className="payment-brand-pill featured">InstaPay</span>
+                        <span className="payment-brand-pill featured">فودافون كاش</span>
+                        <span className="payment-brand-pill">ميزة</span>
+                        <span className="payment-brand-pill">فيزا/ماستر</span>
+                      </div>
                     </div>
 
                     {/* Plan 2: 2 Months (100 EGP) */}
@@ -8472,9 +10092,13 @@ export default function App() {
                         الباقة الأكثر شعبية
                       </div>
                       <h3 style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-main)', marginBottom: '6px' }}>باقة شهرين (2 Months)</h3>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', margin: '12px 0 16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', margin: '12px 0 8px' }}>
                         <span style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--text-main)' }}>100</span>
                         <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-muted)' }}>ج.م / شهرين</span>
+                      </div>
+                      <div className="pricing-micro-badge" style={{ marginBottom: '12px', width: 'fit-content' }}>
+                        <Zap size={12} />
+                        <span>فقط 1.6 جنيه / اليوم (وفر 20 ج.م)</span>
                       </div>
                       <div style={{ background: 'var(--primary-light)', color: 'var(--primary-color)', padding: '6px 12px', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem', fontWeight: 800, marginBottom: '14px', textAlign: 'center' }}>
                         90 نقطة يومياً تتجدد كل 24 ساعة
@@ -8519,6 +10143,12 @@ export default function App() {
                           </>
                         )}
                       </button>
+                      <div className="payment-methods-strip">
+                        <span className="payment-brand-pill featured">InstaPay</span>
+                        <span className="payment-brand-pill featured">فودافون كاش</span>
+                        <span className="payment-brand-pill">ميزة</span>
+                        <span className="payment-brand-pill">فيزا/ماستر</span>
+                      </div>
                     </div>
 
                     {/* Plan 3: 3 Months (140 EGP) */}
@@ -8527,9 +10157,13 @@ export default function App() {
                         أفضل قيمة وأعلى توفير
                       </div>
                       <h3 style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-main)', marginBottom: '6px' }}>باقة 3 أشهر (3 Months)</h3>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', margin: '12px 0 16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', margin: '12px 0 8px' }}>
                         <span style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--text-main)' }}>140</span>
                         <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-muted)' }}>ج.م / 3 أشهر</span>
+                      </div>
+                      <div className="pricing-micro-badge" style={{ marginBottom: '12px', width: 'fit-content' }}>
+                        <Zap size={12} />
+                        <span>فقط 1.5 جنيه / اليوم (أعلى توفير للترم بالكامل)</span>
                       </div>
                       <div style={{ background: 'var(--primary-light)', color: 'var(--primary-color)', padding: '6px 12px', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem', fontWeight: 800, marginBottom: '14px', textAlign: 'center' }}>
                         120 نقطة يومياً تتجدد كل 24 ساعة
@@ -8574,8 +10208,78 @@ export default function App() {
                           </>
                         )}
                       </button>
+                      <div className="payment-methods-strip">
+                        <span className="payment-brand-pill featured">InstaPay</span>
+                        <span className="payment-brand-pill featured">فودافون كاش</span>
+                        <span className="payment-brand-pill">ميزة</span>
+                        <span className="payment-brand-pill">فيزا/ماستر</span>
+                      </div>
                     </div>
 
+                  </div>
+
+                  {/* Pro Superpowers Comparison Table */}
+                  <div className="glass" style={{ padding: isMobile ? '20px 16px' : '28px 24px', borderRadius: 'var(--radius-lg)', background: 'var(--card-bg)', border: '1px solid var(--border-color)', color: 'var(--text-main)', direction: 'rtl' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                      <Crown size={22} color="#FFB703" />
+                      <div>
+                        <h4 style={{ fontSize: '1.1rem', fontWeight: 900, margin: 0, color: 'var(--text-main)' }}>
+                          مقارنة القدرات الفائقة: الحساب التجريبي مقابل باقات Pro
+                        </h4>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                          كل ما تحتاجه للحصول على الدرجات النهائية وتوفير آلاف الجنيهات في الدروس الخصوصية
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ overflowX: 'auto' }} className="custom-scrollbar">
+                      <table className="pro-superpowers-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: '40%' }}>الميزة التعليمية</th>
+                            <th style={{ width: '30%', color: 'var(--text-muted)' }}>الحساب المجاني</th>
+                            <th style={{ width: '30%', color: 'var(--primary-color)' }}>باقات Pro الأكاديمية</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td style={{ fontWeight: 700 }}>رصيد العملات اليومي المتجدد</td>
+                            <td style={{ color: 'var(--text-muted)' }}>رصيد تجريبي لمرة واحدة</td>
+                            <td style={{ color: '#22c55e', fontWeight: 800 }}>80 إلى 120 نقطة يومياً تتجدد تلقائياً</td>
+                          </tr>
+                          <tr>
+                            <td style={{ fontWeight: 700 }}>نموذج التفكير المعمق للمسائل (Deep Thinking)</td>
+                            <td style={{ color: 'var(--text-muted)' }}>غير متوفر</td>
+                            <td style={{ color: '#22c55e', fontWeight: 800 }}>متاح بالكامل مع خطوات الحل التفصيلية</td>
+                          </tr>
+                          <tr>
+                            <td style={{ fontWeight: 700 }}>حل وتصوير أسئلة الكتب الخارجية والكاميرا</td>
+                            <td style={{ color: 'var(--text-muted)' }}>محدود جداً</td>
+                            <td style={{ color: '#22c55e', fontWeight: 800 }}>غير محدود (المعاصر، الامتحان، الأضواء)</td>
+                          </tr>
+                          <tr>
+                            <td style={{ fontWeight: 700 }}>محاكي بوكليت الوزارة والتشخيص الأكاديمي</td>
+                            <td style={{ color: 'var(--text-muted)' }}>تصحيح أولي فقط</td>
+                            <td style={{ color: '#22c55e', fontWeight: 800 }}>توليد بوكليت كامل + تشخيص مفاهيمي فوري</td>
+                          </tr>
+                          <tr>
+                            <td style={{ fontWeight: 700 }}>دفتري الذكي وبنك القوانين السحابي</td>
+                            <td style={{ color: 'var(--text-muted)' }}>محدود محلياً</td>
+                            <td style={{ color: '#22c55e', fontWeight: 800 }}>سحابي دائم للمراجعة ليلة الامتحان</td>
+                          </tr>
+                          <tr>
+                            <td style={{ fontWeight: 700 }}>توقعات ليلة الامتحان ومراجعة الجمهورية</td>
+                            <td style={{ color: 'var(--text-muted)' }}>غير متوفر</td>
+                            <td style={{ color: '#22c55e', fontWeight: 800 }}>أولوية قصوى ونماذج امتحانات متوقعة</td>
+                          </tr>
+                          <tr>
+                            <td style={{ fontWeight: 700 }}>دعم فني وأكاديمي مباشر عبر الواتساب</td>
+                            <td style={{ color: 'var(--text-muted)' }}>دعم تلقائي</td>
+                            <td style={{ color: '#22c55e', fontWeight: 800 }}>دعم مباشر سريع للطلاب وأولياء الأمور</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
 
                   {/* Payment Gateway Information (Kashier) */}
@@ -11222,7 +12926,7 @@ export default function App() {
                       cursor: 'pointer',
                       color: 'var(--text-on-primary)',
                       background: 'var(--primary-color)',
-                      boxShadow: '0 4px 14px rgba(193,39,45,0.3)',
+                      boxShadow: 'var(--shadow-glow)',
                       transition: 'var(--transition)'
                     }}
                   >
@@ -11308,6 +13012,126 @@ export default function App() {
                           <MarkdownMessage content={examResult.evaluation} />
                         </div>
                       </div>
+
+                      {/* Diagnostic Breakdown: Mastered vs Needs Revision */}
+                      {examResult.diagnostic && (
+                        <div className="exam-diagnostic-card animate-fade-in">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
+                            <Brain size={20} color="var(--primary-color)" />
+                            <h4 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>
+                              التشخيص المفاهيمي للذكاء الاصطناعي (Diagnostic Breakdown)
+                            </h4>
+                          </div>
+
+                          <div className="diagnostic-concepts-grid">
+                            {/* Mastered Concepts */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#22c55e', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <CheckCircle2 size={15} />
+                                <span>مفاهيم أتقنتها بنجاح</span>
+                              </span>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                {(examResult.diagnostic.mastered_concepts || []).length > 0 ? (
+                                  (examResult.diagnostic.mastered_concepts || []).map((c: string, idx: number) => (
+                                    <div key={idx} className="concept-pill concept-pill-mastered">
+                                      <CheckCircle2 size={13} />
+                                      <span>{c}</span>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>لا توجد مفاهيم مسجلة</span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Revision Concepts with 1-Click Remedy */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#f97316', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <AlertCircle size={15} />
+                                <span>مفاهيم تحتاج إلى مراجعة وتدريب</span>
+                              </span>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                {(examResult.diagnostic.revision_concepts || []).length > 0 ? (
+                                  (examResult.diagnostic.revision_concepts || []).map((c: string, idx: number) => (
+                                    <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '6px 10px', background: 'rgba(249, 115, 22, 0.08)', borderRadius: '8px', border: '1px solid rgba(249, 115, 22, 0.25)' }}>
+                                      <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#f97316', flex: 1, minWidth: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                        {c}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedExam(null);
+                                          setExamResult(null);
+                                          setActiveTab('chat');
+                                          setChatMode('step_by_step');
+                                          setInputMessage(`اشرح لي بالتفصيل وبالمسائل والقوانين مفهوم "${c}" في مادة ${selectedExam?.subject_name || chatSubject}.`);
+                                          if (textareaRef.current) textareaRef.current.focus();
+                                        }}
+                                        style={{
+                                          background: 'rgba(249, 115, 22, 0.18)',
+                                          color: '#f97316',
+                                          border: 'none',
+                                          borderRadius: '6px',
+                                          padding: '3px 8px',
+                                          fontSize: '0.72rem',
+                                          fontWeight: 800,
+                                          cursor: 'pointer',
+                                          whiteSpace: 'nowrap'
+                                        }}
+                                      >
+                                        اشرح لي الآن
+                                      </button>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <span style={{ fontSize: '0.76rem', color: '#22c55e', fontWeight: 700 }}>أحسنت! أتقنت جميع مفاهيم هذا الاختبار</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* High-Score Pro Upgrade Hook */}
+                      {examResult.score >= 80 && !isUserSubscribed && (
+                        <div style={{
+                          width: '100%',
+                          background: 'linear-gradient(135deg, rgba(255, 183, 3, 0.15) 0%, rgba(114, 9, 183, 0.15) 100%)',
+                          border: '1.5px solid #FFB703',
+                          borderRadius: '16px',
+                          padding: '16px 20px',
+                          textAlign: 'right',
+                          display: 'flex',
+                          flexDirection: isMobile ? 'column' : 'row',
+                          alignItems: isMobile ? 'stretch' : 'center',
+                          justifyContent: 'space-between',
+                          gap: '14px',
+                          boxShadow: 'var(--shadow-md)'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#FFB703', color: '#0D1B2A', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              <Crown size={22} />
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 900, fontSize: '0.98rem', color: 'var(--text-main)' }}>
+                                أداء رائع يا بطل! مؤهل للتفوق الكامل
+                              </div>
+                              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                افتح باقة Pro الآن للحصول على نماذج بوكليت الوزارة غير المحدودة ونموذج التفكير المعمق بـ أقل من 2 ج.م / اليوم
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('subscriptions')}
+                            className="quest-claim-btn"
+                            style={{ padding: '10px 18px', fontSize: '0.84rem', flexShrink: 0 }}
+                          >
+                            <span>ترقية الحساب الآن</span>
+                            <ArrowLeft size={14} />
+                          </button>
+                        </div>
+                      )}
 
                       {/* Per-question corrections (revealed only after submission) */}
                       {Array.isArray(examResult.questions_review) && examResult.questions_review.length > 0 && (
@@ -12947,15 +14771,27 @@ export default function App() {
             type="button"
             className={`bottom-nav-item ${activeTab === 'chat' ? 'active' : ''}`}
             onClick={() => {
-              setActiveSessionId(null);
-              setMessages([]);
               setActiveTab('chat');
-              setShowSearch(false);
               setSidebarOpen(false);
             }}
           >
-            <Plus size={20} />
-            <span>دردشة</span>
+            <MessageSquare size={20} />
+            <span>الدردشة</span>
+          </button>
+          <button
+            type="button"
+            className={`bottom-nav-item ${activeTab === 'tasks' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab('tasks');
+              setSidebarOpen(false);
+            }}
+            style={{ position: 'relative' }}
+          >
+            <CheckCircle2 size={20} />
+            <span>المهام</span>
+            {dailyQuestsData?.quests?.some((q: any) => q.completed && !q.claimed) && (
+              <span className="bottom-nav-badge-dot" />
+            )}
           </button>
           <button
             type="button"
@@ -12967,21 +14803,6 @@ export default function App() {
           >
             <FileText size={20} />
             <span>الامتحانات</span>
-          </button>
-          <button
-            type="button"
-            className={`bottom-nav-item ${activeTab === 'leaderboard' ? 'active' : ''}`}
-            onClick={() => {
-              if (user) {
-                setActiveTab('leaderboard');
-              } else {
-                setShowAuthModal(true);
-              }
-              setSidebarOpen(false);
-            }}
-          >
-            <Trophy size={20} />
-            <span>المسابقة</span>
           </button>
           <button
             type="button"
@@ -13159,6 +14980,39 @@ export default function App() {
                     </div>
                   )}
 
+                  {/* Ministry Exam Booklet Simulator Option */}
+                  <div
+                    onClick={() => setIsBookletMode(prev => !prev)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '12px 14px',
+                      borderRadius: '12px',
+                      background: isBookletMode ? 'rgba(0, 180, 216, 0.1)' : 'var(--alpha-white-2)',
+                      border: isBookletMode ? '1.5px solid var(--primary-color)' : '1px solid var(--border-color)',
+                      cursor: 'pointer',
+                      transition: 'var(--transition-fast)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: isBookletMode ? 'var(--primary-color)' : 'var(--alpha-white-4)', color: isBookletMode ? 'var(--text-on-primary)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Timer size={16} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.84rem', fontWeight: 800, color: isBookletMode ? 'var(--primary-color)' : 'var(--text-main)' }}>
+                          محاكي بوكليت الوزارة الرسمي
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          توقيت رسمي تنازلي محكم، شاشة خالية من المشتتات، وتقييم مفاهيمي تفصيلي بعد التسليم
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ width: '20px', height: '20px', borderRadius: '6px', border: isBookletMode ? 'none' : '1.5px solid var(--border-color)', background: isBookletMode ? 'var(--primary-color)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                      {isBookletMode && <Check size={14} />}
+                    </div>
+                  </div>
+
                   {/* Generate Button */}
                   <button
                     type="button"
@@ -13204,6 +15058,12 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* MODAL: Curriculum Syllabus Roadmap */}
+      {renderRoadmapModal()}
+
+      {/* MODAL: Smart Study Notebook */}
+      {renderNotebookModal()}
 
       {/* MODAL: Image editor (crop + markup) */}
       {editingImage && (

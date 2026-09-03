@@ -4,8 +4,17 @@ import { Phone, Mail, MessageCircle, ArrowRight, ShieldCheck, Clock } from 'luci
 import ContactForm from '@/components/ContactForm';
 
 export const metadata: Metadata = {
-  title: 'تواصل معنا | EGS AI',
-  description: 'طرق التواصل مع فريق دعم منصة EGS AI للمساعدة الدراسية عبر الهاتف، واتساب، نموذج التواصل، والبريد الإلكتروني.',
+  title: 'تواصل معنا | EGS AI | دعم منصة المناهج المصرية',
+  description: 'طرق التواصل الرسمية مع فريق دعم منصة EGS AI للمساعدة الدراسية والذكاء الاصطناعي عبر الهاتف، واتساب، ونموذج المساعدة.',
+  keywords: [
+    'تواصل معنا EGS AI',
+    'دعم منصة EGS AI',
+    'خدمة عملاء EGS AI',
+    'رقم EGS AI'
+  ],
+  alternates: {
+    canonical: '/contact',
+  },
 };
 
 export default function ContactPage() {

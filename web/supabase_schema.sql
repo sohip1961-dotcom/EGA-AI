@@ -312,6 +312,9 @@ CREATE TABLE IF NOT EXISTS public.exams (
     device_id TEXT
 );
 
+CREATE INDEX IF NOT EXISTS exams_user_id_idx ON public.exams(user_id);
+CREATE INDEX IF NOT EXISTS exams_device_id_idx ON public.exams(device_id);
+
 -- 13. Exam Submissions Table
 CREATE TABLE IF NOT EXISTS public.exam_submissions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

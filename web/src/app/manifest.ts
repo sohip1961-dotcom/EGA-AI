@@ -2,9 +2,9 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'EGS AI | مساعد المنهج الدراسي المصري',
+    name: 'EGS AI | ذكاء اصطناعي للمناهج المصرية',
     short_name: 'EGS AI',
-    description: 'منصة EGS AI هي وكيل ومساعد ذكي مدعوم بالذكاء الاصطناعي مخصص لطلاب المدارس الإعدادية والثانوية في مصر لمساعدتك في المذاكرة وحل الأسئلة فوراً وبدقة.',
+    description: 'أول منصة وتطبيق ذكاء اصطناعي مصري مخصص للمناهج الدراسية المصرية لطلاب الإعدادية والثانوية العامة لشرح الدروس وحل المسائل وتوليد الامتحانات.',
     start_url: '/',
     id: '/',
     scope: '/',
@@ -12,7 +12,7 @@ export default function manifest(): MetadataRoute.Manifest {
     orientation: 'portrait-primary',
     background_color: '#0D1B2A',
     theme_color: '#FFB703',
-    categories: ['education', 'productivity'],
+    categories: ['education', 'productivity', 'books'],
     icons: [
       {
         src: '/icon.png',

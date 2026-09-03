@@ -3,7 +3,15 @@ import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: 'سياسة الخصوصية | EGS AI',
-  description: 'سياسة الخصوصية الرسمية لمنصة وتطبيق EGS AI للمساعدة الدراسية بالذكاء الاصطناعي.',
+  description: 'سياسة الخصوصية وحماية بيانات الطلاب في منصة وتطبيق EGS AI للمساعدة الدراسية بالذكاء الاصطناعي.',
+  keywords: [
+    'خصوصية EGS AI',
+    'حماية البيانات EGS AI',
+    'أمان الطلاب EGS AI'
+  ],
+  alternates: {
+    canonical: '/privacy',
+  },
 };
 
 export default function PrivacyPolicyPage() {

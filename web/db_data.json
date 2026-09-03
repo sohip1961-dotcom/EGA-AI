@@ -10957,5 +10957,7 @@
   "notifications": [],
   "app_versions": [],
   "password_resets": [],
-  "contact_messages": []
+  "contact_messages": [],
+  "curriculum_entities": [],
+  "curriculum_relations": []
 }

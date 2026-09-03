@@ -43,7 +43,7 @@ export async function extractSearchKeywords(query: string): Promise<string[]> {
   }
 }
 
-export type ChatMode = 'socratic' | 'detailed' | 'summary';
+export type ChatMode = 'socratic' | 'detailed' | 'summary' | 'step_by_step';
 
 const MODE_INSTRUCTIONS: Record<ChatMode, string> = {
   socratic: `
@@ -62,7 +62,16 @@ MODE DIRECTIVE [DETAILED TEXTBOOK EXPLANATION]:
   summary: `
 MODE DIRECTIVE [RAPID EXAM REVIEW SUMMARY]:
 - Answer in high-yield, concise bullet points highlighting key formulas, laws, and definitions.
-- Avoid lengthy prose; use short comparison tables where appropriate.`
+- Avoid lengthy prose; use short comparison tables where appropriate.`,
+
+  step_by_step: `
+MODE DIRECTIVE [STEP-BY-STEP STEM PROBLEM SOLVER]:
+- Specialize in solving complex curriculum problems in Physics, Chemistry, and Mathematics through structured milestones.
+- Organize the explanation strictly into 4 pedagogical stages:
+  1. [المعطيات والمطلوب]: Extract given parameters with units and identify the unknown.
+  2. [القانون المستخدم]: State the applicable curriculum formula in KaTeX.
+  3. [التعويض والخطوات الحسابية]: Perform step-by-step numerical substitution and calculation clearly.
+  4. [الناتج النهائي والتحقق]: State the final answer with its accurate unit and an encouraging sanity check.`
 };
 
 export function buildSystemPrompt(context: string, mode: ChatMode = 'detailed'): string {

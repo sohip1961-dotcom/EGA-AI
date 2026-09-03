@@ -104,9 +104,18 @@ export async function runHybridTriFusionRetrieval(
 
   // 1. Retrieve all curriculum chunks & graph data for this curriculum
   const [curriculumRecord, allCurriculumChunks, graphData] = await Promise.all([
-    db.getCurriculumRecord(cleanGrade, cleanSubject),
-    db.getAllChunksForCurriculum(cleanGrade, cleanSubject),
-    db.getCurriculumGraph(cleanGrade, cleanSubject)
+    db.getCurriculumRecord(cleanGrade, cleanSubject).catch(err => {
+      console.warn('getCurriculumRecord notice:', err);
+      return null;
+    }),
+    db.getAllChunksForCurriculum(cleanGrade, cleanSubject).catch(err => {
+      console.warn('getAllChunksForCurriculum notice:', err);
+      return [] as CurriculumChunk[];
+    }),
+    db.getCurriculumGraph(cleanGrade, cleanSubject).catch(err => {
+      console.warn('getCurriculumGraph notice:', err);
+      return { entities: [], relations: [] };
+    })
   ]);
 
   const candidateChunksMap = new Map<string, CurriculumChunk>();
@@ -124,22 +133,41 @@ export async function runHybridTriFusionRetrieval(
   })();
 
   const bm25Promise = (async () => {
-    if (allCurriculumChunks.length === 0) return [];
-    const childChunks = allCurriculumChunks.filter(c => c.chunk_level === 'child');
-    const docsToIndex = (childChunks.length > 0 ? childChunks : allCurriculumChunks).map(c => ({
-      id: c.id,
-      heading: c.heading,
-      content: c.content,
-      parent_id: c.parent_id,
-      position_index: c.position_index
-    }));
+    try {
+      if (allCurriculumChunks.length === 0) return [];
+      const childChunks = allCurriculumChunks.filter(c => c.chunk_level === 'child');
+      const docsToIndex = (childChunks.length > 0 ? childChunks : allCurriculumChunks).map(c => ({
+        id: c.id,
+        heading: c.heading,
+        content: c.content,
+        parent_id: c.parent_id,
+        position_index: c.position_index
+      }));
 
-    const bm25Index = new BM25Index(docsToIndex);
-    return bm25Index.search(query, 30);
+      const bm25Index = new BM25Index(docsToIndex);
+      return bm25Index.search(query, 30);
+    } catch (err) {
+      console.warn('BM25 search notice (falling back):', err);
+      return [];
+    }
   })();
 
   const graphPromise = (async () => {
-    if (!graphData || graphData.entities.length === 0) {
+    try {
+      if (!graphData || graphData.entities.length === 0) {
+        return {
+          entities: [],
+          relations: [],
+          connectedChunkIds: [],
+          relevanceScore: 0,
+          synthesizedContext: ''
+        } as KnowledgeSubgraph;
+      }
+
+      const engine = new KnowledgeGraphEngine(graphData.entities, graphData.relations);
+      return engine.retrieveKnowledgeGraph(query, keywords);
+    } catch (err) {
+      console.warn('Graph traversal notice (falling back):', err);
       return {
         entities: [],
         relations: [],
@@ -148,9 +176,6 @@ export async function runHybridTriFusionRetrieval(
         synthesizedContext: ''
       } as KnowledgeSubgraph;
     }
-
-    const engine = new KnowledgeGraphEngine(graphData.entities, graphData.relations);
-    return engine.retrieveKnowledgeGraph(query, keywords);
   })();
 
   const [vectorCandidates, bm25Candidates, subgraph] = await Promise.all([
@@ -179,7 +204,10 @@ export async function runHybridTriFusionRetrieval(
 
   let parentChunks: CurriculumChunk[] = [];
   if (parentIds.length > 0) {
-    parentChunks = await db.getParentChunks(parentIds);
+    parentChunks = await db.getParentChunks(parentIds).catch(err => {
+      console.warn('getParentChunks notice:', err);
+      return [] as CurriculumChunk[];
+    });
   }
 
   // Fallback if no parents or child chunks are already parent sections
@@ -191,9 +219,10 @@ export async function runHybridTriFusionRetrieval(
   let contextParts: string[] = [];
 
   // A. Syllabus Outline if present
-  if (curriculumRecord?.units && curriculumRecord.units.length > 0) {
+  if (curriculumRecord?.units && Array.isArray(curriculumRecord.units) && curriculumRecord.units.length > 0) {
     const unitMap = curriculumRecord.units.map((u: any, uIdx: number) => {
-      const lessonTitles = (u.lessons || []).map((l: any, lIdx: number) => `      - ${l.title || `الدرس ${lIdx + 1}`}`).join('\n');
+      const lessons = Array.isArray(u.lessons) ? u.lessons : [];
+      const lessonTitles = lessons.map((l: any, lIdx: number) => `      - ${l.title || `الدرس ${lIdx + 1}`}`).join('\n');
       return `  * ${u.title || `الوحدة ${uIdx + 1}`}:\n${lessonTitles}`;
     }).join('\n');
     contextParts.push(`خريطة وحدات ودروس المنهج الدراسي:\n${unitMap}`);
